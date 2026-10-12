@@ -3,9 +3,9 @@
 A companion that tells a blind listener about a goal their television
 has not shown yet is worse than no companion.
 
-The first version of this feature asked the listener to read the clock
-on their screen. They cannot see the clock - that is the whole premise
-of the product. These tests exist so that mistake cannot come back.
+This feature must not ask the listener to read the clock on their screen.
+They cannot see it - that is the whole premise of the product. These tests
+exist so that design error cannot come back.
 """
 
 import time

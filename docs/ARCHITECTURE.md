@@ -2,62 +2,65 @@
 
 ## The inversion to understand first
 
-**Alexa+ is the client. We are the server.**
+**The client is the voice; we are the server.**
 
-That catches people out, because voice development used to mean building
-the voice part. It no longer does. Alexa+ does speech recognition, picks
-which tool a sentence maps to, writes the sentence the listener hears,
-speaks it, and renders anything on screen.
+In the intended deployment the client is Alexa+: it does speech recognition,
+chooses which tool a sentence maps to, writes the wording the listener
+hears, speaks it and renders anything on screen, and we expose tools and
+hold state. **That deployment is not reachable by hackathon participants**
+(the add-on tooling is partner-only; see [OFFICIAL_RULES.md](OFFICIAL_RULES.md)).
+So today the client is our own web page, `simulator/index.html`, which
+speaks real MCP (initialize, tools/list, tools/call) to the server, as the
+hackathon FAQ describes. Any MCP client works the same way.
 
-We expose tools and hold state. That is the whole job.
-
-The practical consequence is that **the quality of our tool descriptions
-is product surface**, not documentation. Alexa+ reads them to decide
-routing. A badly worded description is a bug the listener experiences as
-"it keeps telling me the score when I asked what happened."
+One consequence holds either way: **the quality of a tool's description is
+product surface.** A client chooses a tool by reading its description (the
+Alexa+ Design Guide says to write each one to say when to call it). A badly
+worded description is a bug the listener experiences as "it keeps telling
+me the score when I asked what happened." We have not observed how
+Alexa+ itself routes; the routing test checks our own wording.
 
 ## The layers
 
 ```
-          Echo / Echo Show / Alexa app
-                      |
-              ALEXA+ SERVICE                      Amazon's
+   MCP client: the simulator (a web page), or any MCP client
                       |
          MCP / Streamable HTTP / 2025-11-25
                       |
-            ALEXA+ MCP ADD-ON                     we deploy
-                      |
              OUR MCP SERVER                       this repo
          |          |           |            |
-     Bedrock    DynamoDB   EventBridge   football feed
+     Bedrock    DynamoDB    poller        match data
+     (language) (state)     (in-process)  (replay | live feed)
 ```
 
-| Layer | Who owns it | What it does |
+| Layer | Who owns it | Status |
 |---|---|---|
-| Device | Amazon | Microphone, speaker, optional screen |
-| Alexa+ service | Amazon | NLU, routing, wording, TTS, rendering |
-| MCP add-on | Us, deployed with `alexa-ai` | Tool discovery, OAuth linking, protocol translation |
-| MCP server | Us, this repo | Tools, event log, listener state |
-| Bedrock | AWS | Language composition — only where it is needed |
-| DynamoDB | AWS | State and the event log |
-| EventBridge | AWS | Wakes the poller every 15 s |
-| Football feed | Third party | The reach |
+| MCP client | the simulator in this repo; in the intended deployment, Alexa+ | simulator: tested to initialize and call tools (`tests/test_simulator.py`); Alexa+: unreachable |
+| MCP server | this repo | tested, `tests/test_mcp_protocol.py` |
+| Bedrock | AWS | written; **never called** |
+| DynamoDB | AWS | written; **never run** (the in-memory store shares its logic and is tested) |
+| Poller | this repo, a thread in the server | tested; an EventBridge variant is documented, not built |
+| Match data | StatsBomb replay, or API-Football | replay: used; live: canned-response tests only |
 
 ## One question, end to end
 
 The listener says **"what did I miss?"**
 
-1. Echo streams audio to Alexa+.
-2. Alexa+ transcribes it and decides it belongs to our add-on.
-3. The add-on calls `what_did_i_miss` over Streamable HTTP.
+(In the simulator, steps 1-3 are the browser: it captures speech, the
+server transcribes it, and the page picks the tool by keyword. In the
+intended Alexa+ deployment they would be Alexa+'s.)
+
+1. The client captures the listener's speech.
+2. It is transcribed and mapped to a tool.
+3. The client calls `what_did_i_miss` over Streamable HTTP.
 4. Our server reads this listener's `last_told_at` from the store.
 5. It pulls every logged event since, minus anything already told.
 6. Bedrock compresses them into one paragraph.
 7. `last_told_at` moves forward; the event ids are recorded as told.
 8. We return text plus structured detail.
-9. Alexa+ phrases and speaks it.
+9. The client phrases and speaks it.
 
-We wrote one function. Steps 1, 2 and 9 are not ours and never will be.
+The server side is one function; steps 1, 2 and 9 belong to the client.
 
 ## The two halves
 
@@ -69,9 +72,10 @@ answerable at all — a product that only fetches when asked cannot tell
 you about a goal you were not in the room for, because by then you would
 have to know to ask.
 
-In production that is EventBridge Scheduler invoking a Lambda. Locally
-it is a thread. `poll_once()` is the whole unit of work and does not know
-which is calling it.
+It is a thread inside the server process, and that is how the CloudFormation
+stack runs it. An EventBridge Scheduler plus Lambda variant is documented
+(`scripts/lambda_handler.py`) but not built or deployed. `poll_once()` is the
+whole unit of work and does not know which is calling it.
 
 Two decisions inside it worth knowing:
 
@@ -99,8 +103,10 @@ a deliberate choice, with three reasons:
    defaults — which is how the session handling, origin validation and
    notification semantics ended up actually matching the spec.
 
-boto3 is the single optional dependency, needed only when the AWS paths
-are switched on.
+Two optional dependencies, each needed only when its feature is switched
+on: **boto3** for the AWS paths, and **cryptography** for verifying RS256
+tokens when `SIDELINE_AUTH=required` (HS256 tokens verify with the
+standard library alone).
 
 ## Where state lives
 
@@ -135,12 +141,19 @@ later ask what they missed — and should not hear that goal twice.
 is worse than a listener hearing nothing: it makes them distrust
 everything else the thing says.
 
+## Precomputation
+
+When the poller logs new events it also schedules background, grounded
+summaries for each follower's current window (`sideline/summaries.py`), so
+`what_did_i_miss` reads a cache instead of waiting on a model. See
+[BEDROCK.md](BEDROCK.md) for what that does and does not guarantee.
+
 ## Failure behaviour
 
 | Failure | What happens | Why |
 |---|---|---|
 | Provider down | `ProviderUnavailable`, tool returns a speakable line | A feed wobble must not reach the listener as a protocol error |
-| Bedrock down or slow | Template path, silently | A correct answer at 300 ms beats a nicer one at 5 s |
+| Bedrock down or slow | Template path, silently | A correct answer quickly beats a nicer one late |
 | Bedrock invents a score | Output discarded, template used | Guard in `bedrock._score_consistent` |
 | No match followed | `ToolError` with "tell me which game" | "Which match?" is a reasonable thing to be asked |
 | Unknown player | `ToolError` naming what was not found | Better than a confident wrong player |

@@ -92,6 +92,7 @@ def run(ctx, args, listener_id):
 
     structured = {"fixture_id": fx["fixture_id"], "home": fx["home"],
                   "away": fx["away"], "minute": minute, "status": fx.get("status"),
+                  "score": fx.get("score"),
                   "switched": bool(switching),
                   "broadcast_offset": rec["broadcast_offset"],
                   "offset_source": rec["offset_source"],

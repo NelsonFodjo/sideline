@@ -20,9 +20,8 @@ EXPECTED = {
     "get_player_context": ["who is he", "what number", "has he scored before"],
     "get_head_to_head": ["have we beaten them before", "last time"],
     "follow_match": ["follow the", "keep me updated"],
-    # These are what a BLIND listener can actually say. The first version
-    # of this tool asked them to read a clock on screen; the assertion
-    # below is here so that cannot come back.
+    # These are what a BLIND listener can actually say. The tool must not
+    # ask them to read a clock on screen; the assertion below keeps it so.
     "sync_broadcast_delay": ["kick-off just went", "that's half time",
                              "they've just scored", "the whistle's gone",
                              "in sync", "spoiled"],

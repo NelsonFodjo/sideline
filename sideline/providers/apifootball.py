@@ -17,8 +17,9 @@ WHY THIS IS NOT FREE, and why we checked first:
 Verifying this was stage one of the build plan, before a line of server
 code was written. See docs/DATA_PROVIDERS.md for the capture we took.
 
-The key lives in Secrets Manager, never in this repository. The
-.env.example file shows the variable name and nothing else.
+The key is read from the SIDELINE_FOOTBALL_KEY environment variable and
+is never written to a file or committed. On App Runner the stack injects
+it from Secrets Manager as that same variable (deploy/sideline.yaml).
 """
 
 import json
@@ -70,8 +71,25 @@ class ApiFootballProvider(Provider):
             # tool layer turns this into something the listener can hear.
             LOG.warning("provider %s failed: %s", path, e)
             raise ProviderUnavailable(str(e))
+        problem = self._problem(doc)
+        if problem:
+            # API-Football reports a bad key or an exhausted quota as
+            # HTTP 200 with an `errors` field and an empty `response`.
+            # Left alone that reads as "no such match", which is a lie
+            # the listener would act on.
+            LOG.warning("provider %s refused: %s", path, problem)
+            raise ProviderUnavailable(problem)
         self._cache[key] = (time.time(), doc)
         return doc
+
+    @staticmethod
+    def _problem(doc):
+        errors = doc.get("errors")
+        if not errors:
+            return ""
+        if isinstance(errors, dict):
+            return "; ".join("%s: %s" % kv for kv in errors.items())
+        return "; ".join(str(e) for e in errors)
 
     # ----------------------------------------------------------- reads
     def fixture(self, fixture_id):
@@ -82,22 +100,55 @@ class ApiFootballProvider(Provider):
         return self._norm_fixture(items[0])
 
     def fixtures_today(self):
-        doc = self._get("fixtures", live="all")
-        return [self._norm_fixture(i) for i in doc.get("response", [])]
+        """Today's fixtures, not just the ones live this second.
+
+        "Follow the Arsenal game" is usually said before kick-off, when
+        `live=all` is empty. Two calls, both cached; the date call is
+        the one that matters, live is added so a match that kicked off
+        before midnight UTC is still found.
+        """
+        import datetime
+        today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+        seen, out = set(), []
+        for doc in (self._get("fixtures", date=today),
+                    self._get("fixtures", live="all")):
+            for i in doc.get("response", []):
+                fx = self._norm_fixture(i)
+                if fx["fixture_id"] not in seen:
+                    seen.add(fx["fixture_id"])
+                    out.append(fx)
+        return out
+
+    def _embedded(self, fixture_id, key):
+        """`fixtures?id=` carries events and lineups inside it.
+
+        One call per poll instead of three, which is the difference
+        between fitting a free plan's daily quota and not. Returns None
+        when the response does not include the key, and the caller falls
+        back to the dedicated endpoint.
+        """
+        items = self._get("fixtures", id=fixture_id).get("response") or []
+        if items and isinstance(items[0].get(key), list):
+            return items[0][key]
+        return None
 
     def events(self, fixture_id, since_minute=0):
-        doc = self._get("fixtures/events", fixture=fixture_id)
+        raws = self._embedded(fixture_id, "events")
+        if raws is None:
+            raws = self._get("fixtures/events", fixture=fixture_id).get("response", [])
         out = []
-        for raw in doc.get("response", []):
+        for raw in raws:
             e = self._norm_event(fixture_id, raw)
             if e and e["minute"] > since_minute:
                 out.append(e)
         return out
 
     def lineups(self, fixture_id):
-        doc = self._get("fixtures/lineups", fixture=fixture_id)
+        sides = self._embedded(fixture_id, "lineups")
+        if sides is None:
+            sides = self._get("fixtures/lineups", fixture=fixture_id).get("response", [])
         out = {}
-        for side in doc.get("response", []):
+        for side in sides:
             team = (side.get("team") or {}).get("name")
             out[team] = {
                 "formation": side.get("formation"),
@@ -161,10 +212,16 @@ class ApiFootballProvider(Provider):
         detail = raw.get("detail") or ""
 
         if kind == "goal":
+            # "Missed Penalty" arrives as type Goal. It is not a goal.
+            if "missed" in detail.lower():
+                return None
             return self.mk_goal(fixture_id, minute, player, team, assist=assist,
                                 detail=detail, stoppage=stoppage)
         if kind == "card":
-            colour = "red" if "red" in detail.lower() else "yellow"
+            # "Yellow Card", "Red Card", "Second Yellow card". A second
+            # yellow is a sending-off, so it is a red to the listener.
+            low = detail.lower()
+            colour = "red" if ("red" in low or "second yellow" in low) else "yellow"
             return self.mk_card(fixture_id, minute, player, team, colour,
                                 reason=raw.get("comments"), stoppage=stoppage)
         if kind == "subst":

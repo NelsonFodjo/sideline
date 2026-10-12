@@ -6,37 +6,107 @@ nothing is typed.
 
 ```bash
 python3 -m sideline              # terminal 1
-open simulator/index.html
+open http://127.0.0.1:8765/        # served by the running server; `make sim` does this
 ```
 
 Press **Start listening**, then talk. It answers out loud and goes
 straight back to listening. Cut in whenever you like — it stops and
 listens.
 
+## Watch it without a microphone (preview mode)
+
+To see the screen working with no microphone and no sound, add `?preview=`
+to the address, with questions separated by `|`:
+
+```
+http://127.0.0.1:8765/?preview=follow the Arsenal game|what did I miss|who's refereeing
+```
+
+Optional `&pace=1200` sets the pause between questions in milliseconds. It
+makes the same MCP calls to the server and plays the same animation, but
+**does not speak**: the words are timed from an estimated speaking rate, not
+from a voice. It is a way to look at the interface, not a test of speech,
+and it is not part of the product (a listener never types).
+
+## What the screen does
+
+Three zones, top to bottom:
+
+- **Top: the score and the major updates.** Team names flank a large
+  scoreboard that bumps (and the eye sends out a shockwave) when a goal goes
+  in; below it the clock, a match timeline and up to four event chips, goals,
+  red cards and VAR decisions first. None of it is required: every fact is
+  also spoken and is in a screen-reader live region.
+- **Centre: the eye.** A core inside rings that react to your microphone while
+  you speak and to the returning voice while it answers. Aurora light drifts
+  and swells with the energy, the waveform is a smooth curve, and rings ripple
+  on each change of state. **Colour is the status** (there is no status label):
+  blue idle, pale blue listening, deep blue thinking (with a comet around the
+  ring), gold speaking.
+- **Below the eye: the words.** The text hangs 10px below the eye's resting
+  outer edge (`EYE_GAP` in `index.html`), on any screen size. Your question
+  appears live as you speak, and the answer is set at a modest size, fitted
+  to the room beneath it. Every word
+  is laid out at once, faintly, so nothing reflows; as the voice reaches a word
+  it sharpens, a gold light wipes through it left to right (timed by Polly's
+  marks when available, otherwise estimated) and a thin glowing underline
+  glides to it. Scores, minutes and numbers turn amber. When the voice finishes
+  the line rests at full strength and stays until you speak again.
+
+`prefers-reduced-motion` turns the animation off and shows the text plainly.
+No blur filters are used on the canvas, to keep it smooth.
+
+Verified by rendering in headless Chrome (wide and phone-sized) and looking at
+the frames. **Not verified:** a real microphone session, Polly's marks, other
+browsers, or the motion's smoothness on slower machines. Because colour alone
+carries the status, it is not conveyed to a colour-blind viewer on screen; the
+spoken answer and the screen-reader announcement are unaffected.
+
 ## Why there are no buttons
 
-An earlier version of this had push-to-talk, suggestion chips and a text
-box. The listener cannot see any of them.
+The listener cannot see push-to-talk buttons, suggestion chips or a text
+box, so the simulator has none. The rule, in `docs/ACCESSIBILITY.md`:
+before adding any input, ask what it requires of the listener; if the
+answer involves looking at something, it is the wrong input.
 
-That is the same class of mistake as the first `sync_broadcast_delay`,
-which asked a blind listener to read the clock on their television. Both
-were features that worked perfectly and were useless to the person they
-were for.
+## It is an MCP client
 
-The rule, which is now in `docs/ACCESSIBILITY.md`: before adding any
-input, ask what it requires of the listener. If the answer involves
-looking at something, it is the wrong input.
+The page talks to the server with real MCP over Streamable HTTP:
+`initialize`, `notifications/initialized`, `tools/list`, `tools/call`
+(see `rpc()` in `index.html`; `tests/test_simulator.py`). The hackathon FAQ
+says a web page that does this satisfies the Alexa+ track.
+
+**It is not Alexa.** Routing from speech to a tool is keyword matching in
+the browser, and you hear the server's own wording. Say so in the video.
 
 ## Speech in
+
+Three paths, chosen automatically in this order:
+
+1. **Amazon Transcribe streaming** if the server has AWS credentials.
+   The words appear once the clip has been transcribed. **Not yet run
+   against a real account.**
+2. **Groq Whisper** if there is a `GROQ_API_KEY` and no AWS. Same behaviour.
+3. **The browser's own speech recognition** if the server has neither, and
+   the browser has it (Chrome, Edge, some Safari). **Your words are written
+   on screen live as you speak.** Chrome and Edge send the audio to their
+   vendor's recognition service to do this (not Amazon), and it needs a
+   network connection. Firefox has no speech recognition: the page says so
+   in plain words rather than listening to nothing.
+
+Without one of these the simulator cannot hear you, and (before this was
+fixed) it failed silently: it recorded you, found no transcriber and went
+back to listening with nothing on screen.
+
+The rest of this section describes paths 1 and 2.
 
 The browser captures, this server transcribes. Credentials never reach
 the page.
 
-**Amazon Transcribe streaming** by default, so the whole voice path —
-listening, reasoning, speaking — sits in one account under one
-credential chain. Streaming rather than batch: batch needs an S3 upload
-and a job poll, which costs tens of seconds; streaming returns while the
-audio is still being pushed.
+**Amazon Transcribe streaming** by default, so the voice path sits in one
+account under one credential chain. Streaming rather than batch, because
+batch needs an S3 upload and a job poll. **Not yet run against a real
+account.**
 
 **Groq Whisper** (`whisper-large-v3-turbo`) as an alternative, chosen
 automatically if there is a `GROQ_API_KEY` and no AWS. Useful as a
@@ -52,20 +122,13 @@ server-side. No transcoding anywhere.
 With neither configured the page says so rather than silently being
 worse.
 
-### Not Nova Sonic, and why
+### Nova Sonic was not used
 
-Nova Sonic is the obvious model for this: a unified speech-to-speech
-path with built-in interruption handling, which is the interaction we
-assembled by hand.
-
-We did not use it because it streams audio chunks and gives no word
-timings. The reading animation needs to know which word is being spoken
-at each millisecond, and Polly's speech marks are the only thing in the
-pipeline that provides it. The stronger model on one side, the better
-instrumentation on the other — instrumentation won.
-
-It also needs an experimental SDK and Python 3.12+, which is a lot to
-stake a demo on. Filed as `FR-06` in `docs/FEATURE_REQUESTS.md`.
+It is a speech-to-speech model, and the simulator assembles listen,
+look-up and speak by hand instead. The reason recorded here is that the
+reading animation needs word-level timings and Polly provides them as
+speech marks. We did not verify whether Nova Sonic offers timing data, so
+treat that reason as unchecked.
 
 Turn-taking is energy-gated: speech lifts the level above a floor,
 and a pause below it for 850 ms ends your turn. No wake word, no hold —
@@ -75,17 +138,16 @@ the listener is not looking at anything.
 
 **Amazon Polly**, neural, `Amy` by default.
 
-The reason to use it is not voice quality, although that matters. It is
-**speech marks**: alongside the audio, Polly returns every word with its
-offset in milliseconds. The simulator sets one timer per word, so each
-word lights at exactly the moment the voice reaches it. Real data, not
-a timer approximating a speech rate.
+The reason to use it is **speech marks**: alongside the audio, Polly can
+return every word with its offset in milliseconds. The simulator sets one
+timer per word from those offsets. **Not yet run against a real account**;
+the code path is written but unobserved.
 
-Without AWS credentials it falls back to the browser's own speech, which
+Without AWS credentials it speaks with the browser's own voice, which
 fires word boundary events in Chrome and is approximated elsewhere.
 
 ```bash
-pip3 install boto3 amazon-transcribe && aws configure
+pip3 install boto3 amazon-transcribe   # then export AWS_ACCESS_KEY_ID etc. (docs/ENVIRONMENT.md)
 export GROQ_API_KEY=...                 # optional alternative for speech in
 ```
 
@@ -150,16 +212,14 @@ enough that nothing is lost by staying inside it.
 
 ## Browsers
 
-| | |
-|---|---|
-| Chrome, Edge | Everything |
-| Safari | Works; MediaRecorder output differs, Whisper handles it |
-| Firefox | Works with Groq; no browser speech-recognition fallback |
-
-Chrome for filming.
+Only the page's logic has been exercised (by `tests/test_simulator.py`,
+with no browser). **No browser has been tested**: audio capture, speech
+timing and the animations are unverified in Chrome, Safari and Firefox.
+Chrome is the likeliest to work for microphone capture, but that is an
+expectation, not an observation.
 
 ## Honesty
 
 This is not Alexa. Alexa+ does the listening and chooses the wording;
 here the routing is keyword-matched in the browser and you hear the
-server's raw answer. Say so in the video — it reads as confidence.
+server's raw answer. Say so in the video.

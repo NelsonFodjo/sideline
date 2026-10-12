@@ -13,6 +13,13 @@ No network. No credentials. No fixtures that flatter us.
 | `test_language.py` | Phrasing, goal-before-card ordering, stoppage time, and the invented-scoreline guard. |
 | `test_tools.py` | All nine tools, plus every failure a listener can reach. |
 | `test_what_did_i_miss.py` | The gap logic. **If this breaks, the submission is not worth filming.** |
+| `test_summaries.py` | Precomputed catch-ups: a poll does not wait on the model, asking is a cache hit with no model call, a miss answers by template at once, nothing stale or ungrounded is served, non-English takes the live path. Uses a simulated slow model, never Bedrock. |
+| `test_envfile.py` | `.env` loading: environment variable > file > default; blank values skipped; the shipped `.env.example` has no commented-out settings. |
+| `test_autodetect.py` | Bedrock, live data and DynamoDB switch on when their credentials are present, explicit values win, and an unreachable table falls back to memory. |
+| `test_auth.py` | Bearer-token verification: real RS256 and HS256 signatures, expiry, issuer, audience, `alg=none`, 401 + `WWW-Authenticate`, RFC 9728 metadata, and that the listener id is the token's `sub`. |
+| `test_statsbomb.py` | Regressions found replaying a real match: second yellow is a red, a Bad Behaviour booking is kept, the line-up reads goalkeeper first. |
+| `test_apifootball.py` | The live provider against canned API-Football responses: missed penalty is not a goal, second yellow is a red, a bad key or exhausted quota is an error not "no match", pre-kick-off fixtures are found. |
+| `test_aws_helpers.py` | Secrets Manager key retrieval and the CloudWatch EMF metric line, with fakes: no AWS account. |
 | `test_mcp_protocol.py` | Conformance against spec 2025-11-25: sessions, 202 on notifications, batches, schema rejection, DELETE. |
 
 ## The ones that matter most

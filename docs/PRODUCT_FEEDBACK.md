@@ -1,187 +1,166 @@
 # Product feedback
 
-> Product feedback on every tool, API, or SDK you used: what you used it
-> for, what worked well, what needs work, how onboarding felt, and
-> whether you'd build with it again. Building with AWS services? Describe
-> which ones and how, right here in your feedback answer.
+The hackathon requires, for **each tool, API or SDK used**: what you used
+it for, what worked well, what needs work, how onboarding felt (zero to
+hello world), and whether you would build with it again, and why.
 
-Those five questions, answered per tool. Written as we went, not on the
-last night.
+**How to read this page.** Every statement here is either
+(a) something a test or a measurement in [EVIDENCE.md](EVIDENCE.md)
+backs, (b) something read in the cited documentation on the stated date,
+or (c) marked **`TODO(you)`**, which only a hands-on run can answer.
+Nothing here claims experience that has not happened. **Do not submit
+while any `TODO(you)` remains**: answer it from a real run, or delete the
+section if you did not use the thing. "Would you build with it again?" is
+yours to answer honestly in each section.
+
+AWS services used must also be described in this answer on the Devpost
+form (rules, AWS Builder mini challenge).
 
 ---
 
-## Alexa+ MCP Toolkit
+## 1. Alexa+ MCP add-on documentation (read; the toolkit itself was not usable)
 
-**Used for** connecting a self-hosted MCP server to Alexa+ as an add-on.
+**Used for** Designing the server to the Alexa+ requirements: the
+[QuickStart](https://developer.amazon.com/docs/alexaplus/add-ons/mcp-toolkit-quickstart.html),
+[Account Linking](https://developer.amazon.com/docs/alexaplus/add-ons/mcp-toolkit-account-linking.html)
+and the Design Guide pages on
+[tools and schema](https://developer.amazon.com/docs/alexaplus/add-ons/mcp-addon-tools-schema-data-design.html)
+and the [conversation surface](https://developer.amazon.com/docs/alexaplus/add-ons/mcp-addon-conversation-surface.html),
+read 2026-10-12. **The CLI, MCP Toolkit and Web Simulator were never used**:
+the hackathon FAQ says they are partner-only.
 
 **What worked well**
+- The Design Guide's tool rules are concrete and usable: one customer
+  intent per tool, a description that says when to call it, no overlapping
+  tools, declare only parameters you honour, always return something.
+- The QuickStart states the protocol version (2025-11-25), the transport
+  (Streamable HTTP) and a response-time target (500 ms) plainly.
 
-The client/server inversion is the right call and should be stated even
-more loudly than it is. Not writing speech recognition, intent schemas,
-slot types or response wording removed roughly everything that made
-classic Alexa skill development slow. A tool with a good description is
-genuinely all it takes.
+**What needs work** (each is a friction-log entry with its evidence)
+- Access: the setup pages show CLI commands without saying the tooling is
+  partner-only (FL-01).
+- The 401 rule contradicts the MCP authorization spec and says so only by
+  omission (FL-02).
+- A 500 ms target with no pattern for tools whose responses a model composes (FL-03).
+- Whether a server can speak first is not stated on the conversation-surface page (FL-04).
 
-Choosing MCP rather than a proprietary interface means the server we
-wrote works unchanged against other MCP clients. We tested against a
-generic client throughout and only connected the add-on near the end.
-That is a real productivity win and worth marketing.
+**Onboarding** Reading the docs to a clear picture of the requirements was
+quick. Discovering that none of the tooling is reachable took the FAQ.
 
-**What needs work**
+**Would you build with it again?** `TODO(you)`: yes or no, and why.
 
-1. **No way for a server to initiate.** The single biggest constraint on
-   this product. Our use case — tell a blind listener a goal has gone in
-   — is impossible, because the server cannot make the device speak. We
-   redesigned around it and the result is arguably better, but the
-   constraint should be documented prominently rather than discovered.
-   We implement the SSE channel and hold it open in case this changes.
+## 2. Model Context Protocol, spec 2025-11-25, Streamable HTTP
 
-2. **Tool description guidance is thin.** Descriptions are the entire
-   routing surface and we found no documented guidance on writing them
-   for the router — length, whether to include example phrasings, how to
-   disambiguate two adjacent tools. We worked it out by trial. A page on
-   this would save every integrator the same week.
+**Used for** The server itself ([sideline/mcp/server.py](../sideline/mcp/server.py)),
+written with the standard library, no SDK.
 
-3. **No routing preview.** There is no way to ask "which tool would this
-   sentence hit" without a round trip through a device. We built our own
-   phrase-assertion test as a substitute. A CLI command taking an
-   utterance and returning the chosen tool would be the highest-value
-   developer tool you could ship.
+**Evidence** `tests/test_mcp_protocol.py` passes nine checks: initialize
+and session id, notification gets 202 with no body, `tools/list`, a tool
+call, invalid-params rejection, method-not-found, unknown session gets 404,
+batch requests, and DELETE ends the session. EVIDENCE.md records the
+negotiated version and the nine tools. These are *our own* conformance
+tests, written from our reading of the spec; no official suite was run
+(none was found).
 
-4. **Regional availability.** The toolkit is documented as available in
-   the United States. For a team outside it, the path to a working
-   add-on is not obvious from the docs, and it is the first question a
-   non-US developer has.
+**What worked well** `TODO(you)`: what in the spec was clear.
+**What needs work** `TODO(you)`: what you had to guess.
+**Onboarding** `TODO(you)`.
+**Would you build with it again?** `TODO(you)`.
 
-**Onboarding** Good once the mental model lands. The thing that took
-longest was unlearning the assumption that we needed to handle
-conversation.
+## 3. Amazon Bedrock, Converse API, Claude 3.5 Haiku
 
-**Would we build with it again** Yes.
+**Used for** Composing the catch-up paragraph, long-absence milestones and
+translation ([sideline/language/bedrock.py](../sideline/language/bedrock.py)).
+Guarded: a generated scoreline that disagrees with the real one is
+discarded (tested in `tests/test_language.py`).
 
----
+**Status: not yet called against a live account.** No Bedrock request has
+been made, so there is no latency, quality or availability observation to
+report.
 
-## MCP specification 2025-11-25 / Streamable HTTP
+**What worked well** `TODO(you)`: after `make aws-check`.
+**What needs work** `TODO(you)`: cold-start latency, model access flow,
+error clarity. Record the real `latencyMs` figures the server logs.
+**Onboarding** `TODO(you)`: account to first successful call.
+**Would you build with it again?** `TODO(you)`.
 
-**Used for** the transport, implemented from the spec with no SDK.
+## 4. Amazon DynamoDB
 
-**What worked well** The spec is implementable directly. Session
-semantics, the 202-for-notifications rule and the Origin guidance are all
-unambiguous. We wrote a conforming server in standard library Python with
-no reference implementation.
+**Used for** Listener state and the match event log, single table
+([sideline/state/dynamo.py](../sideline/state/dynamo.py), table definition in
+`scripts/create_table.py` and `deploy/sideline.yaml`).
 
-**What needs work**
+**Status: written, not run.** The store logic is exercised through the
+in-memory implementation that shares its base class (`gap_for`,
+`mark_told`); DynamoDB itself, and DynamoDB Local, have not been run.
 
-1. **The 202 rule is easy to miss and expensive.** Returning a body for a
-   notification makes clients hang. It is in the spec but deserves to be
-   called out as a common failure.
+`TODO(you)`: all five answers, after `make create-table` and a real run.
 
-2. **No official conformance suite.** We wrote `test_mcp_protocol.py`
-   ourselves. A published suite would let every implementer prove
-   correctness instead of hoping.
+## 5. Amazon Polly and Amazon Transcribe (simulator voice)
 
-3. **`_meta` conventions are loose.** We used `_meta.ui` for MCP Apps and
-   a namespaced `_meta.sideline` for timing. Clearer conventions would
-   stop everyone inventing their own.
+**Used for** Speech out with word-level speech marks, and streaming speech
+in ([sideline/voice.py](../sideline/voice.py)).
 
-**Would we use it again** Yes.
+**Status: written, not run** against a live account.
 
----
+`TODO(you)`: all five answers, after trying the simulator with credentials.
 
-## MCP Apps extension
+## 6. AWS Secrets Manager, CloudWatch (Embedded Metric Format), App Runner, ECR, CloudFormation
 
-**Used for** scoreboard, line-up and catch-up cards on screened devices.
+**Used for** Football-key retrieval; per-tool latency metrics; hosting;
+the stack that creates them.
 
-**What worked well** Declaring a UI next to the tool, rather than in a
-separate rendering layer, keeps related things together.
+**Status.** Secrets retrieval is unit-tested with a fake client. The metric
+line format is unit-tested (`tests/test_aws_helpers.py`) but never viewed in
+CloudWatch. `deploy/sideline.yaml` passes `cfn-lint` and has **never been
+deployed**. Per the FAQ, hosting is not required for judging, so deploying
+is optional.
 
-**What needs work** There is no declarative way to say *this card is
-supplementary; the spoken text is authoritative*. For an accessibility
-product that distinction is central, and we enforce it by convention and
-code review. A manifest flag would make it checkable.
+`TODO(you)`: answer only for the services you actually use; delete the rest.
 
----
+## 7. StatsBomb Open Data (third-party data) — hands-on findings
 
-## Amazon Bedrock — Converse API, Claude 3.5 Haiku
+**Used for** The bundled real match, Tottenham 2-2 Arsenal, 5 March 2016,
+built with `scripts/build_statsbomb_replay.py`.
 
-**Used for** compressing a window of match events into one spoken
-paragraph; a milestones mode for long absences; open questions that map
-to no single tool; and switching register so the same facts can be
-delivered the way people actually speak around a match.
+**What worked well** The data is public, structured and complete enough to
+replay a match with goals, cards, substitutions, a VAR event and line-ups.
 
-**What worked well** Low-temperature, tightly grounded summarisation is
-exactly what this needed. Instruction-following on "use only this data"
-was strong enough that our scoreline guard rarely fires.
+**What needs work** Three things were found by replaying a real match and
+are pinned by `tests/test_statsbomb.py`:
+1. A second yellow card is a distinct card name ("Second Yellow"), not a
+   red, so a naive mapping reports a sending-off as a booking.
+2. Some bookings are filed under "Bad Behaviour" rather than "Foul
+   Committed", so a mapping that only reads fouls drops them.
+3. Line-up files are in no positional order, so reading them as listed
+   puts a forward in goal. Position ids (1 = goalkeeper) fix the order.
+Also, the events file does not carry the referee; it is in the matches file.
 
-The Converse API was the right call over `invoke_model`: one request
-shape across model families, so changing the model id is a config change
-rather than a rewrite of the body. We started on Sonnet and moved to
-Haiku for latency — a one-line change because of Converse.
+**Onboarding** The repository layout (competitions, matches, events,
+lineups) is simple to navigate.
 
-Being able to pin a model id and get stable behaviour across a build week
-mattered more than raw quality.
+**Terms** Attribution to StatsBomb **and use of their logo** is requested
+when publishing. We attribute in text and do not include the logo (the
+video rules forbid third-party trademarks without permission).
 
-**What needs work**
+**Would you use it again?** `TODO(you)`.
 
-1. **Cold start on first invoke.** The first call in a while is
-   noticeably slower than subsequent ones. On a three-second budget that
-   is the difference between the model path and the template path. A
-   documented warm-up pattern, or a lighter first-call path, would help
-   anyone doing latency-bound voice work.
+## 8. API-Football (live data) — not used yet
 
-2. **Timeout and retry defaults are wrong for voice.** The default retry
-   behaviour will happily spend more time than a voice interaction has.
-   We set `max_attempts=1` and a 3 s read timeout. A "low latency
-   interactive" config preset would stop people discovering this in
-   production.
+The provider is written against its documented response shape
+(`sideline/providers/apifootball.py`) and tested with canned responses
+(`tests/test_apifootball.py`). Its vendor site blocked automated reading, so
+its free-tier limits and update frequency are **unverified**. Answer the
+five questions only after `make verify-data` with a real key; otherwise
+delete this section.
 
-3. **No native structured-output mode in the invoke path we used.** We
-   want a paragraph and a list of grounded event ids. We get a paragraph
-   and verify separately.
+## 9. Devpost and the hackathon materials
 
-**Onboarding** Straightforward. Model access and region were the only
-friction.
+**What worked well** The rules page is specific about submission
+requirements, judging stages and criteria, and the FAQ answers the
+partner-only question directly.
 
-**Would we build with it again** Yes.
+**What needs work** The FAQ still explains how to request AWS credits while
+the rules page says the codes ran out on 7 October (FL-05).
 
----
-
-## AWS services
-
-**DynamoDB** Single-table with a composite key handled both hot access
-patterns in one query each — no GSI, no scan. On-demand capacity was the
-right call for bursty match-day traffic. The conditional-put dedupe is
-the one place a condition expression genuinely earned its keep: our
-poller re-reads an overlapping window every cycle, and without it a
-listener would be told about the same goal on every poll.
-
-DynamoDB Local made this testable offline with no cloud spend and no IAM
-round trip. Worth signposting more prominently for hackathon-scale
-projects.
-
-**EventBridge Scheduler** Correct tool for a 15-second poll. One thing we
-hit: a schedule tight enough for live sport makes it easy to overrun a
-third-party rate limit without noticing, because the failures are on the
-third party's side. A worked example of "scheduler plus an external rate
-limit" in the docs would be useful.
-
-**Secrets Manager** Used for the football API key. Worked as expected.
-
-**CloudWatch** We log per-tool latency. Getting from logs to a per-tool
-p95 took longer than it should have for a metric this standard.
-
----
-
-## Devpost submission process
-
-**What worked well** The requirements are specific. "Your repo needs to
-actually call the technology in code, not just mention it in a README" is
-the clearest anti-vapour clause we have seen in a hackathon.
-
-The friction log bonus is a good mechanism — it pays teams for the
-feedback the sponsor actually wants.
-
-**What needs work** The seven-day expiry on GitHub collaborator
-invitations is documented but easy to trip over, because the natural
-instinct is to add reviewers early. The warning deserves to be louder, or
-the window longer.
+**Would you do it again?** `TODO(you)`.

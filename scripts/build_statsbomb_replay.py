@@ -33,6 +33,8 @@ def main():
     ap.add_argument("--away", required=True)
     ap.add_argument("--fixture-id", type=int, default=1)
     ap.add_argument("--venue", default="")
+    ap.add_argument("--referee", default="",
+                    help="from the matches file; the events file does not carry it")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
@@ -47,6 +49,11 @@ def main():
                               "colour", "reason", "decision")
                      and v not in (None, "")})
 
+    officials = p.officials(a.fixture_id)
+    if a.referee:
+        officials = dict(officials, referee=a.referee)
+        officials.pop("note", None)
+
     doc = {
         "_comment": "Built from StatsBomb Open Data. Real match, real events.",
         "_attribution": ATTRIBUTION,
@@ -54,7 +61,7 @@ def main():
                     "home_id": 1, "away_id": 2, "venue": a.venue, "kickoff": None},
         "events": rows,
         "lineups": p.lineups(a.fixture_id),
-        "officials": p.officials(a.fixture_id),
+        "officials": officials,
         "head_to_head": [],
     }
     with open(a.out, "w", encoding="utf-8") as fh:

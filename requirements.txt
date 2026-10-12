@@ -13,3 +13,6 @@ amazon-transcribe>=0.6    # Transcribe streaming, for the simulator's speech in
 #                           and the simulator uses the browser's own speech
 #   no amazon-transcribe -> speech in falls back to Groq, or to the browser
 #   SIDELINE_STATE=memory (the default) -> no DynamoDB needed
+# Only for SIDELINE_AUTH=required with RS256 tokens (sideline/auth.py).
+# Without it, HS256 tokens still verify using the standard library.
+cryptography>=42

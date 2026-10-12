@@ -88,12 +88,19 @@ except ImportError:                                            # pragma: no cove
     HAVE_BOTO3 = False
     LOG.info("boto3 not installed - language falls back to templates")
 
-ENABLED = os.environ.get("SIDELINE_BEDROCK", "off").lower() == "on"
+from .. import autodetect  # noqa: E402
+
+# "auto" (the default) means on whenever AWS credentials are present.
+ENABLED = autodetect.bedrock_enabled(os.environ)
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 MODEL_ID = os.environ.get("SIDELINE_BEDROCK_MODEL",
                           "anthropic.claude-3-5-haiku-20241022-v1:0")
 
-TIMEOUT_SECONDS = 3.0
+# Alexa+'s QuickStart sets a round-trip target of 500 ms. A model call can
+# take longer, so the ceiling is configurable: 3.0 (default) favours the
+# better-written catch-up, 0.4 effectively makes templates the answer and
+# keeps every reply inside the target. See docs/BEDROCK.md.
+TIMEOUT_SECONDS = float(os.environ.get("SIDELINE_BEDROCK_TIMEOUT", "3.0"))
 MAX_TOKENS = 160
 MAX_EVENTS_IN_PROMPT = 12
 SPOKEN_WORD_TARGET = int(os.environ.get("SIDELINE_WORD_TARGET", "45"))
@@ -165,6 +172,22 @@ def _converse(system, user_text, max_tokens=MAX_TOKENS):
 
 
 # ----------------------------------------------------------- public API
+def template_catchup(events, fixture, from_minute, to_minute):
+    """The deterministic catch-up. No model, no network, instant."""
+    return templates.say_catchup(events, fixture, from_minute, to_minute)
+
+
+def key_events(events):
+    """The headline events a long absence is reduced to: goals and reds."""
+    goals = [e for e in events if e["kind"] == "goal" and not e.get("superseded_by")]
+    reds = [e for e in events if e["kind"] == "card" and e.get("colour") == "red"]
+    return goals + reds
+
+
+def template_milestones(events, fixture, minutes_away):
+    return templates.say_milestones(key_events(events), events, fixture, minutes_away)
+
+
 def catchup(events, fixture, from_minute, to_minute):
     """The call that earns its place.
 

@@ -1,5 +1,5 @@
 {
-  "_comment": "Recorded real-match SHAPE for the replay harness. Scores and names here are illustrative placeholders so the repository runs with no API key. Replace with a genuine capture from scripts/record_match.py before filming - see docs/DEMO_SCRIPT.md, 'Nothing in the video is simulated'.",
+  "_comment": "TEST FIXTURE ONLY. Ten invented events with illustrative names, used by tests/ because they are small and stable. Not real data and never the demo: the default match is spurs-arsenal-2016.json (StatsBomb Open Data).",
   "fixture": {
     "fixture_id": 1208341,
     "home": "Arsenal",

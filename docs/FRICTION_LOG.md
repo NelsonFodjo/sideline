@@ -1,232 +1,149 @@
 # Friction log
 
-> Optional: the task you attempted, the steps you took, what you expected
-> vs. what actually happened, a severity rating, any workaround you used,
-> and an actionable suggestion. Submissions with friction logs can earn up
-> to a 10% judging bonus.
+> Specific task attempted, steps taken, expected vs actual, severity,
+> workaround, suggestion. The rules award up to a 10% bonus, assessed by
+> Amazon's team, so each entry here is something **verified against a
+> cited source on a stated date**. Entries that are not yet backed by a
+> hands-on run are in "Candidates" at the bottom and are **not** part of
+> the log until you have hit them. Check every entry against your own
+> experience before submitting.
 
-Recorded as we hit them, not written up at the end. Severity:
-**critical** blocks shipping · **important** costs real time ·
+Severity: **critical** blocks shipping · **important** costs real time ·
 **nice-to-have** rough edge.
 
 ## Summary
 
 | # | Task | Expected vs actual | Severity | Workaround | Suggestion |
 |---|---|---|---|---|---|
-| FL-01 | Confirm "what did I miss" routes to the right tool | Expected a CLI utterance preview; found none — the only way to know is a round trip through a device | important | Phrase-assertion test over our own descriptions | Ship `alexa-ai test-utterance` |
-| FL-02 | Tell a listener a goal has gone in, unprompted | Expected either a push mechanism or an explicit statement there is none; inferred it from absence | critical | Redesigned around on-demand questions | State the constraint in the MCP Toolkit overview; add opt-in push |
-| FL-03 | Write nine tool descriptions that route reliably | Expected documented patterns; found none | important | Three rules of our own, at the top of `registry.py` | Publish a tool-description guide, incl. the adjacent-tool problem |
-| FL-04 | Keep catch-up inside a 3 s voice budget | Expected interactive-friendly defaults; default retries can exceed the whole interaction | important | `max_attempts=1`, 3 s read, 1 s connect, template fallback | Document a low-latency Bedrock preset |
-| FL-05 | Keep the *first* catch-up of a match in budget | Expected consistent latency; first invoke after idle is noticeably slower | nice-to-have | Template fallback absorbs it | Document the behaviour and a warm-up pattern |
-| FL-06 | Return a UI payload plus per-tool timing without collisions | `_meta` is open; no conventions exist | nice-to-have | Namespaced `_meta.sideline` | Register conventional `_meta` keys, or recommend reverse-DNS |
-| FL-07 | Poll a live match every 15 s on a free tier | Expected one usable free tier; all are delayed or capped around 100 calls/day against the ~360 needed | important | StatsBomb Open Data + deterministic replay harness | For organisers: publish data sources with usable free tiers |
-| FL-08 | Share a private repo with reviewers | Documented 7-day expiry, but the instinct is to invite early | nice-to-have | Checklist item: invite on submission day only | Surface the expiry next to the repo URL field in the form |
-| FL-09 | Stop the agent spoiling a goal the viewer's screen hasn't shown | Expected the desync to be a known voice-sports problem; found nothing | important | `sync_broadcast_delay` + an offset applied in one place | Document broadcast desync as a platform-level concern for live content |
-
-## Detail
+| FL-01 | Follow the Alexa+ QuickStart to set up an add-on | Setup pages give `alexa-ai` commands with no note that the tooling is partner-only; the FAQ says so | critical | Self-hosted server demoed through our own web MCP client, as the FAQ describes | State "preview, select partners only" on every page that shows a CLI command |
+| FL-02 | Pass the QuickStart authentication checklist | Checklist requires a 401 *without* `WWW-Authenticate`; the MCP authorization spec expects the header | important | Followed the QuickStart; test pins it | State the deviation, the reason, and when the header will be supported |
+| FL-03 | Keep an LLM-composed answer inside the QuickStart's 500 ms target | Target stated once, no pattern for model-backed tools | important | Configurable model timeout; templates as the fast path | Document a pattern: cached summaries, streaming, or a longer budget for declared slow tools |
+| FL-04 | Decide whether the server can tell a listener something unprompted | The conversation-surface page does not say whether servers may speak first | important | Designed for on-demand questions only | State it, for or against |
+| FL-05 | Plan AWS usage for the AWS Builder challenge | Rules say credit codes ran out 7 Oct; FAQ still explains how to request them | important | Mock Bedrock in tests; spin services up only to test | Update the FAQ, or restore credits for the remaining window |
+| FL-06 | Find guidance on live-content sync for voice agents | The two Design Guide pages read had nothing on a voice agent being ahead of a delayed broadcast | nice-to-have | `sync_broadcast_delay`, anchored on what the listener hears | Mention live-content latency in the conversation-surface guidance |
+| FL-07 | Share a private repo with reviewers | FAQ documents the 7-day invitation expiry; the instinct is to invite early | nice-to-have | Public repo needs no invites; otherwise invite on submission day | Surface the expiry next to the repo URL field |
 
 ---
 
-### FL-01 — No way to tell which tool an utterance will route to
+### FL-01 — Nothing on the setup pages says the toolkit is partner-only
 
-**Task** Confirm "what did I miss" routes to `what_did_i_miss` and not
-`get_match_state`.
+**Evidence** [QuickStart](https://developer.amazon.com/docs/alexaplus/add-ons/mcp-toolkit-quickstart.html)
+and [Account Linking](https://developer.amazon.com/docs/alexaplus/add-ons/mcp-toolkit-account-linking.html),
+read 2026-10-12, versus the [Devpost FAQ](https://amazonappdev2026.devpost.com/details/faqs).
 
-**Steps** Looked for a CLI or console preview. Searched the docs for
-routing, arbitration, utterance testing. Found none.
+**Task** Set up an Alexa+ add-on for a self-hosted MCP server.
 
-**Expected** Something like `alexa-ai test-utterance "what did I miss"`
-returning the chosen tool.
+**Steps** Read both pages; wrote a setup guide around `alexa-ai configure`,
+`alexa-ai new mcp`, `alexa-ai deploy`; designed OAuth account linking to the
+stated requirements; later read the FAQ.
 
-**Actual** The only way to find out is a round trip through a device.
-Each iteration on a description is minutes, not seconds.
+**Expected** The pages to say whether a hackathon participant can use the tools.
 
-**Severity** important
+**Actual** The pages present the commands as available. The FAQ says the
+Category SDK, MCP Toolkit, CLI and Web Simulator are "in preview and
+available to select partners only", and that this "is called out on
+Amazon's add-on docs home page, though it's sometimes missing from
+individual setup-guide pages, which has caused some confusion".
 
-**Workaround** `tests/test_routing_phrases.py`, which asserts that the
-phrasings listeners use are present in the descriptions. It tests our
-text, not the router — a proxy, not a check.
+**Severity** critical: part of the work was aimed at a path no participant can take.
 
-**Suggestion** Ship an utterance-to-tool preview in the Alexa AI CLI.
-For a platform whose entire integration surface is tool descriptions,
-this is the highest-value developer tool available and its absence is
-felt within the first hour.
+**Workaround** A self-hosted MCP server and our own web page acting as an MCP client.
 
----
+**Suggestion** Put the access note at the top of every page showing a CLI
+command, and next to the Alexa+ link on the hackathon Resources page.
 
-### FL-02 — Server cannot initiate a message
+### FL-02 — The 401 rule contradicts the MCP authorization spec
 
-**Task** Tell a listener a goal has gone in, without them asking.
+**Evidence** QuickStart, read 2026-10-12: unauthenticated requests return
+"401 Unauthorized without a `WWW-Authenticate` header", and "`WWW-Authenticate`
+in 401 responses" is listed under not supported yet.
 
-**Steps** Implemented the SSE channel on `GET /mcp` per the spec. Looked
-for a documented path for an add-on to push to a device.
+**Task** Implement the authentication checklist. **Steps** Compared the
+checklist with the MCP authorization specification. **Expected** They agree.
 
-**Expected** Either a supported mechanism or an explicit statement that
-there is not one.
+**Actual** The spec expects a `WWW-Authenticate` challenge pointing at the
+protected-resource metadata; the QuickStart requires its absence. Following
+either breaks the other.
 
-**Actual** The transport supports server-initiated messages; the
-platform does not surface them to the listener. We inferred this rather
-than reading it.
+**Severity** important **Workaround** Followed the QuickStart; the behaviour
+is pinned in `tests/test_auth.py` with a comment explaining why.
 
-**Severity** critical for our original design
+**Suggestion** Say explicitly that this deviates from the spec, why, and when
+the header will be supported.
 
-**Workaround** Redesigned around on-demand questions. Arguably a better
-product — see ACCESSIBILITY.md §8 — but it was a redesign, not a choice.
+### FL-03 — A 500 ms target, no pattern for LLM-composed answers
 
-**Suggestion** State the constraint prominently in the MCP Toolkit
-overview. One sentence saves a team a day. Longer term, a
-"proactive notification" capability with user opt-in would open a whole
-category: accessibility, safety, time-critical alerts.
+**Evidence** QuickStart, read 2026-10-12: "round-trip query response under 500 ms".
 
----
+**Task** Keep a Bedrock-composed catch-up inside the voice round trip.
+**Steps** Read the target; looked for guidance on tools whose responses a
+model composes. **Expected** A recommended pattern. **Actual** The target
+is stated once, with no guidance. (The latency of a Bedrock call has *not*
+yet been measured by us; see EVIDENCE.md.)
 
-### FL-03 — Writing tool descriptions is undocumented craft
+**Severity** important **Workaround** `SIDELINE_BEDROCK_TIMEOUT` and
+deterministic templates as the fast path. **Suggestion** Document a
+pattern for LLM-backed tools: precomputed summaries, streaming partial
+results, or a longer budget for tools declared as slower.
 
-**Task** Write nine descriptions that route reliably.
+### FL-04 — Whether a server can speak first is not stated
 
-**Steps** Looked for guidance on length, example phrasings,
-disambiguating adjacent tools, whether to write for a human or a model.
+**Evidence** [Conversation Surface](https://developer.amazon.com/docs/alexaplus/add-ons/mcp-addon-conversation-surface.html),
+read 2026-10-12: describes a turn-based model; does not address
+server-initiated speech or notifications.
 
-**Expected** A page of patterns and anti-patterns.
+**Task** Decide whether the product can announce a goal unprompted.
+**Steps** Read the page. **Expected** An explicit yes or no. **Actual**
+Silence; the answer is inferred from the turn-based description.
 
-**Actual** Worked it out ourselves: lead with intent, embed real
-phrasings, explicitly name the adjacent tool you are *not*.
+**Severity** important: it decides the whole interaction model.
+**Workaround** On-demand questions only. **Suggestion** State it.
 
-**Severity** important
+### FL-05 — AWS credits: the rules and the FAQ disagree
 
-**Workaround** The three rules documented at the top of `registry.py`.
+**Evidence** [Rules](https://amazonappdev2026.devpost.com/rules), read 2026-10-12:
+"October 7th Update: We are out of credit codes and will no longer be
+accepting credit requests." [FAQs](https://amazonappdev2026.devpost.com/details/faqs),
+same date: explains how to request $150 credits and says they can be applied
+to Bedrock usage.
 
-**Suggestion** Publish a "writing tool descriptions for Alexa+" page.
-Include the adjacent-tool problem, which is non-obvious and bites
-everyone with more than three tools.
+**Task** Plan AWS spend for the AWS Builder challenge. **Expected** A
+consistent statement. **Actual** Two. **Severity** important
+**Workaround** Test with mocks, spin services up briefly. **Suggestion**
+Update the FAQ, or restore credits.
 
----
+### FL-06 — No guidance on a voice agent running ahead of a delayed broadcast
 
-### FL-04 — Bedrock default retry behaviour is wrong for voice
+**Evidence** Scope is limited: the Conversation Surface and Tools/Schema
+design pages, read 2026-10-12, say nothing about it. Other pages were not read.
 
-**Task** Keep catch-up under a 3 s ceiling.
+**Task** Answer "what's the score" without spoiling a goal the listener's
+television has not shown. **Expected** Some mention of live-content latency.
+**Actual** None found in those two pages. **Severity** nice-to-have
+**Workaround** `sync_broadcast_delay`. **Suggestion** Name the problem in the
+conversation-surface guidance.
 
-**Steps** First implementation used default client config. Observed
-occasional responses far past budget.
+### FL-07 — GitHub invitations expire in seven days
 
-**Expected** Defaults tuned for interactive use, or a documented preset.
+**Evidence** FAQ, read 2026-10-12: "invitations expire after 7 days, so add
+reviewers around when you submit rather than weeks in advance".
 
-**Actual** Default retries can consume more wall-clock time than a voice
-interaction has. A retried call is a wasted call — by the time it lands,
-the template would have been better.
-
-**Severity** important
-
-**Workaround** `max_attempts=1`, 3 s read timeout, 1 s connect timeout,
-and a template fallback on any failure.
-
-**Suggestion** A documented low-latency interactive configuration, or a
-note in the Bedrock docs for voice and real-time use cases.
-
----
-
-### FL-05 — First Bedrock invoke after idle is slow
-
-**Task** Keep the first catch-up of a match inside budget.
-
-**Expected** Consistent latency.
-
-**Actual** The first call after a quiet period is noticeably slower,
-which on our budget is the difference between the model path and the
-template path. For a match-day product the first call is the one a judge
-or a listener notices.
-
-**Severity** nice-to-have (we degrade cleanly)
-
-**Workaround** Template fallback absorbs it. We considered a warm-up
-ping on `follow_match` but did not want to pay for tokens nobody reads.
-
-**Suggestion** Document the behaviour and a recommended warm-up pattern.
+**Task** Share a private repo. **Expected** An expiry that does not bite.
+**Actual** Documented, easy to trip. **Severity** nice-to-have
+**Workaround** A public repo with an open-source licence needs no invites.
+**Suggestion** Surface the expiry next to the repo URL field.
 
 ---
 
-### FL-06 — MCP `_meta` has no shared conventions
+## Candidates: add an entry only if you actually hit it
 
-**Task** Return a UI payload and per-tool timing without colliding with
-anything.
+These were in an earlier draft as if they had happened. They have not been
+observed, so they are **not** in the log. Promote one only with a real
+observation and its numbers.
 
-**Actual** `_meta` is open. We invented `_meta.ui` and `_meta.sideline`.
-Both work; neither is standard.
-
-**Severity** nice-to-have
-
-**Workaround** Namespacing by server name.
-
-**Suggestion** Register conventional `_meta` keys in the spec, or
-recommend reverse-DNS namespacing explicitly.
-
----
-
-### FL-07 — Free football data tiers cannot support a live product
-
-**Task** Poll a live match every 15 seconds.
-
-**Steps** Evaluated free tiers before writing any server code.
-
-**Expected** At least one tier capable of a single live match.
-
-**Actual** Free tiers are either delayed — useless, the listener hears
-the crowd before we know anything — or capped at roughly a hundred calls
-a day against the ~360 a 90-minute match needs.
-
-**Severity** important (not an Amazon issue; recorded because it shaped
-the whole build)
-
-**Workaround** Paid tier, plus the replay harness so development does
-not depend on a live fixture.
-
-**Suggestion** For hackathon organisers: a short list of data sources
-with usable free tiers would materially change what gets built. Several
-good ideas die on this and the organisers never hear why.
-
----
-
-### FL-08 — GitHub collaborator invitations expire in seven days
-
-**Task** Share a private repo with the reviewers.
-
-**Actual** Documented, but the instinct is to add reviewers early, and
-an invitation added three weeks before judging has lapsed by the time
-anyone looks.
-
-**Severity** nice-to-have, potentially critical if it silently costs a
-submission
-
-**Workaround** A line in SUBMISSION_CHECKLIST.md: send invitations at
-submission time, not before.
-
-**Suggestion** Surface the expiry in the submission form itself, next to
-the repo URL field, where it will actually be read.
-
----
-
-### FL-09 — Nothing warns you about broadcast desync
-
-**Task** Answer "what's the score" without spoiling a goal the
-listener's television had not shown yet.
-
-**Steps** Compared data-feed arrival against stream timing. Searched the
-Alexa+ and MCP docs for any guidance on live-content synchronisation.
-
-**Expected** Some acknowledgement that a voice agent answering about
-live content is ahead of the viewer, and a recommended pattern.
-
-**Actual** Nothing. The failure is silent and it is the worst one this
-product can commit: the companion becomes the thing that ruins the
-match. A sighted friend in the room cannot spoil it, because they are
-watching the same delayed picture. We can.
-
-**Severity** important
-
-**Workaround** `sync_broadcast_delay`. The listener reads their clock to
-us once; we hold every answer back by the difference. Applied in
-`resolve_fixture()` so no individual tool has to remember.
-
-**Suggestion** Any platform guidance for live-content agents should name
-this. It is not obvious until it happens, and by then it has happened to
-a user.
+- Bedrock first-call latency after idle, or retry/timeout defaults too slow
+  for voice. Measure with `make aws-check` and real calls.
+- Bedrock model-access flow or error messages being unclear.
+- Free football-data tiers being delayed or capped. Unverified: the vendor
+  pages blocked automated reading; check them by hand.
+- `_meta` conventions for UI payloads. No observation.

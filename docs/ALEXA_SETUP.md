@@ -1,5 +1,17 @@
 # Connecting to Alexa+
 
+> **Read this first (official FAQ, read 2026-10-12).** The Alexa+ add-on
+> tools this page describes (the `alexa-ai` CLI, the MCP Toolkit, the Web
+> Simulator, account linking) are "in preview and available to select
+> partners only - there is currently no way for hackathon participants to
+> apply for or gain access". **You do not need them.** The rules and FAQ
+> say to build a self-hosted MCP server and demo it through "your own
+> web-based simulator", and that a web page acting as a real MCP client
+> (initialize, tools/list, tools/call over Streamable HTTP) satisfies the
+> track. That is what `simulator/index.html` is. Everything below is the
+> **partner / future path**, kept because it is accurate and reusable, not
+> because the submission depends on it.
+
 ## What you need first
 
 - An MCP server reachable at a remote HTTPS URL. Locally, a tunnel.
@@ -66,21 +78,59 @@ Our listener state is keyed on the account-linked subject. Without
 linking, every listener shares one id and one catch-up window — fine for
 a local demo, wrong for anything real.
 
-> **Status: not implemented in this repository.** The server does not
-> verify tokens, return 401, or serve RFC 9728 metadata. It identifies a
-> listener by an `X-Sideline-Listener` header, falling back to one shared
-> id. That is acceptable for the local demo and the simulator and
-> **unsafe for more than one real listener**. The verification block in
-> `app.resolve_listener()` is a commented sketch, not working code.
+Account linking is **optional** in Alexa+'s own docs: it is only for
+tools that "genuinely require user identity". Sideline keeps one
+catch-up window per listener, so it does.
 
-Requirements for a real deployment: OAuth 2.1 with PKCE, 401 responses without a
-`WWW-Authenticate` header, RFC 9728 protected resource metadata, and the
-`resource` parameter set to the server's canonical URI.
+Authentication is implemented in [sideline/auth.py](../sideline/auth.py)
+and **off by default**, so the demo and the simulator work with no
+identity provider. With `SIDELINE_AUTH=off` the listener is whatever the
+`X-Sideline-Listener` header says, else one shared id: fine for a local
+demo, **unsafe for more than one real listener**.
 
-`app.resolve_listener()` is the single place the identity is read. The
-JWT verification block is written out and commented there — one function,
-deliberately, because getting it wrong means one listener hears another
-listener's catch-up.
+### What Alexa+ requires (from its docs, read 2026-10-12)
+
+| Requirement | Who does it | Where |
+|---|---|---|
+| Unauthenticated request → `401`/`403` **without** a `WWW-Authenticate` header (the QuickStart lists that header as *not yet supported*) | this server | `auth.py`, tested in `test_auth.py` |
+| `/.well-known/oauth-protected-resource` with `resource` (must exactly match the add-on manifest URL), `authorization_servers` (Alexa uses the first), `scopes_supported` | this server | `auth.py` |
+| Bearer token in the `Authorization` header only | this server | `auth.py` |
+| OAuth 2.1 authorization-code flow with PKCE **S256**, `resource` parameter | authorization server | your IdP |
+| Refresh token returned with every access token | authorization server | your IdP |
+| **Static** client registration (no DCR); register every redirect URI Alexa lists | authorization server | your IdP |
+| `/.well-known/oauth-authorization-server` advertising `code_challenge_methods_supported` with `S256`. **Deployment is blocked without it** | authorization server | your IdP |
+| A public privacy policy and terms URL | you | `addon.json` |
+
+Turn it on with:
+
+```bash
+SIDELINE_AUTH=required
+SIDELINE_AUTH_ISSUER=https://<your authorization server>
+SIDELINE_PUBLIC_URL=https://<your-host>/mcp         # == the add-on manifest URL
+SIDELINE_AUTH_JWKS_URL=https://<your authorization server>/<jwks path>
+SIDELINE_AUTH_SCOPES="sideline.read"
+```
+
+The server checks signature (RS256 from the JWKS, or HS256 for testing),
+expiry, issuer, and the token's `sub`, which becomes the listener id.
+`aud` is enforced only if you set `SIDELINE_AUTH_AUDIENCE`, because
+Alexa's docs do not say tokens carry one. `make test` exercises all of
+this with real signatures.
+
+### The part that is genuinely open
+
+This server is only the *resource* server. The authorization server must
+publish `/.well-known/oauth-authorization-server`. **I have not verified
+that Amazon Cognito does**: as I understand it Cognito publishes
+`/.well-known/openid-configuration` instead, which would block deployment.
+Check your IdP's discovery document against the table above before
+building on it. Nothing here has been tested against a real Alexa+
+account link.
+
+If this is too heavy for the time left, the rules allow a **simulated
+Alexa+ experience** instead of a deployed add-on (see
+[OFFICIAL_RULES.md](OFFICIAL_RULES.md)), and the demo and the repo are
+what judges mostly see.
 
 ## Verifying before you connect
 

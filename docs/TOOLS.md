@@ -2,8 +2,11 @@
 
 ## Descriptions are product surface
 
-Alexa+ reads the `description` field to decide which tool a spoken
-sentence maps to. These are written **for the model**, not for us.
+A client reads the `description` field to decide which tool a sentence
+maps to; the Alexa+ Design Guide says descriptions should state when to
+call the tool and what it returns. These are written **for the model**,
+not for us. We have not observed Alexa+ itself routing; our test checks our
+own wording.
 
 Three rules applied throughout `registry.py`:
 
@@ -48,7 +51,7 @@ the first catch-up read out the wrong game.
 ### `get_match_state`
 
 Score and clock. The most-asked question, so the fastest path: no
-Bedrock, template only, target under 300 ms.
+Bedrock, template only (about 0.2 ms of server time; docs/EVIDENCE.md).
 
 **Does not advance `last_told_at`.** Hearing the score is not the same as
 being told what happened. A listener who asks the score and then asks
@@ -116,18 +119,20 @@ constantly on precisely the names that matter.
 
 ### `sync_broadcast_delay`
 
-The spoiler guard, and the tool with the most interesting history.
+The spoiler guard.
 
-Streams run 20-45 seconds behind the pitch; data feeds arrive in 5-15.
+The design assumes streams run behind the pitch by tens of seconds and
+data feeds by less (figures such as 20-45 s and 5-15 s are our assumptions;
+no stream or feed was timed here).
 Without correction we know about a goal before the listener's television
 shows it, and telling a blind fan about it makes us the thing that
 ruined the match.
 
-**The first version asked them to read the clock on their screen.** They
-cannot see the clock - that is the premise of the entire product. It was
-a guard that required sight to arm.
+**It does not ask them to read the clock on their screen.** They cannot
+see it, which is the premise of the product; a guard that requires sight to
+arm is no guard.
 
-Three ways in now, in order of trust:
+Three ways in, in order of trust:
 
 1. **Audio anchor.** "Kick-off just went", "that's half time", "they've
    just scored". The listener names a moment they heard; we know when it

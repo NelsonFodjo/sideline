@@ -1,41 +1,34 @@
 # Match data
 
-## Stage one of the build, before any server code
+## What is and is not established about live data
 
-The whole product rests on getting live structured match data. We
-verified that before writing anything, because a project that discovers
-this on day nine is dead.
+The product needs structured match data. What this project can and cannot
+support:
 
-## What we found
+| Claim | Status |
+|---|---|
+| StatsBomb Open Data can drive a faithful replay (goals, cards, substitutions, a VAR event, line-ups) | **Verified**: the bundled match, `tests/test_statsbomb.py`, `docs/EVIDENCE.md` |
+| The API-Football provider parses its documented response shape, and errors surface rather than reading as "no match" | **Verified against canned responses only**: `tests/test_apifootball.py` |
+| API-Football's free plan allows about 100 requests a day; live data refreshes about every 15 s | **Unverified.** The vendor's site blocked automated reading (HTTP 403 bot challenge) and was not worked around. Check their pricing and documentation by hand before relying on either figure. |
+| Any other free tier is delayed or capped | **Unverified**; none was examined here. |
+| A provider's data arrives before a streamed broadcast shows the event | Plausible, **not measured**: no live match was observed. `sync_broadcast_delay` exists for it. |
 
-| Option | Live? | Events? | Verdict |
-|---|---|---|---|
-| Free tier A | Delayed | Limited | Useless. The listener hears the crowd before we know anything. |
-| Free tier B | Live | Yes | ~100 calls/day. A 90-minute match polled every 15 s is ~360. |
-| Paid tier | ~15 s refresh | Goals, cards, subs, VAR, line-ups, officials | What we use. |
-
-**15 seconds is fine, and possibly better than fine.** The listener asks
-*after* hearing the crowd react. Broadcast itself runs several seconds
-behind. By the time the question arrives, our data has landed.
-
-Recorded as FL-07, because the absence of a usable free tier shapes what
-gets built in hackathons and organisers rarely hear about it.
+Run `make verify-data` with a real key to see your own plan's quota; it
+reads the figures from the API's `/status` endpoint rather than from this page.
 
 ## The replay harness
 
 `providers/replay.py` plays a recorded match back at real speed through
 the identical code path the live provider uses.
 
-**It is not a mock.** Same interface, same normalising, same event
-shapes, same dedupe. The only thing that differs is where the bytes come
-from.
+It goes through the same provider interface, normalising and dedupe as a
+live provider; what differs is where the events come from. It replays real
+events, so it is a recording, not live.
 
 Two reasons it exists, both practical:
 
-1. **You cannot develop a live-football product on a Tuesday night.**
-   Without it, every change waits for a fixture.
-2. **The demo has to be filmable.** A live match that turns out nil-nil
-   with no cards is an unusable three minutes.
+1. Development does not have to wait for a fixture.
+2. The demo is repeatable: a live match could be dull or unavailable.
 
 ```bash
 SIDELINE_REPLAY_SPEED=20 python3 -m sideline    # a match in 4.5 minutes
@@ -50,9 +43,53 @@ replayed"**. Never implied to be live.
 The data is genuine; the clock is ours. Saying so costs nothing and
 protects everything. See DEMO_SCRIPT.md.
 
-> The file currently in `data/replay/` has illustrative placeholder
-> names and scores so the repository runs with no API key. Replace it
-> with a genuine capture via `scripts/record_match.py` before filming.
+> `data/replay/spurs-arsenal-2016.json` is the genuine default.
+> `data/replay/arsenal-spurs.json` is an invented fixture used by the
+> tests and labelled as such; never show it in a demo.
+
+## Live data
+
+```bash
+# SIDELINE_PROVIDER=auto (the default) goes live as soon as a key is present
+read -s -p "API-Football key: " SIDELINE_FOOTBALL_KEY; echo; export SIDELINE_FOOTBALL_KEY
+make verify-data          # checks the key, shows your daily quota and today's fixtures
+make run
+```
+
+Notes, so there are no surprises:
+
+- **No key, no problem:** `SIDELINE_PROVIDER=apifootball` with no key logs a
+  warning and serves the recorded match, so the server still works.
+- **Quota.** A free plan allows about a hundred requests a day. The poller
+  makes about one request per followed match per poll (the fixture
+  response embeds its events and line-ups), so at the default 15 s a
+  match burns the free day in under half an hour. Use
+  `SIDELINE_POLL_SECONDS=60` or a paid plan.
+- **Errors are surfaced.** API-Football reports a bad key or an exhausted
+  quota as HTTP 200 with an `errors` field; the provider raises
+  `ProviderUnavailable` rather than reading it as "no such match".
+- **Not tested against the live service.** The provider is tested against
+  canned responses in API-Football's shape (`tests/test_apifootball.py`),
+  not a real key. First live run: expect to look at one log line.
+- **Rules.** The hackathon requires you to be authorised to use any third
+  party API or data under its terms, and judges must be able to run the
+  project free of charge, which is why the default is the recorded match
+  and live data is opt-in.
+
+## The bundled match
+
+`data/replay/spurs-arsenal-2016.json` is **Tottenham 2-2 Arsenal, 5 March
+2016**, built from StatsBomb Open Data with
+`scripts/build_statsbomb_replay.py` (referee from StatsBomb's matches
+file). It is real, and it is the default. `arsenal-spurs.json` is a small
+invented fixture used only by the tests.
+
+StatsBomb's terms ask that anything you publish based on the data
+"state the data source as StatsBomb and use our logo". We attribute in
+text. **The logo is not included, and the video rules forbid third-party
+trademarks without permission**, so before filming either get their
+permission or keep the on-screen attribution to text, and say
+"data from StatsBomb Open Data".
 
 ## Capturing a real match
 

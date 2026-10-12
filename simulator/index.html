@@ -3,42 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
 <title>Sideline</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,200;0,300;0,400;0,600;1,300&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 /* ---------------------------------------------------------------------
-   Sideline — hands-free voice client.
+   Sideline - hands-free voice client, and a real MCP client.
 
    One control: a start button, because browsers will not open a
    microphone without a gesture. After that nothing is clicked and
-   nothing is typed — the listener cannot see the screen.
+   nothing is typed - the listener cannot see the screen.
 
-   Visual language: a reactive core, in blue on near-black. Concentric
-   rings, rotating arcs and a radial waveform are a long-standing
-   vocabulary for audio interfaces and predate any one product. What is
-   deliberately NOT here: a recreation of any specific device's light
-   ring, any proprietary typeface, any third-party mark. Public Sans
-   carries the interface, IBM Plex Mono the machine layer.
+   The screen is for a sighted person in the room, and for the demo.
+   Nothing on it is required: every fact is also spoken, and is in the
+   screen-reader live region below.
 
-   Everything in the core is driven by real audio - your microphone
-   while it listens, the returning voice while it speaks. Nothing on
-   screen is a decorative loop.
+   Design: the SPOKEN WORDS are the hero. They are set large, fitted to
+   the screen, and light up as the voice reaches them: a gold wipe moves
+   through the word being spoken, a thin glowing underline follows, and
+   words already spoken settle. The reactive core steps back to become a
+   living backdrop behind the text.
+
+   Motion rules:
+     * the backdrop is driven by real audio (microphone while listening,
+       the returning voice while speaking), or by the speech's own word
+       timings when the browser's voice cannot be tapped
+     * prefers-reduced-motion turns the animation off and shows the text
+
+   Deliberately NOT here: a recreation of any specific device's light
+   ring, any proprietary typeface, any third-party mark.
    --------------------------------------------------------------------- */
 :root{
   --void:#04070C;
-  --deep:#070C14;
   --line:#13202E;
   --cyan:#19C6F4;
   --cyan-deep:#0A84D8;
-  --cyan-ghost:rgba(25,198,244,.14);
-  --white:#E6F3FB;
-  --dim:#5E7488;
-  --faint:#2E4254;
+  --white:#EAF4FB;
+  --dim:#6B8397;
+  --faint:#34495B;
   --warm:#F5C84C;
   --hot:#FF6B4A;
   --ok:#2FD08A;
+  --ease:cubic-bezier(.2,.8,.2,1);
+  --spring:cubic-bezier(.34,1.56,.64,1);
 }
 *,*::before,*::after{box-sizing:border-box}
 html,body{height:100%;margin:0;overflow:hidden;background:var(--void)}
@@ -46,101 +55,233 @@ body{
   color:var(--white);
   font-family:"Public Sans","Helvetica Neue",Arial,sans-serif;
   -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
 }
 
-/* the core fills the screen behind everything */
-#core{position:fixed;inset:0;z-index:0;display:block}
+/* a still backdrop: depth without motion, so the moving parts read clearly */
+.bg{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(120% 80% at 50% 45%, rgba(10,60,100,.30), transparent 62%),
+    radial-gradient(90% 60% at 50% 125%, rgba(25,198,244,.06), transparent 60%),
+    linear-gradient(180deg,#050a12 0%,#04070C 55%,#03050a 100%);
+  transition:filter 1.4s var(--ease)}
+.bg::after{content:"";position:absolute;inset:0;
+  background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.6) 100%)}
+body[data-mode="listening"] .bg{filter:hue-rotate(-6deg) brightness(1.08)}
+body[data-mode="speaking"] .bg{filter:hue-rotate(-40deg) brightness(1.04)}
+body[data-mode="thinking"] .bg{filter:hue-rotate(8deg) brightness(.95)}
 
-.shell{position:relative;z-index:1;height:100%;display:flex;flex-direction:column;
-  pointer-events:none}
+#core{position:fixed;inset:0;z-index:1;display:block}
 
-/* ------------------------------------------------- match line (top) */
-.match{flex:0 0 auto;padding:22px 30px 0;font-family:"IBM Plex Mono",monospace;
-  opacity:0;transition:opacity .7s ease}
-.match.on{opacity:1}
-.match-row{display:flex;align-items:baseline;gap:16px;font-size:11px;color:var(--faint);
-  letter-spacing:.04em}
-.match-row .score{color:var(--white)}
-.match-row .clock{margin-left:auto;color:var(--cyan);font-variant-numeric:tabular-nums}
-.bar{position:relative;height:22px;margin-top:10px}
+.sr{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap}
+
+.shell{position:relative;z-index:2;height:100%;display:grid;
+  grid-template-columns:minmax(0,1fr);        /* never let long text widen the page */
+  grid-template-rows:auto minmax(0,1fr) auto;pointer-events:none;
+  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+
+/* ------------------------------------------------------ the header */
+.hud{padding:clamp(14px,2.6vh,28px) clamp(16px,3.2vw,40px) 0;
+  opacity:0;transform:translateY(-12px);
+  transition:opacity 1s var(--ease),transform 1s var(--ease)}
+.hud.on{opacity:1;transform:none}
+.scoreline{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
+  gap:clamp(12px,2.6vw,40px)}
+.team{font-size:clamp(10px,1.1vw,13px);letter-spacing:.24em;text-transform:uppercase;
+  color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-family:"IBM Plex Mono",monospace}
+.team.home{text-align:right}
+.team.away{text-align:left}
+.sb{display:inline-flex;align-items:baseline;gap:.32em;color:var(--white);
+  font-size:clamp(30px,4.8vw,62px);font-weight:200;letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums;line-height:1}
+.sb i{font-style:normal;color:var(--faint);font-weight:200}
+.sb b{font-weight:200;display:inline-block;min-width:.55em;text-align:center}
+.sb b.bump{animation:bump 1s var(--spring)}
+@keyframes bump{
+  0%{transform:scale(1);color:var(--white)}
+  28%{transform:scale(1.5);color:var(--warm);text-shadow:0 0 34px rgba(245,200,76,.9)}
+  100%{transform:scale(1);color:var(--white);text-shadow:none}
+}
+.clockrow{display:flex;justify-content:center;margin-top:6px}
+.clock{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--cyan);
+  letter-spacing:.28em;font-variant-numeric:tabular-nums}
+
+.bar{position:relative;height:22px;margin-top:12px;max-width:1100px;margin-left:auto;margin-right:auto}
 .bar .rail{position:absolute;left:0;right:0;top:10px;height:1px;background:var(--line)}
-.bar .played{position:absolute;left:0;top:10px;height:1px;background:var(--cyan-deep);
-  width:0;transition:width .6s ease;box-shadow:0 0 6px rgba(25,198,244,.5)}
-.bar .gap{position:absolute;top:7px;height:7px;background:rgba(245,200,76,.12);
-  border-left:1px solid var(--warm);border-right:1px solid var(--warm);
-  opacity:0;transition:opacity .5s ease,width .6s ease,left .6s ease}
-.bar .tick{position:absolute;top:5px;width:1px;height:11px;background:var(--faint)}
-.bar .tick.goal{height:17px;top:2px;background:var(--warm);width:2px;
-  box-shadow:0 0 7px rgba(245,200,76,.7)}
-.bar .told{position:absolute;top:2px;width:1px;height:17px;background:var(--cyan);
-  opacity:0;transition:opacity .5s ease,left .6s ease;
-  box-shadow:0 0 8px rgba(25,198,244,.8)}
+.bar .played{position:absolute;left:0;top:10px;height:1px;
+  background:linear-gradient(90deg,transparent,var(--cyan-deep));
+  width:0;transition:width 1s var(--ease);box-shadow:0 0 8px rgba(25,198,244,.55)}
+.bar .gap{position:absolute;top:7px;height:7px;background:rgba(245,200,76,.10);
+  border-left:1px solid var(--warm);border-right:1px solid var(--warm);border-radius:1px;
+  opacity:0;transition:opacity .6s var(--ease),width 1s var(--ease),left 1s var(--ease)}
+.bar .tick{position:absolute;top:5px;width:1px;height:11px;background:var(--faint);
+  transform-origin:50% 100%;animation:tickIn .7s var(--ease) backwards}
+.bar .tick.goal{height:18px;top:2px;background:var(--warm);width:2px;
+  box-shadow:0 0 9px rgba(245,200,76,.8)}
+@keyframes tickIn{from{transform:scaleY(0);opacity:0}}
+.bar .told{position:absolute;top:2px;width:1px;height:18px;background:var(--cyan);
+  opacity:0;transition:opacity .6s var(--ease),left 1s var(--ease);
+  box-shadow:0 0 10px rgba(25,198,244,.85)}
 .bar .told.on{opacity:1}
+.bar .now{position:absolute;top:7px;width:7px;height:7px;margin-left:-3px;border-radius:50%;
+  background:var(--cyan);box-shadow:0 0 14px var(--cyan);
+  transition:left 1s var(--ease);opacity:0}
+.bar .now.on{opacity:1}
+
+/* supplementary event chips. Never the only place a fact lives. */
+.pills{display:flex;flex-wrap:nowrap;justify-content:center;gap:8px;margin-top:10px;
+  min-height:26px;overflow:hidden}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:5px 12px 5px 10px;
+  font-size:10.5px;letter-spacing:.05em;color:var(--white);white-space:nowrap;
+  font-family:"IBM Plex Mono",monospace;
+  background:rgba(12,24,38,.55);border:1px solid var(--line);border-radius:999px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  opacity:0;transform:translateY(8px) scale(.96);
+  transition:opacity .6s var(--ease),transform .6s var(--spring)}
+.pill.in{opacity:1;transform:none}
+.pill .m{color:var(--dim);font-variant-numeric:tabular-nums}
+.pill .k{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:0 0 auto}
+.pill.goal{border-color:rgba(245,200,76,.5);box-shadow:0 0 20px rgba(245,200,76,.14)}
+.pill.goal .k{background:var(--warm);box-shadow:0 0 8px var(--warm)}
+.pill.yellow .k{background:#f2d230}
+.pill.red{border-color:rgba(255,107,74,.5)}
+.pill.red .k{background:var(--hot);box-shadow:0 0 8px var(--hot)}
+.pill.var .k{background:var(--cyan)}
+.pill.substitution .k{background:var(--ok)}
 
 /* ------------------------------------------------------- the stage */
-.stage{flex:1 1 auto;display:flex;flex-direction:column;justify-content:flex-end;
-  align-items:center;padding:0 30px 4vh;min-height:0;text-align:center}
-.inner{width:100%;max-width:20em}
+.stage{display:flex;align-items:flex-start;justify-content:center;min-height:0;min-width:0;
+  padding:0 clamp(18px,5vw,64px) clamp(12px,3vh,30px)}
+.inner{width:100%;max-width:min(1100px,94vw);text-align:center;
+  display:flex;flex-direction:column;align-items:center}
 
 .said{
-  font-size:13.5px;color:var(--dim);font-weight:300;font-style:italic;
-  min-height:1.5em;margin-bottom:20px;letter-spacing:.01em;
-  opacity:0;transform:translateY(5px);
-  transition:opacity .35s ease,transform .35s ease;
+  font-size:clamp(13px,1.25vw,17px);color:var(--dim);font-weight:300;font-style:italic;
+  min-height:1.5em;margin-bottom:8px;letter-spacing:.02em;
+  max-width:36em;
+  opacity:0;transform:translateY(8px);filter:blur(5px);
+  transition:opacity .6s var(--ease),transform .6s var(--ease),filter .6s var(--ease),color .4s ease;
 }
-.said.on{opacity:1;transform:none}
+.said.on{opacity:1;transform:none;filter:none}
+.said.interim{color:#8fb3c9}
+.said.live{color:var(--white);font-style:normal;font-weight:300}
 
+/* No status label: the colour of the eye carries the state. */
+
+/* ------------------------------------------------ the spoken answer */
 .answer{
-  font-size:clamp(26px,4.6vw,46px);line-height:1.22;font-weight:300;
-  letter-spacing:-.018em;min-height:2.5em;
+  position:relative;
+  font-size:var(--fs,30px);line-height:1.24;font-weight:300;
+  letter-spacing:-.018em;max-width:100%;
+  text-wrap:balance;
+  transition:opacity .8s var(--ease);
 }
-.answer w{
-  opacity:.13;color:var(--white);
-  transition:opacity .2s ease,color .2s ease,text-shadow .2s ease;
-}
-.answer w.on{opacity:1}
-.answer w.now{color:var(--cyan);text-shadow:0 0 22px rgba(25,198,244,.55)}
 .answer.quiet{
-  font-size:clamp(15px,2vw,19px);color:var(--dim);font-weight:300;
-  letter-spacing:.02em;font-style:italic;
+  font-size:clamp(15px,1.6vw,19px);color:var(--dim);font-weight:300;
+  letter-spacing:.02em;font-style:italic;min-height:0;
 }
+.answer.stale{opacity:.2}
+
+/* every word is laid out at once so nothing reflows; each lights in turn */
+.answer .w{
+  display:inline-block;position:relative;white-space:pre;
+  color:rgba(234,244,251,.17);
+  transform:translateY(.3em);filter:blur(3px);
+  transition:color .7s var(--ease),transform 1s var(--ease),filter .8s var(--ease);
+  will-change:transform,filter;
+  animation:wIn 1s var(--ease) backwards;
+  animation-delay:calc(var(--i,0) * 16ms);
+}
+@keyframes wIn{from{opacity:0;transform:translateY(.8em);filter:blur(16px)}}
+
+/* spoken: sharp, settled, a touch of depth against the backdrop */
+.answer .w.read{
+  color:rgba(240,248,253,.93);transform:none;filter:none;
+  text-shadow:0 2px 46px rgba(0,0,0,.55);
+}
+/* scores, minutes and numbers carry the news */
+.answer .w.num.read{color:var(--warm);font-weight:300}
+
+/* the gold light that wipes through the word being spoken */
+.answer .w::after{
+  content:attr(data-t);position:absolute;left:0;top:0;white-space:pre;
+  color:#fff7e0;
+  text-shadow:0 0 .35em rgba(255,214,120,.9),0 0 1.1em rgba(245,200,76,.45);
+  clip-path:inset(-25% 100% -25% 0);opacity:0;pointer-events:none;
+}
+.answer .w.num::after{color:#ffe28c}
+.answer .w.now{transform:translateY(-.035em) scale(1.04);filter:none;
+  color:rgba(240,248,253,.93)}
+.answer .w.now::after{opacity:1;
+  animation:wipe var(--dur,320ms) cubic-bezier(.35,.05,.4,1) forwards}
+@keyframes wipe{to{clip-path:inset(-25% 0 -25% 0)}}
+
+/* when the voice has finished the whole line rests at full strength */
+.answer.settled .w{color:var(--white);transform:none;filter:none;transition-duration:1.1s}
+.answer.settled .w.num{color:var(--warm)}
+
+/* the underline that glides to each word */
+.beam{position:absolute;left:0;top:0;width:0;height:3px;border-radius:3px;z-index:1;
+  background:linear-gradient(90deg,transparent,rgba(255,224,140,.95) 20%,rgba(255,224,140,.95) 80%,transparent);
+  box-shadow:0 0 20px rgba(245,200,76,.75),0 0 46px rgba(245,200,76,.3);
+  opacity:0;pointer-events:none;
+  transition:transform .3s var(--ease),width .3s var(--ease),opacity .4s ease}
 
 /* ------------------------------------------------ the only control */
 .gate{
   position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:24px;background:var(--void);
-  pointer-events:auto;
+  align-items:center;justify-content:center;gap:26px;padding:24px;
+  background:radial-gradient(90% 70% at 50% 40%,rgba(10,70,115,.28),transparent 64%),var(--void);
+  pointer-events:auto;transition:opacity .9s var(--ease),visibility .9s;
 }
+.gate .halo{position:absolute;left:50%;top:38%;width:min(60vmin,520px);aspect-ratio:1;
+  transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;
+  background:radial-gradient(closest-side,rgba(25,198,244,.20),rgba(25,198,244,.05) 55%,transparent 72%);
+  animation:halo 5s ease-in-out infinite}
+@keyframes halo{0%,100%{transform:translate(-50%,-50%) scale(.94);opacity:.8}
+                50%{transform:translate(-50%,-50%) scale(1.06);opacity:1}}
 .gate h1{
-  font-size:clamp(40px,9vw,92px);font-weight:200;margin:0;
-  letter-spacing:-.04em;color:var(--white);
-  text-shadow:0 0 70px rgba(25,198,244,.3);
+  position:relative;font-size:clamp(44px,10vw,104px);font-weight:200;margin:0;
+  letter-spacing:-.045em;color:var(--white);
+  text-shadow:0 0 80px rgba(25,198,244,.34);
+  animation:rise 1.1s var(--ease) both;
 }
-.gate p{margin:0;color:var(--dim);font-size:16px;font-weight:300;
-  max-width:23em;text-align:center;line-height:1.6}
+.gate p{position:relative;margin:0;color:var(--dim);font-size:clamp(14px,1.6vw,17px);font-weight:300;
+  max-width:24em;text-align:center;line-height:1.65;animation:rise 1.1s .12s var(--ease) both}
 .gate button{
-  font-family:inherit;font-size:15px;font-weight:400;letter-spacing:.08em;
-  text-transform:lowercase;
-  background:transparent;color:var(--cyan);
-  border:1px solid rgba(25,198,244,.45);border-radius:999px;
-  padding:14px 40px;cursor:pointer;margin-top:6px;
-  transition:border-color .3s ease,box-shadow .3s ease,color .3s ease;
+  position:relative;font-family:inherit;font-size:15px;font-weight:400;letter-spacing:.1em;
+  text-transform:lowercase;background:rgba(25,198,244,.04);color:var(--cyan);
+  border:1px solid rgba(25,198,244,.5);border-radius:999px;
+  padding:15px 44px;cursor:pointer;margin-top:4px;
+  transition:border-color .3s ease,box-shadow .35s ease,color .3s ease,transform .3s var(--spring),background .3s ease;
+  animation:rise 1.1s .24s var(--ease) both;
 }
-.gate button:hover{border-color:var(--cyan);color:var(--white);
-  box-shadow:0 0 34px rgba(25,198,244,.25),inset 0 0 22px rgba(25,198,244,.07)}
-.gate button:focus-visible{outline:2px solid var(--cyan);outline-offset:5px}
-.gate small{font-family:"IBM Plex Mono",monospace;font-size:10.5px;
-  color:var(--faint);letter-spacing:.06em}
-.gate.gone{display:none}
+.gate button::before{content:"";position:absolute;inset:-1px;border-radius:inherit;
+  border:1px solid rgba(25,198,244,.5);animation:ping 2.6s ease-out infinite;pointer-events:none}
+@keyframes ping{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.35,1.9);opacity:0}}
+.gate button:hover{border-color:var(--cyan);color:var(--white);transform:translateY(-1px);
+  background:rgba(25,198,244,.1);
+  box-shadow:0 0 38px rgba(25,198,244,.28),inset 0 0 24px rgba(25,198,244,.09)}
+.gate button:active{transform:scale(.98)}
+.gate button:focus-visible{outline:2px solid var(--cyan);outline-offset:6px}
+.gate small{position:relative;font-family:"IBM Plex Mono",monospace;font-size:10.5px;
+  color:var(--faint);letter-spacing:.06em;animation:rise 1.1s .36s var(--ease) both}
+@keyframes rise{from{opacity:0;transform:translateY(14px);filter:blur(6px)}}
+.gate.gone{opacity:0;visibility:hidden;pointer-events:none}
 
 /* --------------------------------------------- the machine strip */
-.wire{flex:0 0 auto;border-top:1px solid var(--line);
+.wire{border-top:1px solid rgba(19,32,46,.7);
   font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.03em;
-  display:flex;align-items:center;gap:14px;padding:10px 30px;color:var(--faint);
-  background:linear-gradient(180deg,transparent,rgba(4,7,12,.85))}
-.wire .dot{width:5px;height:5px;border-radius:50%;background:var(--faint);flex:0 0 auto}
-.wire .dot.ok{background:var(--ok);box-shadow:0 0 8px rgba(47,208,138,.7)}
-.wire .dot.err{background:var(--hot);box-shadow:0 0 8px rgba(255,107,74,.7)}
+  display:flex;align-items:center;gap:14px;padding:10px clamp(16px,3.2vw,40px);color:var(--faint);
+  background:linear-gradient(180deg,transparent,rgba(4,7,12,.9));flex-wrap:wrap}
+.wire .dot{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:0 0 auto;
+  transition:background .4s ease,box-shadow .4s ease}
+.wire .dot.ok{background:var(--ok);box-shadow:0 0 9px rgba(47,208,138,.75)}
+.wire .dot.err{background:var(--hot);box-shadow:0 0 9px rgba(255,107,74,.75)}
+.wire .dot.ping{animation:dotping .7s var(--ease)}
+@keyframes dotping{0%{transform:scale(2.2)}100%{transform:scale(1)}}
 .wire .tool{color:var(--white)}
 .wire .ms{color:var(--dim);font-variant-numeric:tabular-nums}
 .wire .via{color:var(--cyan-deep)}
@@ -148,49 +289,69 @@ body{
 .wire .stack{margin-left:auto;color:var(--faint)}
 .wire .stack b{color:var(--dim);font-weight:400}
 
+@media (max-width:620px){
+  .team{letter-spacing:.14em}
+  .wire{gap:8px 12px}
+  .wire .stack{margin-left:0;flex-basis:100%}
+}
+
 @media (prefers-reduced-motion: reduce){
-  *{transition-duration:.001ms!important}
-  .answer w{opacity:1}
+  *,*::before,*::after{animation:none!important;transition-duration:.001ms!important}
+  .answer .w{color:var(--white);filter:none;transform:none}
+  .answer .w.num{color:var(--warm)}
+  .answer .w::after,.beam{display:none}
 }
 </style>
 </head>
-<body>
+<body data-mode="idle">
+
+<div class="bg" aria-hidden="true"></div>
 
 <div class="gate" id="gate">
+  <div class="halo" aria-hidden="true"></div>
   <h1>Sideline</h1>
   <p>Say &ldquo;follow the Arsenal game&rdquo;, then just talk. It listens between answers &mdash; cut in whenever you like.</p>
   <button id="begin" type="button">Start listening</button>
   <small id="gatenote">needs your microphone</small>
 </div>
 
-<canvas id="core"></canvas>
+<canvas id="core" aria-hidden="true"></canvas>
+
 <div class="shell">
-<div class="match" id="match">
-  <div class="match-row">
-    <span id="teams"></span><span class="score" id="score"></span>
-    <span class="clock" id="clock"></span>
-  </div>
-  <div class="bar" id="bar">
-    <div class="rail"></div><div class="played" id="played"></div>
-    <div class="gap" id="gap"></div><div class="told" id="toldmark"></div>
-  </div>
+  <header class="hud" id="match" aria-hidden="true">
+    <div class="scoreline">
+      <span class="team home" id="teamh"></span>
+      <span class="sb" id="sb"><b id="sh">0</b><i>&ndash;</i><b id="sa">0</b></span>
+      <span class="team away" id="teama"></span>
+    </div>
+    <div class="clockrow"><span class="clock" id="clock"></span></div>
+    <div class="bar" id="bar">
+      <div class="rail"></div><div class="played" id="played"></div>
+      <div class="gap" id="gap"></div><div class="told" id="toldmark"></div>
+      <div class="now" id="nowdot"></div>
+    </div>
+    <div class="pills" id="pills"></div>
+  </header>
+
+  <main class="stage">
+    <div class="inner">
+      <div class="said" id="said" aria-hidden="true"></div>
+      <div class="answer quiet" id="answer" aria-hidden="true"></div>
+    </div>
+  </main>
+
+  <footer class="wire">
+    <span class="dot" id="dot"></span>
+    <span class="tool" id="tool">connecting</span>
+    <span class="ms" id="ms"></span>
+    <span class="via" id="via"></span>
+    <span class="stack" id="stack"></span>
+  </footer>
 </div>
 
-<div class="stage">
-  <div class="inner">
-    <div class="said" id="said"></div>
-    <div class="answer quiet" id="answer">Listening.</div>
-  </div>
-</div>
-
-<div class="wire">
-  <span class="dot" id="dot"></span>
-  <span class="tool" id="tool">connecting</span>
-  <span class="ms" id="ms"></span>
-  <span class="via" id="via"></span>
-  <span class="stack" id="stack"></span>
-</div>
-</div>
+<!-- Everything said, once, for screen readers. The animated copy above is
+     aria-hidden so word-by-word updates are not announced. -->
+<div class="sr" id="sr" role="status" aria-live="polite"></div>
 
 <script>
 (function(){
@@ -198,6 +359,15 @@ body{
 var $=function(i){return document.getElementById(i)};
 var BASE=(location.protocol==="file:")?"http://127.0.0.1:8765"
         :location.origin.replace(/:\d+$/,":8765");
+var REDUCED=!!(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+/* ?preview=follow the Arsenal game|what did I miss
+   A developer/demo affordance, not part of the product UI: runs the same
+   MCP calls and the same animation with no microphone and no voice, using
+   the speech's estimated timing. Pace between phrases: &pace=ms. */
+var QS=new URLSearchParams(location.search);
+var PREVIEW=QS.get("preview");
+var PACE=+(QS.get("pace")||1400);
 
 /* ================================================================ MCP */
 var id=0,sid=null;
@@ -212,6 +382,7 @@ async function rpc(method,params){
 
 /* ============================================================== audio */
 var ctx=null, mic=null, micAn=null, outAn=null, micBuf=null, outBuf=null;
+var micFreq=null, outFreq=null;
 var caps={stt:null,tts:null};
 
 async function openAudio(){
@@ -223,32 +394,46 @@ async function openAudio(){
   mic=stream;
   var src=ctx.createMediaStreamSource(stream);
   micAn=ctx.createAnalyser(); micAn.fftSize=1024; micAn.smoothingTimeConstant=.7;
-  src.connect(micAn); micBuf=new Uint8Array(micAn.frequencyBinCount);
+  src.connect(micAn);
+  micBuf=new Uint8Array(micAn.fftSize);
+  micFreq=new Uint8Array(micAn.frequencyBinCount);
 
   outAn=ctx.createAnalyser(); outAn.fftSize=1024; outAn.smoothingTimeConstant=.72;
-  outBuf=new Uint8Array(outAn.frequencyBinCount);
+  outBuf=new Uint8Array(outAn.fftSize);
+  outFreq=new Uint8Array(outAn.frequencyBinCount);
   return stream;
 }
 
-/* ============================================================== core */
-/* The reactive core. Every ring is driven by real audio: your
-   microphone while it listens, the returning voice while it speaks.
-   Nothing here is a decorative loop running on a timer.
-
-   Four layers, outside in:
-     1. an outer ring of ticks, rotating slowly, denser where there is
-        energy in that part of the spectrum
-     2. two dashed arcs counter-rotating, which speed up while thinking
-     3. a radial waveform - the audio drawn as a circle, its radius
-        modulated by the actual samples
-     4. a core whose glow tracks amplitude
-
-   Colour carries state, so a sighted person can read it across a room:
-   dim blue idle, white-blue listening, deep blue thinking, warm amber
-   speaking. */
-var cv=$("core"), cx=cv.getContext("2d"), W=0, H=0, DPR=1;
+/* ============================================================== state */
 var MODE="idle";   // idle | listening | thinking | speaking
-var spin=0, spin2=0, scan=0, glow=0, pulse=0;
+var ripples=[];
+function setMode(m){
+  if(m===MODE) return;
+  MODE=m;
+  document.body.setAttribute("data-mode",m);
+  if(!REDUCED) ripples.push({t:0});
+}
+
+/* ============================================================== core */
+/* The reactive backdrop. While nothing is being said it is the hero: a
+   core at the centre of concentric rings. While an answer is on screen it
+   moves behind the words, softer, so the text is the star.
+
+     aurora            slow light that drifts and swells with the energy
+     ambient motes     drift; speed and brightness follow the energy
+     ripples           one expanding ring per change of state
+     spectrum ring     tick marks, mirrored, from the real frequency data
+     arcs              counter-rotating; they speed up while thinking
+     radial waveform   the audio drawn as a smooth closed curve, with an echo
+     core              a glow that tracks amplitude (fades behind the text)
+     goal burst        a warm shockwave when the score goes up
+
+   Colour carries state: dim blue idle, pale blue listening, deep blue
+   thinking, warm gold speaking. Everything is eased, nothing snaps, and
+   no blur filter is used (layered strokes instead) so it stays smooth. */
+var cv=$("core"), cx=cv.getContext("2d"), W=0, H=0, DPR=1;
+var spin=0, spin2=0, scan=0, glow=0, pulse=0, env=0, burst=0, lastT=0;
+var energySmooth=0;
 
 function sizeCore(){
   DPR=Math.min(window.devicePixelRatio||1,2);
@@ -257,141 +442,252 @@ function sizeCore(){
   cv.style.width=W+"px"; cv.style.height=H+"px";
   cx.setTransform(DPR,0,0,DPR,0,0);
 }
-window.addEventListener("resize",sizeCore);
+window.addEventListener("resize",function(){ sizeCore(); placeText(); fit(); });
 sizeCore();
 
 var PALETTE={
-  idle:      [36,84,110],
-  listening: [120,205,240],
-  thinking:  [25,140,220],
-  speaking:  [245,200,76]
+  idle:      [48,104,142],
+  listening: [132,212,244],
+  thinking:  [36,148,226],
+  speaking:  [246,198,92]
 };
-var rgbNow=[36,84,110];
-
+var rgbNow=[48,104,142];
 function ease(a,b,t){ return a+(b-a)*t; }
 
-function drawCore(){
+/* ambient motes */
+var MOTES=[], NM=64;
+(function(){
+  var seed=7;
+  function rnd(){ seed=(seed*16807)%2147483647; return (seed-1)/2147483646; }
+  for(var i=0;i<NM;i++) MOTES.push({
+    a:rnd()*Math.PI*2, r:2.2+rnd()*2.9, s:(.0008+rnd()*.0022)*(rnd()<.5?-1:1),
+    z:.5+rnd()*1.2, ph:rnd()*6.28, bin:Math.floor(rnd()*60)
+  });
+})();
+
+/* aurora blobs: [orbit x, orbit y, speed, phase, size] */
+var AURORA=[[.30,.18,.07,0.0,.62],[.26,.24,.05,2.1,.55],[.34,.14,.09,4.2,.48]];
+
+var prevRing=null;
+var RS=.86;                       // tighter rings, so the words get room below
+
+/* Where the eye sits: always the centre of the screen. The score and major
+   updates are above it, the words below it. */
+var answering=false, geoK=0;
+function geometry(k){
+  var m=Math.min(W,H), narrow=W<700;
+  var cyHero=H*(narrow?.30:.405);
+  var rHero=m*(narrow?.150:.118);
+  return {cx:W/2, cy:cyHero, R:rHero, m:m};
+}
+
+/* The eye's resting outer edge (the base of its tick ring plus the shortest
+   tick). The words hang EYE_GAP pixels below it. */
+var EYE_GAP=10;
+function eyeEdge(g){ return g.cy + g.R*2.12*RS + 3; }
+
+function placeText(){
+  var st=document.querySelector(".stage"); if(!st||!W) return;
+  var inner=st.firstElementChild, g=geometry(0);
+  var stTop=st.getBoundingClientRect().top;
+  inner.style.marginTop=Math.max(0, eyeEdge(g)+EYE_GAP-stTop)+"px";
+}
+
+function drawCore(now){
   requestAnimationFrame(drawCore);
   if(!W) sizeCore();
+  var dt=Math.min(.05,((now||0)-lastT)/1000||.016); lastT=now||0;
+  var k60=dt*60;                                  // frame-rate independent easing
   cx.clearRect(0,0,W,H);
 
-  var cxp=W/2, cyp=H*0.38, R=Math.min(W,H)*0.17;
+  geoK=ease(geoK, answering?1:0, 1-Math.pow(.92,k60));
+  var geo=geometry(geoK), cxp=geo.cx, cyp=geo.cy, R=geo.R, m=geo.m;
+  var back=geoK;                                   // 0 hero ... 1 behind the words
+  var ringA=ease(1,.42,back);                      // rings fade behind text
 
-  // --- real audio --------------------------------------------------
-  var an = (MODE==="speaking") ? outAn : micAn;
-  var buf= (MODE==="speaking") ? outBuf : micBuf;
-  var freq=null, amp=0;
+  // --- real audio ------------------------------------------------------
+  var an=(MODE==="speaking")?outAn:micAn;
+  var buf=(MODE==="speaking")?outBuf:micBuf;
+  var freq=(MODE==="speaking")?outFreq:micFreq;
+  var amp=0;
   if(an){
     an.getByteTimeDomainData(buf);
     var sum=0;
     for(var i=0;i<buf.length;i++){ var d=(buf[i]-128)/128; sum+=d*d; }
     amp=Math.sqrt(sum/buf.length);
-    freq=new Uint8Array(an.frequencyBinCount);
     an.getByteFrequencyData(freq);
   }
-  if(MODE==="idle"||MODE==="thinking") amp*=0.18;
+  // Browser speech cannot be tapped by Web Audio, so while it speaks (or
+  // in preview) the word timings drive the backdrop instead: each spoken
+  // word kicks an envelope that decays. Still the speech's own timing.
+  env*=Math.pow(.90,k60);
+  var live=Math.max(amp, env*.42);
+  if(MODE==="idle"||MODE==="thinking") live*=.18;
+  if(MODE==="thinking") live=Math.max(live,.03+.02*Math.sin(pulse*3));
 
-  // --- state colour, eased so transitions do not snap ---------------
   var target=PALETTE[MODE]||PALETTE.idle;
-  for(var c=0;c<3;c++) rgbNow[c]=ease(rgbNow[c],target[c],0.06);
+  for(var c=0;c<3;c++) rgbNow[c]=ease(rgbNow[c],target[c],1-Math.pow(.95,k60));
   var col=function(a){ return "rgba("+(rgbNow[0]|0)+","+(rgbNow[1]|0)+","+(rgbNow[2]|0)+","+a+")"; };
+  var col2=function(a){ return "rgba("+((rgbNow[0]*.55)|0)+","+((rgbNow[1]*.82+22)|0)+","+Math.min(255,(rgbNow[2]*1.05+10)|0)+","+a+")"; };
 
-  glow=ease(glow, Math.min(1,amp*4.5), 0.18);
-  pulse+=0.016;
-  spin += MODE==="thinking"?0.016:0.0035;
-  spin2-= MODE==="thinking"?0.024:0.0022;
-  scan += MODE==="thinking"?0.03:0.006;
+  glow=ease(glow, Math.min(1,live*4.5), 1-Math.pow(.84,k60));
+  energySmooth=ease(energySmooth, Math.min(1,live*5), 1-Math.pow(.9,k60));
+  pulse+=dt;
+  var th=(MODE==="thinking");
+  spin += (th?.96:.21)*dt;
+  spin2-= (th?1.44:.13)*dt;
+  scan += (th?1.8:.36)*dt;
 
-  // --- 4. the ambient glow -----------------------------------------
-  var g=cx.createRadialGradient(cxp,cyp,0,cxp,cyp,R*(3.2+glow*1.4));
-  g.addColorStop(0, col(0.16+glow*0.3));
-  g.addColorStop(0.42, col(0.05+glow*0.08));
-  g.addColorStop(1, "rgba(0,0,0,0)");
-  cx.fillStyle=g; cx.fillRect(0,0,W,H);
-
-  // --- 3. the radial waveform --------------------------------------
-  if(an){
-    cx.beginPath();
-    var N=160;
-    for(var k=0;k<=N;k++){
-      var t=k/N, ang=t*Math.PI*2 - Math.PI/2;
-      var si=Math.floor(t*buf.length);
-      var v=(buf[si%buf.length]-128)/128;
-      // Taper at the seam so the circle closes cleanly instead of
-      // showing a step where the sample buffer wraps.
-      var seam=Math.sin(t*Math.PI);
-      var r=R + v*R*0.62*seam + Math.sin(t*14+pulse*2)*R*0.016;
-      var x=cxp+Math.cos(ang)*r, y=cyp+Math.sin(ang)*r;
-      k===0?cx.moveTo(x,y):cx.lineTo(x,y);
+  // --- aurora ---------------------------------------------------------
+  cx.globalCompositeOperation="lighter";
+  if(!REDUCED){
+    for(var ab=0;ab<AURORA.length;ab++){
+      var A=AURORA[ab], t=pulse*A[2]*(1+energySmooth*1.4)+A[3];
+      var ax=cxp+Math.cos(t)*W*A[0], ay=cyp+Math.sin(t*1.31)*H*A[1];
+      var ar=m*(A[4]+glow*.16+back*.1);
+      var ag=cx.createRadialGradient(ax,ay,0,ax,ay,ar);
+      var aa=(.075+glow*.10)*(ab===2?.8:1);
+      ag.addColorStop(0,(ab===2?col2:col)(aa));
+      ag.addColorStop(1,"rgba(0,0,0,0)");
+      cx.fillStyle=ag; cx.fillRect(0,0,W,H);
     }
-    cx.closePath();
-    cx.strokeStyle=col(0.55+glow*0.4);
-    cx.lineWidth=1.4;
-    cx.shadowBlur=16+glow*26; cx.shadowColor=col(0.5);
-    cx.stroke();
-    cx.shadowBlur=0;
+  }
+  // central glow
+  var gr=R*(3.4+glow*1.6);
+  var g=cx.createRadialGradient(cxp,cyp,0,cxp,cyp,gr);
+  g.addColorStop(0,col(.16+glow*.26));
+  g.addColorStop(.45,col(.05+glow*.08));
+  g.addColorStop(1,"rgba(0,0,0,0)");
+  cx.fillStyle=g; cx.fillRect(0,0,W,H);
+  cx.globalCompositeOperation="source-over";
+
+  // --- ambient motes -----------------------------------------------------
+  if(!REDUCED){
+    for(var mo=0;mo<MOTES.length;mo++){
+      var o=MOTES[mo];
+      o.a+=o.s*(1+energySmooth*5+(th?3:0))*k60;
+      var rr=R*(o.r+Math.sin(pulse*.5+o.ph)*.08+energySmooth*.18);
+      var px=cxp+Math.cos(o.a)*rr*1.15, py=cyp+Math.sin(o.a)*rr*.82;
+      var mag=freq?freq[o.bin]/255:0;
+      var al=(.10+.22*(.5+.5*Math.sin(pulse*.9+o.ph))+mag*.5)*ease(1,.7,back);
+      cx.beginPath(); cx.arc(px,py,o.z*(1+mag*1.2),0,Math.PI*2);
+      cx.fillStyle=col(Math.min(.8,al)); cx.fill();
+    }
   }
 
-  // --- 2. counter-rotating dashed arcs ------------------------------
+  // --- state ripples -----------------------------------------------------
+  for(var q=ripples.length-1;q>=0;q--){
+    var rp=ripples[q]; rp.t+=dt;
+    var u=rp.t/1.6;
+    if(u>=1){ ripples.splice(q,1); continue; }
+    cx.beginPath(); cx.arc(cxp,cyp,R*(.9+u*3.3),0,Math.PI*2);
+    cx.strokeStyle=col((1-u)*(1-u)*.38*ringA); cx.lineWidth=1.2+(1-u)*2; cx.stroke();
+  }
+
+  // --- goal burst ----------------------------------------------------------
+  if(burst>0){
+    burst=Math.max(0,burst-dt/1.8);
+    var bu=1-burst, wr=R*(1.1+bu*4.6);
+    var wg=cx.createRadialGradient(cxp,cyp,wr*.7,cxp,cyp,wr);
+    wg.addColorStop(0,"rgba(245,200,76,0)");
+    wg.addColorStop(1,"rgba(245,200,76,"+(burst*.26)+")");
+    cx.fillStyle=wg; cx.beginPath(); cx.arc(cxp,cyp,wr,0,Math.PI*2); cx.fill();
+    cx.beginPath(); cx.arc(cxp,cyp,wr,0,Math.PI*2);
+    cx.strokeStyle="rgba(255,224,138,"+(burst*.8)+")"; cx.lineWidth=1+burst*3; cx.stroke();
+    for(var s=0;s<32;s++){
+      var sa2=s/32*Math.PI*2+.3, r1=R*(1.3+bu*3.2), r2=r1+R*(.18+burst*.4);
+      cx.beginPath(); cx.moveTo(cxp+Math.cos(sa2)*r1,cyp+Math.sin(sa2)*r1);
+      cx.lineTo(cxp+Math.cos(sa2)*r2,cyp+Math.sin(sa2)*r2);
+      cx.strokeStyle="rgba(255,224,138,"+(burst*.7)+")"; cx.lineWidth=1.4; cx.stroke();
+    }
+  }
+
+  // --- spectrum ring -----------------------------------------------------
+  var ticks=108;
+  cx.save(); cx.translate(cxp,cyp); cx.rotate(spin*.5);
+  for(var j=0;j<ticks;j++){
+    var a2=(j/ticks)*Math.PI*2, mag2;
+    if(freq){
+      var bin2=Math.floor((j<ticks/2?j:ticks-j)/(ticks/2)*(freq.length*.34));
+      mag2=freq[bin2]/255;
+    } else mag2=.05+env*.5*(.5+.5*Math.sin(j*.7+pulse*6));
+    var len=3+mag2*R*.46, r0=R*2.12*RS;
+    cx.beginPath();
+    cx.moveTo(Math.cos(a2)*r0, Math.sin(a2)*r0);
+    cx.lineTo(Math.cos(a2)*(r0+len), Math.sin(a2)*(r0+len));
+    cx.strokeStyle=col((.10+mag2*.6)*ringA); cx.lineWidth=1.4; cx.stroke();
+  }
+  cx.restore();
+
+  // --- counter-rotating arcs ------------------------------------------------
   function arc(radius,from,to,width,alpha,rot,dash){
     cx.save(); cx.translate(cxp,cyp); cx.rotate(rot);
     cx.beginPath(); cx.arc(0,0,radius,from,to);
-    cx.strokeStyle=col(alpha); cx.lineWidth=width;
+    cx.strokeStyle=col(alpha*ringA); cx.lineWidth=width;
     if(dash) cx.setLineDash(dash);
     cx.stroke(); cx.restore();
   }
-  arc(R*1.42, 0, Math.PI*0.62, 1, 0.5, spin);
-  arc(R*1.42, Math.PI, Math.PI*1.4, 1, 0.28, spin);
-  arc(R*1.66, 0, Math.PI*2, 1, 0.2, spin2, [2,9]);
-  arc(R*1.9,  Math.PI*0.15, Math.PI*0.5, 2, 0.34, spin2);
-  arc(R*1.9,  Math.PI*1.15, Math.PI*1.5, 2, 0.34, spin2);
+  arc(R*1.42*RS,0,Math.PI*.62,1,.5,spin);
+  arc(R*1.42*RS,Math.PI,Math.PI*1.4,1,.28,spin);
+  arc(R*1.66*RS,0,Math.PI*2,1,.2,spin2,[2,9]);
+  arc(R*1.9*RS,Math.PI*.15,Math.PI*.5,2,.34,spin2);
+  arc(R*1.9*RS,Math.PI*1.15,Math.PI*1.5,2,.34,spin2);
 
-  // --- 1. the spectrum ring ----------------------------------------
-  if(freq){
-    var ticks=96;
-    cx.save(); cx.translate(cxp,cyp); cx.rotate(spin*0.5);
-    for(var j=0;j<ticks;j++){
-      var a2=(j/ticks)*Math.PI*2;
-      // Low bins hold the voice; sample the lower third and mirror it
-      // so the ring is symmetrical rather than lopsided.
-      var bin=Math.floor((j<ticks/2?j:ticks-j)/(ticks/2)*(freq.length*0.34));
-      var mag=freq[bin]/255;
-      var len=3+mag*R*0.42;
-      var r0=R*2.12;
-      cx.beginPath();
-      cx.moveTo(Math.cos(a2)*r0, Math.sin(a2)*r0);
-      cx.lineTo(Math.cos(a2)*(r0+len), Math.sin(a2)*(r0+len));
-      cx.strokeStyle=col(0.12+mag*0.6);
-      cx.lineWidth=1.4; cx.stroke();
+  // --- thinking: a comet around the ring -------------------------------------
+  if(th){
+    var head=scan*1.4;
+    for(var tI=0;tI<26;tI++){
+      var ta=head-tI*.04;
+      cx.beginPath(); cx.arc(cxp+Math.cos(ta)*R*1.66*RS,cyp+Math.sin(ta)*R*1.66*RS,
+        2.8*(1-tI/26)+.4,0,Math.PI*2);
+      cx.fillStyle=col((1-tI/26)*.85*ringA); cx.fill();
     }
-    cx.restore();
   }
 
-  // --- the scanning sweep, only while thinking ---------------------
-  if(MODE==="thinking"){
-    var sa=scan%(Math.PI*2);
-    var sg=cx.createLinearGradient(
-      cxp+Math.cos(sa)*R*2.3, cyp+Math.sin(sa)*R*2.3, cxp, cyp);
-    sg.addColorStop(0, col(0.5)); sg.addColorStop(1,"rgba(0,0,0,0)");
-    cx.save(); cx.translate(cxp,cyp);
-    cx.beginPath(); cx.moveTo(0,0);
-    cx.arc(0,0,R*2.3,sa-0.1,sa+0.1); cx.closePath();
-    cx.fillStyle=col(0.07); cx.fill();
-    cx.restore();
+  // --- radial waveform: a smooth closed curve, with a faint echo ---------------
+  var N=120, ring=new Float32Array(N);
+  for(var kk=0;kk<N;kk++){
+    var tt=kk/N, seam=Math.sin(tt*Math.PI), v=0;
+    if(an){ v=(buf[Math.floor(tt*buf.length)%buf.length]-128)/128; }
+    else { v=Math.sin(tt*18+pulse*9)*env*.5; }
+    ring[kk]=R + v*R*.62*seam + Math.sin(tt*14+pulse*2)*R*.016;
   }
+  function trace(arr,alpha,w){
+    var pts=[];
+    for(var z=0;z<N;z++){
+      var an2=(z/N)*Math.PI*2-Math.PI/2;
+      pts.push([cxp+Math.cos(an2)*arr[z], cyp+Math.sin(an2)*arr[z]]);
+    }
+    cx.beginPath();
+    var m0=[(pts[N-1][0]+pts[0][0])/2,(pts[N-1][1]+pts[0][1])/2];
+    cx.moveTo(m0[0],m0[1]);
+    for(var z2=0;z2<N;z2++){
+      var p=pts[z2], nx=pts[(z2+1)%N];
+      cx.quadraticCurveTo(p[0],p[1],(p[0]+nx[0])/2,(p[1]+nx[1])/2);
+    }
+    cx.closePath();
+    cx.strokeStyle=col(alpha); cx.lineWidth=w; cx.lineJoin="round"; cx.stroke();
+  }
+  var wa=ease(1,.55,back);
+  if(prevRing) trace(prevRing,(.14+glow*.1)*wa,1);
+  trace(ring,(.07+glow*.06)*wa,7+glow*8);           // soft halo, no blur filter
+  trace(ring,(.55+glow*.4)*wa,1.5);
+  prevRing=ring;
 
-  // --- the core ----------------------------------------------------
-  var cg=cx.createRadialGradient(cxp,cyp,0,cxp,cyp,R*0.78);
-  cg.addColorStop(0, col(0.5+glow*0.45));
-  cg.addColorStop(0.55, col(0.1+glow*0.16));
+  // --- the core (fades behind the words) -----------------------------------------
+  var fade=1-back*.88;
+  var cr=R*.78*(1+glow*.07);
+  var cg=cx.createRadialGradient(cxp,cyp,0,cxp,cyp,cr);
+  cg.addColorStop(0,col((.5+glow*.45)*fade));
+  cg.addColorStop(.55,col((.1+glow*.16)*fade));
   cg.addColorStop(1,"rgba(0,0,0,0)");
-  cx.fillStyle=cg;
-  cx.beginPath(); cx.arc(cxp,cyp,R*0.78,0,Math.PI*2); cx.fill();
-
-  cx.beginPath(); cx.arc(cxp,cyp,R*0.1+glow*R*0.07,0,Math.PI*2);
-  cx.fillStyle=col(0.75+glow*0.25);
-  cx.shadowBlur=22+glow*34; cx.shadowColor=col(0.9);
-  cx.fill(); cx.shadowBlur=0;
+  cx.fillStyle=cg; cx.beginPath(); cx.arc(cxp,cyp,cr,0,Math.PI*2); cx.fill();
+  var dr=R*.1+glow*R*.075;
+  var dg=cx.createRadialGradient(cxp,cyp,0,cxp,cyp,dr*3.2);
+  dg.addColorStop(0,col(.9*fade)); dg.addColorStop(.3,col(.35*fade)); dg.addColorStop(1,"rgba(0,0,0,0)");
+  cx.fillStyle=dg; cx.beginPath(); cx.arc(cxp,cyp,dr*3.2,0,Math.PI*2); cx.fill();
+  cx.beginPath(); cx.arc(cxp,cyp,dr,0,Math.PI*2);
+  cx.fillStyle=col((.8+glow*.2)*fade); cx.fill();
 }
 requestAnimationFrame(drawCore);
 
@@ -406,7 +702,7 @@ function level(an,buf){
 /* =============================================== listening, hands-free */
 /* Energy-gated. Speech raises the level above a floor measured from the
    room itself; a pause below it for long enough ends the turn. No wake
-   word, no button, no hold — the listener is not looking at anything. */
+   word, no button, no hold - the listener is not looking at anything. */
 var FLOOR=0.012, SILENCE_MS=850, MIN_MS=380, MAX_MS=12000;
 var speaking=false, armed=false;
 var sawVoice=false, lastVoice=0, startedAt=0, watch=null;
@@ -419,8 +715,7 @@ var sawVoice=false, lastVoice=0, startedAt=0, watch=null;
    a file, so PCM gets a 44-byte WAV header server-side.
 
    ScriptProcessor rather than AudioWorklet: deprecated, but it works
-   everywhere without a separate module file, which matters for a page
-   opened from file://. */
+   everywhere without a separate module file. */
 var TARGET_RATE=16000, pcmNode=null, pcmChunks=[], capturing=false;
 
 function downsample(input, inRate){
@@ -475,14 +770,19 @@ function endCapture(){
 
 function listen(){
   if(!armed||speaking||!mic)return;
-  MODE="listening"; setQuiet("Listening.");
+  if(useBrowserSTT){ startBrowserRecognition(); return; }
+  setMode("listening");      // the state label already says so; the last
+                             // answer stays on screen until you speak again
   sawVoice=false; startedAt=performance.now(); lastVoice=0;
   startCapture();
 
   clearInterval(watch);
   watch=setInterval(function(){
     var a=level(micAn,micBuf), now=performance.now();
-    if(a>FLOOR){ sawVoice=true; lastVoice=now; }
+    if(a>FLOOR){
+      if(!sawVoice) answer.classList.add("stale");   // you are speaking: dim the last answer
+      sawVoice=true; lastVoice=now;
+    }
     var elapsed=now-startedAt, quietFor=now-(lastVoice||startedAt);
     if((sawVoice && elapsed>MIN_MS && quietFor>SILENCE_MS) || elapsed>MAX_MS){
       clearInterval(watch); watch=null;
@@ -494,6 +794,7 @@ function listen(){
 }
 
 function stopListening(){
+  if(REC){ try{REC.abort()}catch(e){} REC=null; }
   clearInterval(watch); watch=null;
   if(capturing) endCapture();
 }
@@ -503,6 +804,7 @@ function stopListening(){
 var bargeTimer=null;
 function watchForBargeIn(){
   clearInterval(bargeTimer);
+  if(!micAn) return;
   var over=0;
   bargeTimer=setInterval(function(){
     if(!speaking){clearInterval(bargeTimer);return;}
@@ -515,9 +817,60 @@ function watchForBargeIn(){
   },60);
 }
 
+/* ===================================== speech in: the browser's own ears */
+/* When the server has no speech-to-text configured (no Transcribe, no
+   Groq key), the browser's SpeechRecognition does it, and shows the words
+   AS YOU SPEAK them. Chrome and Edge send the audio to their vendor's
+   recognition service to do this, which is not Amazon's; Safari support
+   varies; Firefox has none. With server transcription the words appear
+   once the clip has been transcribed. */
+var SR=window.SpeechRecognition||window.webkitSpeechRecognition||null;
+var useBrowserSTT=false, REC=null;
+
+function liveSaid(text,interim){
+  var s=$("said");
+  if(allSpans.length) answer.classList.add("stale");      // you are speaking: dim the last answer
+  s.textContent="\u201c"+text+(interim?"\u2026":"")+"\u201d";
+  s.classList.add("on","live"); s.classList.toggle("interim",!!interim);
+}
+
+function startBrowserRecognition(){
+  if(REC){ try{REC.abort()}catch(e){} REC=null; }
+  var r=new SR();
+  r.lang=navigator.language||"en-GB";
+  r.interimResults=true; r.continuous=false; r.maxAlternatives=1;
+  var finalText="", blocked=false;
+  setMode("listening");              // the last exchange stays until you speak again
+
+  r.onresult=function(e){
+    var interim="";
+    for(var i=e.resultIndex;i<e.results.length;i++){
+      var t=e.results[i][0].transcript;
+      if(e.results[i].isFinal) finalText+=t; else interim+=t;
+    }
+    var shown=(finalText+interim).trim();
+    if(shown) liveSaid(shown, !!interim);      // writes what you say, live
+  };
+  r.onerror=function(e){
+    if(e.error==="not-allowed"||e.error==="service-not-allowed"){
+      blocked=true; armed=false;
+      setQuiet("I can\u2019t use the microphone for speech here. Allow it, then reload.");
+    }
+  };
+  r.onend=function(){
+    REC=null;
+    if(!armed||speaking||blocked) return;
+    var t=finalText.trim();
+    if(t.length>1){ liveSaid(t,false); setMode("thinking"); ask(t); }
+    else setTimeout(function(){ if(armed&&!speaking) listen(); },250);
+  };
+  REC=r;
+  try{ r.start(); }catch(e){ setTimeout(function(){ if(armed&&!speaking) listen(); },400); }
+}
+
 /* ========================================================= speech in */
 async function handleClip(pcm){
-  MODE="thinking"; setQuiet("");
+  setMode("thinking"); setQuiet("");
   var text=null;
   if(caps.stt){
     try{
@@ -529,42 +882,109 @@ async function handleClip(pcm){
   if(!text){ if(armed)listen(); return; }
   text=text.trim();
   if(text.length<2){ if(armed)listen(); return; }
-
-  $("said").textContent="\u201c"+text+"\u201d";
-  $("said").classList.add("on");
+  showSaid(text);
   ask(text);
 }
 
+function showSaid(text){
+  var s=$("said");
+  s.classList.remove("on");
+  void s.offsetWidth;                      // restart the transition
+  s.classList.remove("live","interim");
+  s.textContent="“"+text+"”";
+  s.classList.add("on");
+}
+function fadeSaid(on){ $("said").classList.toggle("on",!!on); }
+
 /* ========================================================= speech out */
 /* Polly where available, because its speech marks give the exact
-   millisecond each word is spoken. The highlight is then real rather
-   than a timer approximating a speech rate. */
-var answer=$("answer"), audioEl=null, srcNode=null, markTimers=[];
+   millisecond each word is spoken, and so how long each word lasts: the
+   gold wipe through a word is then timed by the voice, not guessed.
+   Browser speech reports word boundaries in Chrome; where it does not, the
+   timing is estimated so the text still reads along. */
+var answer=$("answer"), beam=null, audioEl=null, srcNode=null, markTimers=[];
+var curIdx=-1, allSpans=[];
+
+/* A rough duration for a spoken word, used when the voice gives none. */
+function estDur(w){ return 150+Math.min(w.length,12)*40; }
 
 function layout(text){
-  answer.classList.remove("quiet");
+  answer.classList.remove("quiet","settled","stale");
   answer.innerHTML="";
-  var spans=[], at=0;
+  beam=document.createElement("i"); beam.className="beam"; answer.appendChild(beam);
+  var spans=[], at=0, n=0;
   text.split(/(\s+)/).forEach(function(tok){
+    if(!tok) return;
     if(/^\s+$/.test(tok)) answer.appendChild(document.createTextNode(tok));
     else{
-      var w=document.createElement("w");
-      w.textContent=tok; w.dataset.at=at;
+      var w=document.createElement("span");
+      w.className="w"+(/\d/.test(tok)?" num":"");
+      w.textContent=tok; w.dataset.t=tok; w.dataset.at=at;
+      w.dataset.dur=estDur(tok);
+      w.style.setProperty("--i",n++);
       answer.appendChild(w); spans.push(w);
     }
     at+=tok.length;
   });
+  allSpans=spans; curIdx=-1;
+  placeText();
+  fit();
   return spans;
 }
-function setQuiet(t){ answer.classList.add("quiet"); answer.textContent=t; }
 
-function reveal(spans,charIndex){
-  for(var i=0;i<spans.length;i++){
-    var a=+spans[i].dataset.at;
-    spans[i].classList.toggle("on", a<=charIndex);
-    spans[i].classList.toggle("now", a<=charIndex &&
-      (i===spans.length-1 || +spans[i+1].dataset.at>charIndex));
+/* Set the type as large as the screen allows: binary-search the size so
+   the whole answer fits its box, so a short answer is huge and a long one
+   still fits. */
+function fit(){
+  if(answer.classList.contains("quiet")||!allSpans.length) return;
+  var narrow=W<700, g=geometry(0);
+  var wire=document.querySelector(".wire"), said=$("said");
+  var top=eyeEdge(g)+EYE_GAP;                       // the words start here
+  var availH=Math.max(84, H-top-(wire?wire.offsetHeight:44)-(said?said.offsetHeight+8:30)-18);
+  var maxW=Math.min(W*.9,1060);
+  var lo=16, hi=narrow?30:38, best=lo;
+  answer.style.maxWidth=maxW+"px";
+  for(var i=0;i<10;i++){
+    var mid=(lo+hi)/2;
+    answer.style.setProperty("--fs",mid+"px");
+    if(answer.scrollHeight<=availH && answer.scrollWidth<=maxW+1){ best=mid; lo=mid; }
+    else hi=mid;
   }
+  answer.style.setProperty("--fs",best+"px");
+}
+
+function setQuiet(t){
+  answer.classList.add("quiet"); answer.classList.remove("settled","stale");
+  answer.textContent=t; allSpans=[]; beam=null; curIdx=-1;
+  answer.style.maxWidth="";
+  answering=false;
+}
+
+/* The underline glides to the word being spoken. */
+function moveBeam(sp){
+  if(!beam||REDUCED) return;
+  if(!sp){ beam.style.opacity=0; return; }
+  beam.style.opacity=1;
+  beam.style.width=sp.offsetWidth+"px";
+  beam.style.transform="translate("+sp.offsetLeft+"px,"+(sp.offsetTop+sp.offsetHeight*.94)+"px)";
+}
+
+function kick(strength){ env=Math.max(env,strength||1); }
+
+/* Mark every word up to charIndex as spoken, and the last of them as now. */
+function reveal(spans,charIndex){
+  var cur=-1;
+  for(var i=0;i<spans.length;i++){ if(+spans[i].dataset.at<=charIndex) cur=i; else break; }
+  if(cur===curIdx) return;
+  if(cur>=0) spans[cur].style.setProperty("--dur",(spans[cur].dataset.dur||300)+"ms");
+  for(var j=0;j<spans.length;j++){
+    var s=spans[j], isRead=j<=cur, isNow=j===cur;
+    if(s.classList.contains("read")!==isRead) s.classList.toggle("read",isRead);
+    if(s.classList.contains("now")!==isNow) s.classList.toggle("now",isNow);
+  }
+  if(cur>curIdx) kick(.9);
+  curIdx=cur;
+  moveBeam(cur>=0?spans[cur]:null);
 }
 
 function stopSpeaking(){
@@ -572,11 +992,43 @@ function stopSpeaking(){
   markTimers.forEach(clearTimeout); markTimers=[];
   if(audioEl){ audioEl.pause(); audioEl=null; }
   if(window.speechSynthesis) speechSynthesis.cancel();
+  moveBeam(null);
+}
+
+/* Estimated timing, used when there is no voice to follow: a steady
+   speaking rate, a little longer for long words, pauses at punctuation. */
+function timedReveal(spans,done,startFrom){
+  var t=0;
+  spans.forEach(function(sp,i){
+    var txt=sp.textContent, d=estDur(txt);
+    sp.dataset.dur=Math.round(d*.92);
+    if(i>=(startFrom||0)){
+      var at=+sp.dataset.at, when=t;
+      markTimers.push(setTimeout(function(){ reveal(spans,at); },when));
+    }
+    t+=d+(/[.!?]$/.test(txt)?340:/[,;:]$/.test(txt)?160:0);
+  });
+  markTimers.push(setTimeout(function(){ finishSpeaking(spans,done); },t+260));
+}
+
+/* Polly's marks tell us when each word starts, so we know how long it lasts. */
+function applyMarkDurations(spans,marks){
+  var byAt={};
+  spans.forEach(function(s,i){ byAt[s.dataset.at]=i; });
+  (marks||[]).forEach(function(m,j){
+    var i=byAt[m.start];
+    if(i==null) return;
+    var next=marks[j+1], d=next?(next.time-m.time):500;
+    spans[i].dataset.dur=Math.max(120,Math.round(d*.94));
+  });
 }
 
 async function say(text){
+  $("sr").textContent=""; $("sr").textContent=text;          // announce once
   var spans=layout(text);
-  speaking=true; MODE="speaking";
+  speaking=true; setMode("speaking");
+
+  if(PREVIEW!==null){ timedReveal(spans); return; }
 
   if(caps.tts){
     try{
@@ -602,6 +1054,7 @@ function playPolly(doc,spans){
       srcNode.connect(outAn); outAn.connect(ctx.destination);
     }catch(e){ /* already connected, or unsupported: still audible */ }
 
+    applyMarkDurations(spans,doc.marks);
     // One timer per word, from Polly's own millisecond offsets.
     markTimers=(doc.marks||[]).map(function(m){
       return setTimeout(function(){ reveal(spans,m.start); }, m.time);
@@ -615,27 +1068,40 @@ function playPolly(doc,spans){
 }
 
 function browserSay(text,spans){
-  if(!("speechSynthesis" in window)){ finishSpeaking(spans); return; }
+  if(!("speechSynthesis" in window)){ timedReveal(spans); return; }
   speechSynthesis.cancel();
-  var u=new SpeechSynthesisUtterance(text);
+  var u=new SpeechSynthesisUtterance(text), gotBoundary=false;
   var vs=speechSynthesis.getVoices().filter(function(v){return /^en/i.test(v.lang)});
   var pref=vs.find(function(v){return /Google UK English Female|Samantha|Amy/.test(v.name)});
   if(pref)u.voice=pref; else if(vs.length)u.voice=vs[0];
   u.rate=1.02;
-  u.onboundary=function(e){ if(!e.name||e.name==="word") reveal(spans,e.charIndex); };
+  u.onboundary=function(e){
+    if(!e.name||e.name==="word"){ gotBoundary=true; reveal(spans,e.charIndex); }
+  };
   u.onend=function(){ finishSpeaking(spans); };
   watchForBargeIn();
   speechSynthesis.speak(u);
+  // Some browsers speak but never report word boundaries. If none arrive,
+  // read along on estimated timing so the text still follows the voice.
+  markTimers.push(setTimeout(function(){
+    if(speaking && !gotBoundary){
+      markTimers.forEach(clearTimeout); markTimers=[];
+      timedReveal(spans,null,0);
+    }
+  },900));
 }
 
 function finishSpeaking(spans,done){
   markTimers.forEach(clearTimeout); markTimers=[];
-  spans.forEach(function(s){s.classList.add("on");s.classList.remove("now")});
-  speaking=false; audioEl=null; MODE="idle";
+  spans.forEach(function(s){ s.classList.add("read"); s.classList.remove("now"); });
+  moveBeam(null);
+  answer.classList.add("settled");
+  speaking=false; audioEl=null; setMode("idle");
   clearInterval(bargeTimer);
   if(done)done();
   // Hands-free: go straight back to listening. No button, no wake word.
   setTimeout(function(){ if(armed) listen(); }, 180);
+  if(PREVIEW!==null && previewResolve){ var r=previewResolve; previewResolve=null; r(); }
 }
 
 /* ============================================================ routing */
@@ -677,18 +1143,64 @@ function route(t){
 
 /* =============================================================== match */
 var M={minute:0,told:null,events:[],home:"",away:"",score:null};
+var shownScore=null;
+
+function setScore(home,away){
+  var h=$("sh"), a=$("sa");
+  function put(el,v){
+    if(el.textContent!==String(v)){
+      el.textContent=v; el.classList.remove("bump"); void el.offsetWidth;
+      if(shownScore) el.classList.add("bump");
+    }
+  }
+  put(h,home); put(a,away);
+  if(shownScore && (home+away)>(shownScore.home+shownScore.away) && !REDUCED) burst=1;
+  shownScore={home:home,away:away};
+}
+
+var KIND={goal:"Goal",card:"Card",substitution:"Sub",var:"VAR"};
+function showPills(events){
+  var box=$("pills"); box.innerHTML="";
+  // Major updates first: goals, red cards and VAR decisions, then the rest,
+  // always the most recent four and always shown in match order.
+  var major=function(e){ return e.kind==="goal"||e.kind==="var"||(e.kind==="card"&&e.colour==="red"); };
+  var list=(events||[]).map(function(e,i){ return {e:e,i:i}; });
+  list.sort(function(a,b){ return (major(b.e)-major(a.e)) || (b.i-a.i); });
+  list=list.slice(0,4).sort(function(a,b){ return a.i-b.i; }).map(function(x){ return x.e; });
+  list.forEach(function(e,i){
+    var p=document.createElement("span");
+    var cls=e.kind==="card"?(e.colour==="red"?"red":"yellow"):e.kind;
+    p.className="pill "+cls+(e.kind==="card"?" card":"");
+    var label=e.kind==="card"?(e.colour==="red"?"Red":"Yellow"):(KIND[e.kind]||e.kind);
+    p.innerHTML='<span class="k"></span><span class="m"></span><span class="t"></span>';
+    p.querySelector(".m").textContent=e.minute+"′";
+    p.querySelector(".t").textContent=label+(e.player?" · "+e.player:"");
+    box.appendChild(p);
+    setTimeout(function(){ p.classList.add("in"); }, REDUCED?0:140+i*110);
+  });
+}
+
 function paint(){
-  if(!M.home)return;
+  placeText();
+  if(!M.home && !M.score && !(M.events&&M.events.length)) return;
   $("match").classList.add("on");
-  $("teams").textContent=M.home+" v "+M.away;
-  if(M.score)$("score").textContent=M.score.home+"\u2013"+M.score.away;
-  $("clock").textContent=M.minute+"'";
+  $("teamh").textContent=M.home;
+  $("teama").textContent=M.away;
+  if(M.score) setScore(M.score.home,M.score.away);
+  $("clock").textContent=M.minute+"′";
   var pc=function(m){return Math.max(0,Math.min(100,m/90*100))+"%"};
   $("played").style.width=pc(M.minute);
+  $("nowdot").style.left=pc(M.minute); $("nowdot").classList.add("on");
+  var have={};
+  document.querySelectorAll(".bar .tick").forEach(function(n){
+    have[n.dataset.k]=1;
+  });
   document.querySelectorAll(".bar .tick").forEach(function(n){n.remove()});
   M.events.forEach(function(e){
     var t=document.createElement("div");
     t.className="tick"+(e.kind==="goal"?" goal":"");
+    t.dataset.k=e.id||(e.minute+e.kind);
+    if(have[t.dataset.k]) t.style.animation="none";
     t.style.left=pc(e.minute); $("bar").appendChild(t);
   });
   var tm=$("toldmark");
@@ -703,20 +1215,24 @@ function paint(){
 /* ================================================================ ask */
 async function ask(text){
   var pair=route(text),tool=pair[0],args=pair[1],t0=performance.now();
+  setMode("thinking");
   try{
     var doc=await rpc("tools/call",{name:tool,arguments:args});
     var res=(doc&&doc.result)||{}, sc=res.structuredContent||{};
-    $("dot").className="dot "+(res.isError?"err":"ok");
+    var dot=$("dot"); dot.className="dot "+(res.isError?"err":"ok");
+    void dot.offsetWidth; dot.classList.add("ping");
     $("tool").textContent=tool;
     $("ms").textContent=Math.round(performance.now()-t0)+" ms";
-    $("via").textContent=sc.generated_by||"";
+    var via=sc.generated_by||"";
+    if(sc.summary_source && sc.summary_source!==via) via+=(via?" · ":"")+sc.summary_source;
+    $("via").textContent=via;
     $("via").className="via"+(sc.generated_by==="bedrock"?" bedrock":"");
 
     if(sc.minute!=null)M.minute=sc.minute;
     if(sc.home){M.home=sc.home;M.away=sc.away;}
     if(sc.score)M.score=sc.score;
     if(sc.window){M.told=sc.window.from_minute;M.minute=sc.window.to_minute;}
-    if(sc.events&&sc.events.length)M.events=sc.events;
+    if(sc.events&&sc.events.length){ M.events=sc.events; showPills(sc.events); }
     if(tool==="what_did_i_miss")M.told=M.minute;
     paint();
 
@@ -728,6 +1244,24 @@ async function ask(text){
 }
 
 /* ============================================================== start */
+async function connect(){
+  try{
+    var init=await rpc("initialize",{protocolVersion:"2025-11-25",
+      clientInfo:{name:"sideline-simulator",version:"3"}});
+    await rpc("notifications/initialized");
+    var list=await rpc("tools/list");
+    $("dot").className="dot ok";
+    $("tool").textContent=init.result.serverInfo.name;
+    $("ms").textContent=list.result.tools.length+" tools";
+    $("via").textContent="spec "+init.result.protocolVersion;
+    return true;
+  }catch(e){
+    $("dot").className="dot err"; $("tool").textContent="server not running";
+    setQuiet("I can\u2019t reach the server right now.");
+    return false;
+  }
+}
+
 $("begin").onclick=async function(){
   try{ await openAudio(); }
   catch(e){
@@ -736,24 +1270,31 @@ $("begin").onclick=async function(){
   }
   $("gate").classList.add("gone");
   sizeCore(); armed=true;
-
-  try{
-    var init=await rpc("initialize",{protocolVersion:"2025-11-25",
-      clientInfo:{name:"sideline-simulator",version:"2"}});
-    await rpc("notifications/initialized");
-    var list=await rpc("tools/list");
-    $("dot").className="dot ok";
-    $("tool").textContent=init.result.serverInfo.name;
-    $("ms").textContent=list.result.tools.length+" tools";
-    $("via").textContent="spec "+init.result.protocolVersion;
-  }catch(e){
-    $("dot").className="dot err"; $("tool").textContent="server not running";
-    setQuiet("Start the server: python3 -m sideline");
+  if(!(await connect())) return;
+  if(!caps.stt && !SR){
+    setQuiet("This browser can’t turn speech into text. Try Chrome.");
     return;
   }
-
-  say("Listening. Tell me which match to follow.");
+  say("Tell me which match to follow.");
 };
+
+/* Preview: no microphone, no voice. Same MCP calls, same animation. */
+var previewResolve=null;
+async function runPreview(){
+  $("gate").classList.add("gone");
+  if(!(await connect())) return;
+  var phrases=PREVIEW.split("|").map(function(s){return s.trim()}).filter(Boolean);
+  setQuiet(""); setMode("listening");
+  await new Promise(function(r){ setTimeout(r,900); });
+  for(var i=0;i<phrases.length;i++){
+    showSaid(phrases[i]);
+    await new Promise(function(r){ setTimeout(r,500); });
+    var waited=new Promise(function(r){ previewResolve=r; });
+    ask(phrases[i]);
+    await waited;
+    await new Promise(function(r){ setTimeout(r,PACE); });
+  }
+}
 
 /* Ask the server what it can do, so the gate can say so before anyone
    commits a microphone to it. */
@@ -764,11 +1305,17 @@ $("begin").onclick=async function(){
   }catch(e){}
   var inb=caps.stt||"browser";
   var outb=caps.tts?("polly "+(caps.voice||"")):"browser";
-  $("stack").innerHTML="in <b>"+inb+"</b> \u00b7 out <b>"+outb+"</b>";
+  $("stack").innerHTML="in <b>"+inb+"</b> · out <b>"+outb+"</b>";
+  // Setup hints (credentials, providers) are for the developer, not the
+  // listener: they go to the console, never onto the screen.
   if(!caps.stt||!caps.tts){
-    $("gatenote").textContent=caps.stt_hint||caps.tts_hint||"needs your microphone";
+    try{ console.info("sideline voice:", caps.stt_hint||"", caps.tts_hint||""); }catch(e){}
   }
-
+  useBrowserSTT=(!caps.stt && !!SR);
+  if(!caps.stt && !SR && PREVIEW===null){
+    $("gatenote").textContent="this browser can’t turn speech into text — try Chrome";
+  }
+  if(PREVIEW!==null) runPreview();
 })();
 })();
 </script>

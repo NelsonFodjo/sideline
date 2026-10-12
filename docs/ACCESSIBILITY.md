@@ -1,13 +1,28 @@
 # Accessibility rules
 
 This is a product for people who cannot see a screen. Rules we hold
-ourselves to, and the reasoning. These are testable claims, not posture.
+ourselves to, and the reasoning. The reasoning is ours; **it is not drawn
+from user research or cited sources**, and no blind or low-vision person has
+used the product. Where an automated test pins a rule it is named.
+
+| Rule | Pinned by a test? |
+|---|---|
+| 1 nothing essential only on screen | by convention and review; not generally tested |
+| 2 lead with the fact | phrasing checked in `tests/test_language.py` |
+| 3 goals before chronology | `tests/test_language.py` |
+| 4 minutes said as people say them | `tests/test_language.py` |
+| 5 never repeat, never skip | `tests/test_what_did_i_miss.py` |
+| 6 refusals are spoken | `tests/test_tools.py` |
+| 7 speed | measured, `docs/EVIDENCE.md` |
+| 8 never ask them to look | `tests/test_routing_phrases.py`, `tests/test_broadcast_sync.py` |
+| 9 fail safe | `tests/test_broadcast_sync.py` |
 
 ## 1. The screen is never the only place a fact lives
 
-Alexa+ supports the MCP Apps extension, and we use it: `get_match_state`
-returns a scoreboard card, `get_lineups` returns the eleven, catch-up
-returns a timeline.
+Tools declare a UI resource in `_meta` (the MCP Apps pattern, which the
+Alexa+ QuickStart mentions as optional): `get_match_state` a scoreboard
+card, `get_lineups` the eleven, catch-up a timeline. **Whether any Alexa+
+client renders these is unverified**; no participant can reach one.
 
 **But every one of those facts is also in `spoken_text`.** The card is an
 enhancement for a sighted person in the room — a partner, a child, a
@@ -40,7 +55,8 @@ behave the same way.
 `45+2` becomes **"just before half time"**. `90+4` becomes **"deep into
 stoppage time"**.
 
-Nobody asks "what happened in the forty-fifth minute plus two".
+Nobody asks "what happened in the forty-fifth minute plus two". (This is
+a judgement about speech, not a measured one.)
 
 ## 5. Never repeat, never skip
 
@@ -60,9 +76,11 @@ not exist for them.
 
 ## 7. Speed is an accessibility requirement
 
-A sighted viewer glances at the screen in 200 ms. Our budget for the same
-information is under 300 ms for fast tools and under 2.5 s for a
-catch-up.
+A sighted viewer takes in the score at a glance. The listener's equivalent
+has to be quick. Measured server time for the template tools is about
+0.2 ms (docs/EVIDENCE.md). Alexa+'s QuickStart sets a 500 ms round-trip
+target. A Bedrock-composed catch-up has **not been measured** and may exceed
+it; that is a design target, not a result.
 
 This is why `get_match_state` never calls a model. See
 [BEDROCK.md](BEDROCK.md).
@@ -71,60 +89,50 @@ This is why `get_match_state` never calls a model. See
 
 A spoiler guard that requires sight to arm is not a spoiler guard.
 
-We built one. The first version of `sync_broadcast_delay` asked the
-listener to read the clock on their screen so we could work out how far
-behind their broadcast was. Every test passed. The feature was useless
-to the only person it was for.
+`sync_broadcast_delay` therefore does not ask the listener to read a clock.
+What a blind listener has is their ears. The broadcast is audible and
+contains moments both they and we can identify: kick-off, half time, a goal
+going in. They say what they just heard; we know when it happened in the
+data; the difference is the delay.
 
-What a blind listener has is their ears. The broadcast is audible, and
-it contains moments both they and we can identify - kick-off, half time,
-a goal going in. They say what they just heard; we know when it really
-happened; the difference is the delay.
-
-`tests/test_routing_phrases.py` now asserts the tool description leads
-with hearing, and `tests/test_broadcast_sync.py` asserts the refusal
-text never mentions a clock. The mistake cannot come back quietly.
+`tests/test_routing_phrases.py` asserts the tool description leads with
+hearing, and `tests/test_broadcast_sync.py` asserts the refusal text never
+mentions a clock.
 
 The general rule: **before adding any input, ask what it requires of the
 listener.** If the answer involves looking at anything, it is the wrong
-input, however well it works.
-
-We then made the same mistake again in the simulator, which shipped with
-push-to-talk, suggestion chips and a text box. All three require sight.
-It is now hands-free: one button once, because a browser will not open a
-microphone without a gesture, and nothing after that.
-
-Twice is a pattern, which is why the rule is written here rather than
-left as a lesson learned.
+input. The simulator follows it: one button once (a browser will not open a
+microphone without a gesture), then hands-free.
 
 ## 9. Fail safe, not fast
 
-Uncalibrated used to mean zero delay, which meant spoiling by default.
-Now it means a conservative regional prior, tightened by the first audio
-anchor. The worst uncalibrated case is being a few seconds slow. The
-worst case at zero was ruining the match.
+Uncalibrated does not mean zero delay, which would spoil by default. It
+means a conservative prior (45 s by default, or a regional figure from
+`sideline/sync.py`; both are **our estimates**, not measurements of any
+service), tightened by the first audio anchor. The cost of a too-high prior
+is being a few seconds slow; the cost of zero is a spoiled goal.
 
 ## 10. The listener is in control
 
 Sideline does not narrate. It answers.
 
-That started as a platform constraint — Alexa+ owns the turn model, so we
-cannot speak first. It turned out to be the right design anyway. Blind
-fans watch with a sighted friend they *interrupt*; they do not want a
-second commentator talking over the first.
-
-We would still like the option. See [PRODUCT_FEEDBACK.md](PRODUCT_FEEDBACK.md).
+Alexa+'s docs do not say whether a server may speak first (FL-04), so the
+design assumes it cannot. We also think a listener who can ask when they
+want is better served than one narrated at over the broadcast; that is a
+hypothesis nobody has tested with a listener. We would still like the
+option (FR-01 in FEATURE_REQUESTS.md).
 
 ## What we have not done
 
 Stated plainly, because a judge will ask.
 
-- **No testing with blind users yet.** The design follows published
-  accounts of how blind fans watch football and the structure of
-  broadcast information, not our own user research. The single most
+- **No testing with blind or low-vision users.** The design rests on how a
+  broadcast presents information and on our own reasoning. The single most
   valuable next step is sitting with one person and one match.
-- **English only in practice.** `translate()` exists and is wired, but
-  only English has been checked for register.
+- **English only in practice.** `translate()` exists and is wired into the
+  catch-up, but no language other than English has been checked by a
+  speaker for correctness or register, and it has never been called against
+  Bedrock.
 - **No screen-reader path for the companion simulator.** The simulator is
   a developer tool, not part of the product, but it should still be
   navigable and currently is not fully.

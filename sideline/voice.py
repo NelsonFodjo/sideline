@@ -170,14 +170,14 @@ def capabilities():
     # than silently being worse than it could be.
     if not stt:
         if not aws and not GROQ_KEY:
-            out["stt_hint"] = "run `aws configure` for Transcribe, or set GROQ_API_KEY"
+            out["stt_hint"] = "set AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for Transcribe, or GROQ_API_KEY"
         elif aws and not HAVE_TRANSCRIBE:
             out["stt_hint"] = "pip3 install amazon-transcribe"
         else:
             out["stt_hint"] = "speech-to-text disabled"
     if not tts:
         out["tts_hint"] = ("install boto3" if not HAVE_BOTO3
-                           else "no AWS credentials - run `aws configure`")
+                           else "no AWS credentials in the environment (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)")
     return out
 
 
@@ -292,9 +292,9 @@ def _transcribe(pcm_bytes):
     """Amazon Transcribe streaming.
 
     Streaming rather than batch, even though we have the whole clip
-    already: the batch API needs an S3 upload and a job poll, which
-    costs tens of seconds. Streaming returns while the audio is still
-    being pushed, so a three-second clip comes back in about a second.
+    already: the batch API needs an S3 upload and a job poll, which adds
+    steps and waiting. Streaming returns while the audio is still being
+    pushed. (Neither path has been timed against a real account.)
 
     The SDK is asyncio-based and this server is threaded, so the loop
     runs inside the request thread. That is fine - the thread is going

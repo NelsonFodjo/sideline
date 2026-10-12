@@ -1,0 +1,250 @@
+{
+  "_comment": "Built from StatsBomb Open Data. Real match, real events.",
+  "_attribution": "Match data from StatsBomb Open Data.",
+  "fixture": {
+    "fixture_id": 3754318,
+    "home": "Tottenham Hotspur",
+    "away": "Arsenal",
+    "home_id": 1,
+    "away_id": 2,
+    "venue": "White Hart Lane",
+    "kickoff": null
+  },
+  "events": [
+    {
+      "minute": 25,
+      "kind": "card",
+      "player": "Héctor Bellerín Moruno",
+      "team": "Arsenal",
+      "colour": "yellow",
+      "stoppage": 0
+    },
+    {
+      "minute": 27,
+      "kind": "card",
+      "player": "Erik Lamela",
+      "team": "Tottenham Hotspur",
+      "colour": "yellow",
+      "stoppage": 0
+    },
+    {
+      "minute": 28,
+      "kind": "card",
+      "player": "Francis Joseph Coquelin",
+      "team": "Arsenal",
+      "colour": "yellow",
+      "stoppage": 0
+    },
+    {
+      "minute": 38,
+      "kind": "goal",
+      "player": "Aaron Ramsey",
+      "team": "Arsenal",
+      "assist": "Héctor Bellerín Moruno",
+      "detail": "right foot",
+      "stoppage": 0
+    },
+    {
+      "minute": 54,
+      "kind": "card",
+      "player": "Francis Joseph Coquelin",
+      "team": "Arsenal",
+      "colour": "red",
+      "stoppage": 0
+    },
+    {
+      "minute": 59,
+      "kind": "goal",
+      "player": "Toby Alderweireld",
+      "team": "Tottenham Hotspur",
+      "detail": "left foot",
+      "stoppage": 0
+    },
+    {
+      "minute": 61,
+      "kind": "goal",
+      "player": "Harry Kane",
+      "team": "Tottenham Hotspur",
+      "assist": "Bamidele Alli",
+      "detail": "right foot",
+      "stoppage": 0
+    },
+    {
+      "minute": 65,
+      "kind": "card",
+      "player": "Alexis Alejandro Sánchez Sánchez",
+      "team": "Arsenal",
+      "colour": "yellow",
+      "stoppage": 0
+    },
+    {
+      "minute": 66,
+      "kind": "substitution",
+      "player": "Ryan Mason",
+      "player_off": "Erik Lamela",
+      "team": "Tottenham Hotspur",
+      "stoppage": 0
+    },
+    {
+      "minute": 72,
+      "kind": "card",
+      "player": "Eric Dier",
+      "team": "Tottenham Hotspur",
+      "colour": "yellow",
+      "stoppage": 0
+    },
+    {
+      "minute": 74,
+      "kind": "substitution",
+      "player": "Olivier Giroud",
+      "player_off": "Mohamed Naser Elsayed Elneny",
+      "team": "Arsenal",
+      "stoppage": 0
+    },
+    {
+      "minute": 75,
+      "kind": "goal",
+      "player": "Alexis Alejandro Sánchez Sánchez",
+      "team": "Arsenal",
+      "assist": "Héctor Bellerín Moruno",
+      "detail": "right foot",
+      "stoppage": 0
+    },
+    {
+      "minute": 77,
+      "kind": "substitution",
+      "player": "Ben Davies",
+      "player_off": "Danny Rose",
+      "team": "Tottenham Hotspur",
+      "stoppage": 0
+    },
+    {
+      "minute": 81,
+      "kind": "substitution",
+      "player": "Heung-Min Son",
+      "player_off": "Mousa Sidi Yaya Dembélé",
+      "team": "Tottenham Hotspur",
+      "stoppage": 0
+    },
+    {
+      "minute": 83,
+      "kind": "substitution",
+      "player": "Mathieu Flamini",
+      "player_off": "Daniel Nii Tackie Mensah Welbeck",
+      "team": "Arsenal",
+      "stoppage": 0
+    },
+    {
+      "minute": 86,
+      "kind": "var",
+      "decision": "Check",
+      "team": "Tottenham Hotspur",
+      "stoppage": 0
+    },
+    {
+      "minute": 89,
+      "kind": "substitution",
+      "player": "Joel Nathaniel Campbell Samuels",
+      "player_off": "Mesut Özil",
+      "team": "Arsenal",
+      "stoppage": 0
+    }
+  ],
+  "lineups": {
+    "Tottenham Hotspur": {
+      "formation": null,
+      "xi": [
+        "Hugo Lloris",
+        "Kyle Walker",
+        "Toby Alderweireld",
+        "Kevin Wimmer",
+        "Danny Rose",
+        "Mousa Sidi Yaya Dembélé",
+        "Eric Dier",
+        "Christian Dannemann Eriksen",
+        "Bamidele Alli",
+        "Erik Lamela",
+        "Harry Kane"
+      ],
+      "bench": [
+        "Heung-Min Son",
+        "Ben Davies",
+        "Kieran Trippier",
+        "Tom Carroll",
+        "Michel Vorm",
+        "Nacer Chadli",
+        "Ryan Mason"
+      ],
+      "numbers": {
+        "Mousa Sidi Yaya Dembélé": 19,
+        "Christian Dannemann Eriksen": 23,
+        "Heung-Min Son": 7,
+        "Ben Davies": 33,
+        "Bamidele Alli": 20,
+        "Hugo Lloris": 1,
+        "Kyle Walker": 2,
+        "Kieran Trippier": 16,
+        "Tom Carroll": 28,
+        "Erik Lamela": 11,
+        "Danny Rose": 3,
+        "Michel Vorm": 13,
+        "Kevin Wimmer": 27,
+        "Nacer Chadli": 22,
+        "Harry Kane": 10,
+        "Eric Dier": 15,
+        "Toby Alderweireld": 4,
+        "Ryan Mason": 8
+      }
+    },
+    "Arsenal": {
+      "formation": null,
+      "xi": [
+        "David Ospina Ramírez",
+        "Héctor Bellerín Moruno",
+        "Per Mertesacker",
+        "Gabriel Armando de Abreu",
+        "Kieran Gibbs",
+        "Francis Joseph Coquelin",
+        "Mohamed Naser Elsayed Elneny",
+        "Aaron Ramsey",
+        "Mesut Özil",
+        "Alexis Alejandro Sánchez Sánchez",
+        "Daniel Nii Tackie Mensah Welbeck"
+      ],
+      "bench": [
+        "Ignacio Monreal Eraso",
+        "Olivier Giroud",
+        "Theo Walcott",
+        "Calum Chambers",
+        "Joel Nathaniel Campbell Samuels",
+        "Mathieu Flamini",
+        "Matt Macey"
+      ],
+      "numbers": {
+        "Alexis Alejandro Sánchez Sánchez": 17,
+        "Francis Joseph Coquelin": 34,
+        "Per Mertesacker": 4,
+        "Mesut Özil": 11,
+        "Ignacio Monreal Eraso": 18,
+        "Héctor Bellerín Moruno": 24,
+        "Aaron Ramsey": 16,
+        "Kieran Gibbs": 3,
+        "Mohamed Naser Elsayed Elneny": 35,
+        "Daniel Nii Tackie Mensah Welbeck": 23,
+        "Olivier Giroud": 12,
+        "Theo Walcott": 14,
+        "Calum Chambers": 21,
+        "David Ospina Ramírez": 13,
+        "Joel Nathaniel Campbell Samuels": 28,
+        "Mathieu Flamini": 20,
+        "Gabriel Armando de Abreu": 5,
+        "Matt Macey": 49
+      }
+    }
+  },
+  "officials": {
+    "referee": "Michael Oliver",
+    "assistants": []
+  },
+  "head_to_head": []
+}

@@ -5,8 +5,8 @@
 1. [`sideline/state/store.py`](sideline/state/store.py) — the
    product is `last_told_at`. Everything else is plumbing.
 2. [`sideline/mcp/registry.py`](sideline/mcp/registry.py) — tool
-   descriptions are product surface, not documentation. Alexa+ reads them
-   to route.
+   descriptions are product surface, not documentation. A client reads
+   them to choose a tool.
 
 ## Rules that are not negotiable
 
@@ -21,10 +21,12 @@ say.** `"I can't find Saka in this match."` — not `player_not_found`.
 same goal twice is worse than hearing nothing.
 
 **Fast tools do not call a model.** `get_match_state` and
-`get_officials` are on a sub-300 ms budget. A scoreline is a fact.
+`get_officials` stay template-only. A scoreline is a fact, and a model
+call would only add latency and risk (server time is about 0.2 ms; see
+docs/EVIDENCE.md).
 
-**No new runtime dependencies.** Standard library only. boto3 is the one
-exception and only on the AWS paths. See ARCHITECTURE.md for why.
+**No new runtime dependencies.** Standard library only. boto3 (AWS paths)
+and cryptography (RS256 auth) are the two optional exceptions. See ARCHITECTURE.md for why.
 
 ## Changing a tool description
 
@@ -32,7 +34,8 @@ Run `tests/test_routing_phrases.py`. It asserts the phrasings real
 listeners use are still present, which is what breaks silently when
 somebody tidies the wording.
 
-Then redeploy the add-on — it caches the tool list.
+(In a real Alexa+ deployment the add-on caches the tool list until
+redeployed; that tooling is partner-only and is not used here.)
 
 ## Adding a provider
 

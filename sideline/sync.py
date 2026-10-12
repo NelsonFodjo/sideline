@@ -14,14 +14,14 @@ For a blind fan that is the one unforgivable failure. We become the
 thing that spoils the match. The sighted friend beside them cannot do
 that, because they are watching the same delayed picture. We can.
 
-THE MISTAKE THIS MODULE EXISTS TO FIX
+THE DESIGN ERROR THIS MODULE AVOIDS
 
-The first version of this asked the listener to read the clock on their
+A spoiler guard must not ask the listener to read the clock on their
 screen.
 
-They cannot see the clock. That is the entire premise of the product. It
-was a spoiler guard that required sight to arm - every test passed, and
-the feature was useless to the person it was for.
+They cannot see the clock. That is the entire premise of the product. A
+guard that required sight to arm would pass every test and be useless to
+the person it is for.
 
 WHAT A BLIND LISTENER ACTUALLY HAS
 

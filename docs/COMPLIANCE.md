@@ -1,7 +1,14 @@
 # Compliance
 
-Every official requirement, mapped to where we satisfy it. Checked
-against the Devpost rules, not against a secondary summary.
+Every official requirement, mapped to where it is addressed. Checked
+against the Devpost rules and FAQ directly. **"Addressed" is not "done":**
+the right-hand column says what exists; whether each piece has been
+verified is in [EVIDENCE.md](EVIDENCE.md), which wins any disagreement.
+
+> Re-verified against the live rules on 2026-10-12; sources, dates and
+> the things that could *not* be confirmed are in
+> [OFFICIAL_RULES.md](OFFICIAL_RULES.md). That page supersedes anything
+> below that disagrees with it.
 
 ## Track eligibility — Alexa+
 
@@ -17,7 +24,7 @@ against the Devpost rules, not against a secondary summary.
 | Self-hosted MCP server | `sideline/mcp/server.py` |
 | Spec 2025-11-25 | `PROTOCOL_VERSION`, negotiated on `initialize` |
 | Streamable HTTP | `POST /mcp`, `GET /mcp` (SSE), `DELETE /mcp` |
-| Called in code, not described | The server **is** the implementation. `python3 -m sideline` is the entry point; `tests/test_mcp_protocol.py` proves conformance |
+| Called in code, not described | The server **is** the implementation. `python3 -m sideline` is the entry point; `tests/test_mcp_protocol.py` is our own nine-check suite (no official conformance suite was found) |
 
 **On dependencies.** The rule names the *track's* required technology.
 For Alexa+ that is an MCP server over Streamable HTTP, which this is —
@@ -35,12 +42,12 @@ the project scores nothing.
 |---|---|---|
 | **Bedrock** (Converse, Claude 3.5 Haiku) | `language/bedrock.py` | Compresses an event window into one spoken paragraph; milestone mode; open questions; register switching |
 | **DynamoDB** | `state/dynamo.py` | Listener state and the match event log, single-table |
-| **EventBridge Scheduler** | `poller.py`, `scripts/lambda_handler.py` | Wakes the poller every 15 s |
-| **App Runner** | `docs/DEPLOYMENT.md` | Hosts the Streamable HTTP endpoint |
-| **Secrets Manager** | `docs/DEPLOYMENT.md` | Provider credentials |
-| **CloudWatch** | `mcp/server.py` (`took_ms`) | Per-tool latency and alarms |
+| **CloudWatch** (EMF) | `metrics.py`, `mcp/server.py` | Per-tool latency and decline metrics |
+| **Secrets Manager** | `secretsmanager.py`, `deploy/sideline.yaml` | Football key injected as an environment variable. Not deployed by the authors |
+| **App Runner, ECR, IAM** | `deploy/sideline.yaml`, `Dockerfile` | Hosting and least-privilege role. Passes `cfn-lint`; not deployed by the authors |
 | **Polly** (neural + speech marks) | `sideline/voice.py` | Speech out for the simulator; word-level timings drive the reading animation |
 | **Transcribe** (streaming) | `sideline/voice.py` | Speech in for the simulator, over raw 16 kHz PCM |
+| EventBridge Scheduler + Lambda | `scripts/lambda_handler.py` | Documented alternative to the in-process poller; not deployed |
 
 Setup is documented step by step in [AWS_SETUP.md](AWS_SETUP.md), and
 `scripts/verify_aws.py` checks each layer so a reviewer can confirm the
@@ -61,8 +68,9 @@ installed. Documented in `BEDROCK.md` and `DEPLOYMENT.md`.
 > why it matters.
 
 MIT licence in the root. The additional project is the sports-feed
-adapter — see `MINI_CHALLENGES.md` for what it is and why the three
-problems it solves are worth solving once in public.
+adapter. **It is planned and not yet published** — see `MINI_CHALLENGES.md`
+for what it is and why the three problems it solves are worth solving
+once in public. Do not claim this challenge until the repository exists.
 
 > Each project can only win one track prize and one mini challenge prize.
 
@@ -75,9 +83,9 @@ Understood. We enter both mini challenges; only one can be won.
 | Text description of what it does and how it works | `README.md` |
 | GitHub repo with all source, assets and run instructions | this repository |
 | Public with an open-source licence, **or** private and shared with the reviewers | `LICENSE` (MIT) — if kept private, see the handles in `SUBMISSION_CHECKLIST.md` |
-| Demo video under 3 minutes, YouTube or Vimeo, public, English | `DEMO_SCRIPT.md` |
+| Demo video under 3 minutes, YouTube or Vimeo, public, English | **Not recorded.** A plan is in `DEMO_SCRIPT.md` |
 | No third-party trademarks or copyrighted music/footage | `DEMO_SCRIPT.md`, hard rules |
-| Product feedback on every tool, API or SDK | `PRODUCT_FEEDBACK.md` — the five required questions, per tool |
+| Product feedback on every tool, API or SDK | `PRODUCT_FEEDBACK.md`: **a draft with `TODO(you)` slots** that only hands-on runs can fill |
 | Which track and mini challenges | Alexa+ · AWS Builder · Open Source |
 | **If the project existed before the hackathon**, what changed in the window | `PRIOR_WORK.md` |
 | *Optional:* feature requests with urgency | `FEATURE_REQUESTS.md` |

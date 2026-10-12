@@ -24,22 +24,19 @@ alone, there is nobody to ask.
 
 **Sideline is that friend.**
 
-### Where we had this in mind
+### The setting we designed for
 
-Not a quiet suburban front room. In Nairobi, Lagos, Accra, Port Louis,
-football is watched in viewing centres and student lounges — dozens of
-people around one wall-mounted screen. For a fan with low vision, or
-anyone sitting at the back, the screen may as well not be there. Ambient
-noise rules out an open smart speaker.
+*This is the motivation, not a measured finding.* Football is often
+watched in shared spaces (viewing centres, student lounges, around one
+screen) where a person with low vision, or anyone at the back, cannot see
+the on-screen graphics, and an open speaker is impractical. Sideline is
+meant to be used privately, for example through an earbud.
 
-Sideline works through an earbud. The fan keeps the atmosphere of the
-room and gets the facts privately, without having to lean on the person
-next to them every two minutes.
-
-That setting also drove a technical choice. Streaming a match burns
-gigabytes of mobile data. Sideline runs on telemetry — a whole match as
-15-second JSON state is under a megabyte. The question "what's the
-score" costs a few hundred bytes and no video at all.
+That setting drove a technical choice: run on match data, not video. We
+measured it ([docs/EVIDENCE.md](docs/EVIDENCE.md)): polling the score every
+15 seconds for a whole 90-minute match is about **190 KB** of response
+bodies (about 530 bytes a call), roughly **400 KB** with HTTP headers
+counted, and excludes the spoken audio. Streaming video is not measured here.
 
 ```
 "Who's playing?"            -> the eleven, the formation, the bench
@@ -75,34 +72,36 @@ also gives a useful error if you are in the wrong directory.
 > is not found, try `python` — and if neither is, install Python 3.8 or
 > newer.
 
-It runs against a **real match** from StatsBomb Open Data, replayed at
-real speed through the identical code path a live provider uses. Not a
-mock — real events, real names, deterministic playback. See
-[docs/DATA_PROVIDERS.md](docs/DATA_PROVIDERS.md).
+It runs against a **real match**, Tottenham 2-2 Arsenal (5 March 2016),
+built from StatsBomb Open Data and replayed at real speed through the same
+code path a live provider uses: real events and names, deterministic
+playback. See [docs/DATA_PROVIDERS.md](docs/DATA_PROVIDERS.md).
 
 Want the AWS integrations live? Follow
-[docs/AWS_SETUP.md](docs/AWS_SETUP.md) — about 40 minutes, mostly
-waiting for Bedrock model access. Then
-`python3 scripts/verify_aws.py` tells you which layer failed if any did.
-Without it, everything falls back to deterministic templates and still
-works.
+[docs/AWS_SETUP.md](docs/AWS_SETUP.md), then `make aws-check` names the
+layer that failed, if any. Without credentials everything falls back to
+deterministic templates and still works. **The AWS paths have not yet been
+run against a real account**; see [docs/EVIDENCE.md](docs/EVIDENCE.md).
 
 Point any MCP client at `http://127.0.0.1:8765/mcp` (Streamable HTTP).
 
 ### Or just talk to it
 
 ```bash
-open simulator/index.html          # with the server running
+open http://127.0.0.1:8765/        # the simulator, served by the running server (make sim)
 ```
 
 Hands-free. One button once, because browsers need a gesture to open a
 microphone; after that you talk, it answers out loud, and it listens
 again. Cut in whenever you like and it stops.
 
-Speech in is Amazon Transcribe, speech out is Amazon Polly — and Polly's
-speech marks give the exact millisecond of every word, so the reading
-animation tracks the voice rather than approximating it. Both fall back
-to the browser if you have not set them up.
+Speech in is Amazon Transcribe, speech out is Amazon Polly, whose speech
+marks give each word's millisecond offset for the reading animation. Both
+are written but **not yet run against a live AWS account**; without
+credentials the simulator uses the browser's own speech for both directions: it
+speaks with the browser's voice and transcribes you with the browser's
+speech recognition (Chrome, Edge and some Safari versions; Chrome sends that
+audio to its vendor's recognition service, not Amazon's), showing your words live.
 
 The core on screen is drawn from the live audio: the waveform is the
 sample buffer as a circle, the outer ring is the spectrum, and the glow
@@ -114,10 +113,10 @@ See [simulator/README.md](simulator/README.md).
 
 ## What makes this a server and not a lookup
 
-Two things, and only two, are genuinely ours.
+Two things are ours.
 
-**Reach.** A football match is happening right now. No model holds the
-score, the line-up or the referee's card count, and none ever can.
+**Reach.** A football match is happening right now. A language model on its own has
+no way to know the score, the line-up or the referee's card count.
 
 **State.** We keep an event log of the match, and — the part that matters
 — one timestamp per listener:
@@ -138,7 +137,9 @@ Look at the arguments on that call:
 ```
 
 No `since`. No history. The listener gets to be terse because the server
-holds the state. That single field is the product.
+holds the state. That single field is the product. (A tool call carries
+only its arguments; nothing in the MCP protocol itself says when this
+listener last heard anything, so the server keeps it.)
 
 Read [`sideline/state/store.py`](sideline/state/store.py) first if
 you only read one file.
@@ -148,24 +149,26 @@ you only read one file.
 ## Architecture
 
 ```
-          Echo / Echo Show / Alexa app
-                      |
-              ALEXA+ SERVICE                      Amazon's
-    speech to text | tool routing | wording
-    | text to speech | UI rendering
-    ( acts as the MCP client )
-                      |
-         MCP / Streamable HTTP / 2025-11-25
-                      |
-            ALEXA+ MCP ADD-ON                     we deploy
-    tool discovery | OAuth linking | protocol
-                      |
-             OUR MCP SERVER                       this repo
-    9 tools | event log | last_told_at
-         |          |           |            |
-     Bedrock    DynamoDB   EventBridge   football feed
-    (language) (state)     (poller)      (reach)
+   MCP client                          what runs here today
+   -----------                         ------------------------------------
+   the simulator (a web page that      simulator/index.html, served by the
+   speaks MCP), or any MCP client      server at http://127.0.0.1:8765/
+            |
+   MCP / Streamable HTTP / 2025-11-25
+            |
+     OUR MCP SERVER   (this repo)
+     9 tools | event log | last_told_at
+        |          |             |             |
+     Bedrock    DynamoDB    poller (in the   match data: replay of a
+     (language) (state)     server process)  real match, or a live feed
 ```
+
+In the intended deployment the MCP client is Alexa+ (speech, tool routing,
+wording and rendering would be Amazon's). **That path is not reachable by
+hackathon participants**: the Alexa+ add-on tooling is partner-only (see
+[docs/OFFICIAL_RULES.md](docs/OFFICIAL_RULES.md)), so this project is
+demonstrated through its own MCP client. Bedrock and DynamoDB are wired but
+not yet run against real services.
 
 Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -176,7 +179,7 @@ Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | Tool | Answers | Why it exists |
 |---|---|---|
 | `follow_match` | "Follow the Arsenal game." | Binds the listener to a fixture so nothing afterwards needs context. |
-| `get_match_state` | "What's the score?" | Most-asked question. Fast path, no model, under 300 ms. |
+| `get_match_state` | "What's the score?" | Most-asked question. Fast path, no model; about 0.2 ms of server time ([EVIDENCE.md](docs/EVIDENCE.md)). |
 | `get_lineups` | "Who's playing?" | The graphic shown for eight seconds and never read out. |
 | `what_did_i_miss` | "What did I miss?" | **The headline.** Reads the listener's own gap. |
 | `get_event_detail` | "Tell me about that goal." | Live commentary never lets you go back. This does. |
@@ -192,7 +195,7 @@ Contracts and the reasoning behind each description:
 
 ## Hackathon submission
 
-**Track:** Alexa+ — self-hosted MCP server, Streamable HTTP, spec 2025-11-25.
+**Track:** Alexa+ — self-hosted MCP server, Streamable HTTP, spec 2025-11-25, demonstrated through its own web MCP client (the route the hackathon FAQ describes; no real Alexa+ device or add-on tooling was used or available).
 
 **Mini challenges:** AWS Builder and Open Source. See
 [docs/MINI_CHALLENGES.md](docs/MINI_CHALLENGES.md).
@@ -203,7 +206,9 @@ Contracts and the reasoning behind each description:
 | | |
 |---|---|
 | [docs/START_HERE.md](docs/START_HERE.md) | One page: run it, and where everything is |
+| [docs/OFFICIAL_RULES.md](docs/OFFICIAL_RULES.md) | The hackathon rules and Alexa+ requirements as read on 2026-10-12, with sources |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it fits together and why |
+| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | Every environment variable; no config files; `make env` shows what is set |
 | [docs/AWS_SETUP.md](docs/AWS_SETUP.md) | Step by step: account, model access, credentials, verification |
 | [docs/BEDROCK.md](docs/BEDROCK.md) | Where Bedrock is used, and where it is deliberately not |
 | [docs/PRODUCT_FEEDBACK.md](docs/PRODUCT_FEEDBACK.md) | Feedback on every tool, API and SDK |
@@ -219,34 +224,42 @@ Contracts and the reasoning behind each description:
 
 We would rather state these than have a judge find them.
 
-**Alexa+ owns the turn model.** Our server cannot make a device speak
-first, so Sideline cannot shout "GOAL!" unprompted. The product is built
-around on-demand questions because that is both what the platform
-supports and what the use case actually wants — a listener does not want
-to be narrated at, they want to be able to ask. The SSE channel in
-`mcp/server.py` is implemented and held open so that if the platform ever
-allows server-initiated messages, the notification has somewhere to go.
+**Sideline answers; it does not announce.** Alexa+'s published docs describe
+a turn-based model and do not say whether a server may speak first, so the
+product is designed around on-demand questions and cannot say "GOAL!"
+unprompted. The SSE channel in `mcp/server.py` is implemented and held open,
+sending nothing, in case a client ever supports server-initiated messages.
 
-**There is no authentication yet.** Listener identity comes from a
-header, falling back to a single shared id, so this is a single-listener
-demo server. OAuth account linking is specified in
-[docs/ALEXA_SETUP.md](docs/ALEXA_SETUP.md) and not implemented.
+**Authentication is built but off by default, and untested against a real
+Alexa+ account link.** With it off, listener identity comes from a header
+or one shared id, so the default is a single-listener demo server. With
+`SIDELINE_AUTH=required` it verifies bearer tokens the way Alexa+'s docs
+describe; the authorization server is yours to provide
+([docs/ALEXA_SETUP.md](docs/ALEXA_SETUP.md)).
 
-**No blind user has tested it yet.** The design follows published
-accounts of how blind fans watch football and the structure of broadcast
-information, not our own user research. We say so in
-[docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md) rather than implying
-otherwise.
+**Alexa+ targets a 500 ms round trip; the Bedrock catch-up can exceed it.**
+Fast tools answer in milliseconds. The model-written catch-up has a 3 s
+ceiling by default, configurable with `SIDELINE_BEDROCK_TIMEOUT`. To keep
+the model off the listener's clock, the poller precomputes each follower's
+catch-up in the background and asking is a cache lookup
+(`SIDELINE_CATCHUP_MODE=cached`, the default); that is tested with a
+simulated model only ([docs/BEDROCK.md](docs/BEDROCK.md)).
 
-**Bedrock is off by default, not absent.** boto3 is imported and the
-Converse client is initialised in
-[`language/bedrock.py`](sideline/language/bedrock.py); set
-`SIDELINE_BEDROCK=on` to turn it on. It stays off by default so the
-repository clones, runs and passes its tests with nothing installed —
-which matters during judging, when a reviewer who cannot run the project
-scores nothing.
+**No blind or low-vision person has used it.** The design rests on how a
+football broadcast presents information and on our own reasoning, not on
+user research or cited sources. See
+[docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md).
 
-**The data is historical.** StatsBomb Open Data is real but not live. The
+**Bedrock is wired but has never been called.** boto3 is imported and the
+Converse client is written in
+[`language/bedrock.py`](sideline/language/bedrock.py); with
+`SIDELINE_BEDROCK=auto` (the default) it switches on when AWS credentials
+are present, and otherwise the server uses deterministic templates so it
+runs with nothing installed. No request has been made to a real account, so
+its latency and availability are unmeasured
+([docs/EVIDENCE.md](docs/EVIDENCE.md)).
+
+**The default data is historical.** StatsBomb Open Data is real but not live. The
 rules permit a deterministic offline replay harness, and we would rather
 demo real events than a live feed that might produce a goalless ninety
 minutes. The demo says "a real match, replayed" and never implies
@@ -261,6 +274,9 @@ make test
 ```
 
 ```
+(15 suites; the list below is a sample, see tests/README.md)
+auth              bearer tokens: RS256/HS256, expiry, issuer, 401 behaviour Alexa+ requires
+live provider     API-Football handling against canned responses; real-match regressions
 routing phrases   tool descriptions still contain the phrasings listeners use
 language          phrasing, ordering, and the invented-scoreline guard
 tools             all nine, plus every failure that reaches the listener
@@ -268,26 +284,20 @@ what_did_i_miss   the gap logic the product rests on
 mcp protocol      conformance against spec 2025-11-25
 ```
 
-No network. No credentials. No test fixtures that flatter us.
+No network and no credentials. The only invented data is a small fixture
+(`data/replay/arsenal-spurs.json`, labelled as such) that some tests use.
 
 ---
 
 ## Beyond the hackathon
 
-The hard question for any sports product is where the data comes from at
-scale, and buying league rights is not an answer a small team has.
-
-It does not have to be. Broadcasters already hold official feeds, and
-Amazon already holds broadcast rights for live sport on Prime Video and
-Fire TV. Sideline is the layer that turns a feed somebody already owns
-into a conversational accessibility feature. Nothing below the provider
-interface is football-specific, and nothing in it assumes a particular
-vendor.
-
-That is also the honest answer to "could this serve an audience beyond
-the hackathon": not as a consumer app buying data it cannot afford, but
-as the bridge between feeds that already exist and listeners who
-currently get nothing.
+A sports product needs a data source, and buying league rights is not
+something a small team can do. Sideline keeps the source behind a provider
+interface (`sideline/providers/base.py`): the bundled replay and an
+API-Football provider are the two implementations, and the interface is not
+football-vendor specific. Whether a broadcaster would supply an official
+feed to a feature like this is a hypothesis; **nothing in this repository
+tests it**, and no rights arrangement is claimed.
 
 ## Attribution
 

@@ -88,6 +88,14 @@ class DynamoStore(Store):
             Key={"PK": "FIXTURE#%s" % fixture_id, "SK": "META"}).get("Item")
         return r["data"] if r else None
 
+    def followers(self, fixture_id):
+        r = self._t.query(
+            KeyConditionExpression=Key("PK").eq("FOLLOWERS#%s" % fixture_id)
+                                   & Key("SK").begins_with("LISTENER#"))
+        ids = [i["SK"][len("LISTENER#"):] for i in r.get("Items", [])]
+        # Drop markers left by listeners who have since followed another match.
+        return sorted(i for i in ids if self.listener(i).get("following") == fixture_id)
+
     def all_followed_fixtures(self):
         """Fixtures at least one listener is following.
 
@@ -105,6 +113,15 @@ class DynamoStore(Store):
     def save_listener(self, rec):
         self._t.put_item(Item={"PK": "LISTENER#" + rec["listener_id"],
                                "SK": "PROFILE", "data": rec})
+        if rec.get("following"):
+            # A marker so "who follows this fixture" is a Query, not a
+            # scan. Stale markers (a listener who switched match) expire
+            # with the TTL and are filtered on read.
+            import time
+            self._t.put_item(Item={
+                "PK": "FOLLOWERS#%s" % rec["following"],
+                "SK": "LISTENER#%s" % rec["listener_id"],
+                "expires_at": int(time.time()) + 48 * 3600})
         # Last-write-wins is correct here: a listener is one person with
         # one voice. Concurrent writes to the same profile do not happen,
         # and a conditional write would buy nothing but latency.

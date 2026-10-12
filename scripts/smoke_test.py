@@ -78,7 +78,7 @@ def main():
     print("\n--- the things nobody reads out ------------------------------")
     call("get_officials")
     call("get_event_detail", kind="goal")
-    call("get_player_context", player="saka")
+    call("get_player_context", player="kane")
     call("get_head_to_head", limit=3)
 
     print("\n--- failures the listener can hear ---------------------------")

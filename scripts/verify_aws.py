@@ -17,6 +17,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import sideline  # noqa: E402,F401  (bridges AWS_REGION -> AWS_DEFAULT_REGION)
 
 OK, BAD, SKIP = "  ok ", " FAIL", " skip"
 _failed = []
@@ -50,7 +51,7 @@ def _region():
     import boto3
     r = boto3.session.Session().region_name
     if not r:
-        raise RuntimeError("no region set - run `aws configure` or export AWS_REGION")
+        raise RuntimeError("no region set - export AWS_REGION (e.g. us-east-1)")
     if r != "us-east-1":
         return "%s  (us-east-1 has the widest model availability)" % r
     return r
@@ -60,14 +61,30 @@ def _model_access():
     import boto3
     from sideline.language.bedrock import MODEL_ID, REGION
     bedrock = boto3.client("bedrock", region_name=REGION)
-    ids = [m["modelId"] for m in
-           bedrock.list_foundation_models().get("modelSummaries", [])]
-    if MODEL_ID not in ids:
+    models = bedrock.list_foundation_models().get("modelSummaries", [])
+    ids = [m["modelId"] for m in models]
+    # Newer models are called through an inference profile (an id such as
+    # "us.anthropic.claude-...") rather than the bare foundation-model id.
+    profiles = []
+    try:
+        profiles = [p["inferenceProfileId"] for p in
+                    bedrock.list_inference_profiles().get("inferenceProfileSummaries", [])]
+    except Exception:                                          # noqa: BLE001
+        pass                      # older boto3, or no permission: not fatal
+    if MODEL_ID not in ids and MODEL_ID not in profiles:
+        claude = sorted(i for i in ids + profiles if "anthropic" in i)
+        haiku = [i for i in claude if "haiku" in i] or claude
         raise RuntimeError(
-            "%s not available.\n"
-            "       Console -> Bedrock -> Model access -> enable Claude 3.5 Haiku.\n"
-            "       This is the step everyone misses; the error looks like a\n"
-            "       permissions problem but it is not." % MODEL_ID)
+            "%s not available in %s.\n"
+            "       Console -> Bedrock -> Model access -> enable the model, or\n"
+            "       pick one this account can see and export it:\n"
+            "%s\n"
+            "       export SIDELINE_BEDROCK_MODEL=<one of the above>\n"
+            "       (this is the step everyone misses; the invoke error looks\n"
+            "       like a permissions problem but it is not)"
+            % (MODEL_ID, REGION,
+               "\n".join("         " + i for i in haiku[:8]) or
+               "         (none listed: access not granted yet)"))
     return MODEL_ID
 
 

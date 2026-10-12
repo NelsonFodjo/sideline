@@ -1,55 +1,59 @@
-# The three minutes
+# The demo video
 
-Judges are not obliged to watch past three minutes, so the order is
-decided for us. Lead with the best material.
+Rules (Devpost, read 2026-10-12): under three minutes, public on YouTube or
+Vimeo, English, showing the project functioning, **no third-party
+trademarks or copyrighted material** without permission. Judges "are not
+required to test the Project and may choose to judge based solely on the
+text description, images, and video", so the video carries real weight.
 
-## Shot list
+## What the video can and cannot show
+
+- **Cannot:** a real Alexa+ device, the Alexa developer console, or the
+  `alexa-ai` tooling. The FAQ says they are partner-only.
+- **Can, and the FAQ says it satisfies the track:** a web page acting as a
+  real MCP client (initialize, tools/list, tools/call over Streamable
+  HTTP). That is the simulator, served at http://127.0.0.1:8765/.
+- **Optional bonus per the FAQ:** an existing AI assistant app calling the
+  same server. Untested here; try it before promising it.
+
+## Shot list (a plan, not a recording; times are targets)
 
 | Time | Shot | Why |
 |---|---|---|
-| 0:00–0:20 | A blind fan, match audible, Echo in frame. *"Who's playing?"* → the line-up. | Establishes the person and the problem in one beat, with no narration. |
-| 0:20–0:55 | He leaves the room. A goal goes in. He comes back: *"What did I miss?"* → one paragraph. | **The beat the whole submission rests on.** Nothing else matters as much. |
-| 0:55–1:30 | *"Who's refereeing?"* *"Is Havertz still on?"* *"Tell me about that goal."* | The things nobody reads out. Shows breadth without listing features. |
-| 1:30–2:05 | Side by side: the same question to plain Alexa+, which cannot answer. Then to Sideline. | Answers "why does this server need to exist" without saying a word. |
-| 2:05–2:35 | Thirty seconds of architecture. The state object, `last_told_at` highlighted. | For the technical judge. Thirty seconds, not ninety. |
-| 2:35–3:00 | The listener, in his own words, on what it changes. | Ends on the person, not the product. |
+| 0:00–0:25 | Voiceover on a plain background: what is lost when you cannot see a football broadcast (line-ups shown once, score on screen, referee named once). Then who it is for. | The problem, in the rules' terms of "a credible, specific case". No logos. |
+| 0:25–1:05 | Simulator, real match. Ask "what did I miss". Show the answer, the `told` marker and the gap band closing. Ask again: nothing new. | The per-listener `last_told_at` state: the rules name state across sessions as a creative Alexa+ idea. |
+| 1:05–1:40 | "Who's refereeing?" (Michael Oliver, 5 yellows and 1 red, from the data), "tell me about that goal", "who's playing". | The facts a broadcast shows once. Say it is a recorded match. |
+| 1:40–2:10 | The machine strip and the raw MCP calls: which tool ran, how long, and `generated_by`. | Shows the MCP is real and the Bedrock path is visible. Only show `bedrock` if it really ran. |
+| 2:10–2:35 | Restart the server; ask again; it still knows what was already said. **Only if DynamoDB state is verified working**, otherwise cut this. | State across sessions, demonstrated. |
+| 2:35–2:55 | One sentence each: who it helps and how it could reach more people. | Potential Impact. |
 
 ## Hard rules
 
-**No trademarks.** Submission rules forbid third-party trademarks and
-copyrighted footage. No club badges, no league logos, no broadcast clips,
-no stadium branding, no shirts on screen. **Speak the data; show the
-device and the person.**
+- **No club badges, league logos, broadcast clips, stadium branding.** Club
+  names in text and in the data are fine. Say "data from StatsBomb Open Data".
+  Their terms ask for their logo too: not included; see DATA_PROVIDERS.md.
+- **No crowd or commentary audio** you do not own. Use silence, or audio you
+  recorded or generated yourself.
+- **Say what the data is:** "a recorded match, replayed". Never imply live.
+- **Do not claim what has not been measured.** Latency figures on screen
+  must come from `docs/EVIDENCE.md` or from your own `make aws-check`.
+- **Do not say it works with Alexa+ devices.** It has not been connected to one.
 
-**No music** unless you own it or it is licensed.
+## A real user, if you can get one
 
-**Under three minutes.** Public, English, YouTube or Vimeo.
+The rules score Potential Impact on whether the project "makes a credible,
+specific case for solving customer needs". Nobody has tested Sideline with
+a blind or low-vision person. A short, real, unscripted session, with
+consent, is the one thing that turns an argument into evidence. If it does
+not happen, say plainly in the text description that it has not.
 
-**Say what the data is.** If the match is replayed, say so: *"a recorded
-match, replayed in real time"*. One sentence, and it is better to say it
-than to have a judge wonder.
+## Before filming
 
-## Shooting notes
+```bash
+make test                       # green
+make run                        # terminal 1
+make sim                        # opens the simulator
+SIDELINE_REPLAY_SPEED=1 SIDELINE_REPLAY_START=36 make run   # start near the first goal
+```
 
-**Film the person, not the screen.** Every other entry in this track will
-be a screen recording of someone talking to a laptop. One real user,
-reacting to something they could not previously know, is the thing a
-judge still remembers at the end of a long day.
-
-**Do not over-rehearse the questions.** A slightly hesitant real question
-is more convincing than a clean read. Let him ask something that fails,
-and leave it in.
-
-**Capture room sound.** The match audible in the background is doing
-enormous work — it is what makes the problem legible in two seconds.
-
-**Shoot the leave-the-room beat properly.** It needs a visible gap. Cut
-too fast and the whole point is lost; let it breathe.
-
-**Have a replay running, speed 1.** Rehearse with `SIDELINE_REPLAY_START`
-so you can begin near an interesting passage instead of waiting.
-
-## If the live fixture falls through
-
-Use the replay harness and say so. Identical code path, genuine data.
-Better a clear demo of a recorded match than a muddy one of a nil-nil.
+If the live feed is unavailable, the replay is the identical code path.

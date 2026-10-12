@@ -5,9 +5,11 @@ Alexa, and it is what makes "what did I miss" possible at all. A product
 that only fetches data when asked cannot tell you about a goal you were
 not in the room for - by the time you ask, you have to know to ask.
 
-In production this is EventBridge Scheduler invoking a Lambda every 15
-seconds. Locally it is a thread. Same code either way: poll_once() is
-the whole unit of work and has no idea which is calling it.
+It runs as a thread inside the server (the CloudFormation stack does the
+same). An EventBridge-invoked Lambda variant is documented but not built.
+poll_once() is the whole unit of work and has no idea which is calling it.
+When it logs new events it also schedules background summaries
+(sideline/summaries.py); those need a long-lived process to be useful.
 
 Two things it gets right that a naive loop would not:
 
@@ -38,6 +40,7 @@ def poll_once(ctx):
     except AttributeError:
         fixtures = []
     found = 0
+    changed = set()
     for fid in fixtures:
         try:
             fx = ctx.provider.fixture(fid)
@@ -52,6 +55,7 @@ def poll_once(ctx):
                 ctx.store.append_event(e)
                 if len(ctx.store.events(fid)) > before:
                     found += 1
+                    changed.add(fid)
                     LOG.info("logged %s on %s' in fixture %s",
                              e["kind"], e["minute"], fid)
                     _handle_var(ctx, fid, e)
@@ -59,6 +63,12 @@ def poll_once(ctx):
             # A provider wobble must not kill the poller. The listener
             # would rather have a gap in the log than a dead server.
             LOG.warning("poll failed for fixture %s: %s", fid, e)
+    # New events change what each follower would be told: have the model
+    # write those summaries now, in the background, so asking is instant.
+    if changed:
+        from . import summaries
+        for fid in changed:
+            summaries.schedule(ctx, fid)
     return found
 
 

@@ -29,12 +29,15 @@ Zero third-party dependencies. See docs/ARCHITECTURE.md for why.
 
 import json
 import logging
+import os
 import secrets
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+from .. import metrics
+from ..auth import AuthError
 from .errors import (InvalidParams, InvalidRequest, MethodNotFound, ParseError,
                      RpcError, ToolError)
 from .registry import by_name, public_tools
@@ -156,6 +159,7 @@ class Dispatcher:
         except ToolError as e:
             # Not a protocol failure. Hand the model something it can say.
             LOG.info("tool %s declined: %s", name, e.spoken)
+            metrics.emit("ToolDeclined", 1, Tool=name)
             return {
                 "content": [{"type": "text", "text": e.spoken}],
                 "structuredContent": e.detail,
@@ -163,6 +167,7 @@ class Dispatcher:
             }
         took = (time.time() - started) * 1000
         LOG.info("tool %s ok in %.0fms", name, took)
+        metrics.emit("ToolLatency", round(took), "Milliseconds", Tool=name)
 
         # Every tool returns (spoken_text, structured, ui_payload).
         spoken, structured, ui = result
@@ -206,6 +211,26 @@ class Handler(BaseHTTPRequestHandler):
         if body:
             self.wfile.write(body)
 
+    def _authenticate(self):
+        """Listener id, or None after sending a 401.
+
+        With no authenticator configured (SIDELINE_AUTH=off) this is the
+        old behaviour: identity from a header, else one shared id.
+        """
+        auth = self.server.authenticator
+        if auth is None:
+            return self.server.resolve_listener(self.headers)
+        try:
+            return auth.authenticate(self.headers)
+        except AuthError as e:
+            LOG.info("auth rejected: %s", e.reason)
+            # The reason is for our logs. No WWW-Authenticate header:
+            # Alexa+'s QuickStart requires the 401 without one (it lists
+            # the header as not yet supported). See sideline/auth.py.
+            self._send(e.status,
+                       {"error": "unauthorized" if e.status == 401 else "auth unavailable"})
+            return None
+
     def _rpc_error(self, err, msg_id=None, http=200):
         self._send(http, {"jsonrpc": "2.0", "id": msg_id, "error": err.to_json()})
 
@@ -213,21 +238,56 @@ class Handler(BaseHTTPRequestHandler):
         LOG.debug("%s - %s", self.address_string(), fmt % args)
 
     # ------------------------------------------------------------- verbs
+    def _serve_simulator(self):
+        """The voice simulator, served by the server it talks to.
+
+        A page opened from disk (file://) sends `Origin: null`, which the
+        Origin allow-list correctly refuses on /mcp, so the simulator could
+        not even initialize. Served from here it is same-origin
+        (http://127.0.0.1:<port>), the allow-list stays strict, and
+        nothing has to be opened up for the string "null".
+        """
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        try:
+            with open(os.path.join(root, "simulator", "index.html"), "rb") as fh:
+                body = fh.read()
+        except OSError:
+            return self._send(404, {"error": "simulator not found in this checkout"})
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
+        # A query string (the simulator's ?preview=...) is not part of the route.
+        if urlparse(self.path).path in ("/", "/simulator", "/simulator/", "/index.html"):
+            return self._serve_simulator()
         if self.path == "/health":
             return self._send(200, {"ok": True, "protocol": PROTOCOL_VERSION,
                                     "tools": len(public_tools())})
+        if self.path == "/.well-known/oauth-protected-resource":
+            auth = self.server.authenticator
+            if auth is None:
+                return self._send(404, {"error": "authentication is not enabled"})
+            return self._send(200, auth.protected_resource_metadata())
         if self.path == "/voice/capabilities":
             # Simulator support, not part of the MCP surface. The browser
             # asks once at load whether to post audio here or fall back
             # to its own engine. See sideline/voice.py.
             from ..voice import capabilities
-            return self._send(200, capabilities(), {"Access-Control-Allow-Origin": "*"})
+            # Setup hints name credentials and install commands: for the
+            # developer's console and CLI check, never for a listener's
+            # screen, so they are not sent to the page at all.
+            public = {k: v for k, v in capabilities().items() if not k.endswith("_hint")}
+            return self._send(200, public, {"Access-Control-Allow-Origin": "*"})
         if self.path.rstrip("/") != "/mcp":
             return self._send(404, {"error": "not found"})
         if not self._origin_ok():
             return self._send(403, {"error": "origin not allowed"})
 
+        if self._authenticate() is None:
+            return
         sid = self.headers.get("Mcp-Session-Id")
         if sid and not self.server.sessions.touch(sid):
             return self._send(404, {"error": "unknown session"})
@@ -255,6 +315,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         if self.path.rstrip("/") != "/mcp":
             return self._send(404, {"error": "not found"})
+        if self._authenticate() is None:
+            return
         sid = self.headers.get("Mcp-Session-Id")
         if sid:
             self.server.sessions.drop(sid)
@@ -305,6 +367,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
         if not self._origin_ok():
             return self._send(403, {"error": "origin not allowed"})
+        listener_id = self._authenticate()
+        if listener_id is None:
+            return
 
         try:
             length = int(self.headers.get("Content-Length") or 0)
@@ -329,8 +394,6 @@ class Handler(BaseHTTPRequestHandler):
         # A client that never initializes still works for tools/list; that
         # makes `curl` debugging and MCP Inspector sane. Alexa+ always
         # initializes first.
-
-        listener_id = self.server.resolve_listener(self.headers)
 
         # Batches are legal JSON-RPC. Alexa+ does not currently send them,
         # but a conforming server should accept them.
@@ -373,15 +436,20 @@ class McpServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, addr, tool_runner, resolve_listener, allowed_origins):
+    def __init__(self, addr, tool_runner, resolve_listener, allowed_origins,
+                 authenticator=None):
         ThreadingHTTPServer.__init__(self, addr, Handler)
+        self.authenticator = authenticator
         self.sessions = Sessions()
         self.dispatcher = Dispatcher(tool_runner, self.sessions)
         self.resolve_listener = resolve_listener
         self.allowed_origins = set(allowed_origins)
 
 
-def serve(host, port, tool_runner, resolve_listener, allowed_origins):
-    srv = McpServer((host, port), tool_runner, resolve_listener, allowed_origins)
-    LOG.info("MCP endpoint on http://%s:%d/mcp (spec %s)", host, port, PROTOCOL_VERSION)
+def serve(host, port, tool_runner, resolve_listener, allowed_origins,
+          authenticator=None):
+    srv = McpServer((host, port), tool_runner, resolve_listener, allowed_origins,
+                    authenticator)
+    LOG.info("MCP endpoint on http://%s:%d/mcp (spec %s, auth %s)", host, port,
+             PROTOCOL_VERSION, "required" if authenticator else "off")
     return srv

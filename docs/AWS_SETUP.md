@@ -3,14 +3,39 @@
 Start to finish, in order, with a way to check each step worked before
 moving to the next.
 
+> **Status: written from AWS's documented behaviour and this repo's code.
+> The authors have not yet followed it end to end against a real account.**
+> Console menu names and model availability change; where a step fails,
+> trust the error and `make aws-check` over this page. Time estimates and
+> cost figures that appeared in earlier drafts were guesses and have been
+> removed.
+
 **You do not need any of this to run Sideline.** The default is
 in-memory state and deterministic templates, and `python3 -m sideline`
 works on a clean machine with nothing installed. This page is for
 turning on the two AWS integrations: Bedrock for language, DynamoDB for
 state.
 
-Budget about 40 minutes the first time. Most of it is waiting for model
-access.
+---
+
+## The fast path
+
+Everything is **environment variables**, which take priority; see
+[ENVIRONMENT.md](ENVIRONMENT.md). You can put the same values in a
+git-ignored `.env` (`cp .env.example .env`) instead. You do not need the
+`aws` command-line tool at all. With credentials present, Bedrock and
+DynamoDB switch on by themselves (`SIDELINE_BEDROCK=auto`,
+`SIDELINE_STATE=auto`).
+
+```bash
+export AWS_REGION=us-east-1
+export AWS_ACCESS_KEY_ID=AKIA...
+read -s -p "AWS secret key: " AWS_SECRET_ACCESS_KEY; echo; export AWS_SECRET_ACCESS_KEY
+
+make env            # what is set and what turns on; never prints a value
+make aws-check      # tells you which layer fails, and lists models you can use
+make run
+```
 
 ---
 
@@ -52,23 +77,26 @@ Two different things, and the submission form asks for the second.
 ## Step 2 — Credentials on your machine
 
 ```bash
-pip3 install boto3 awscli amazon-transcribe
-aws configure
+pip3 install boto3 amazon-transcribe
+export AWS_REGION=us-east-1
+export AWS_ACCESS_KEY_ID=AKIA...
+read -s -p "AWS secret key: " AWS_SECRET_ACCESS_KEY; echo; export AWS_SECRET_ACCESS_KEY
 ```
 
-It asks for four things. Region matters: **use `us-east-1`** unless you
-have a reason not to. Model availability is widest there, and a model
-that exists in one region simply is not there in another.
+Region matters: **use `us-east-1`** unless you have a reason not to.
+Model availability is widest there, and a model that exists in one
+region simply is not there in another.
 
 **Check it worked:**
 
 ```bash
-aws sts get-caller-identity
+make env            # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY show "set"
+make aws-check      # first lines: "credentials resolve  account 1234..."
 ```
 
-You should see your account id and an ARN. If you see
-`Unable to locate credentials`, `aws configure` did not save — on macOS
-and Linux it writes to `~/.aws/credentials`.
+`credentials resolve` prints your account id. If it fails with
+`Unable to locate credentials`, one of the two variables is unset in
+*this* terminal; variables do not carry across terminals.
 
 ---
 
@@ -85,9 +113,8 @@ have not asked for this model yet" problem.
 4. Tick **Claude 3.5 Haiku**
 5. Submit
 
-Anthropic models usually enable in under a minute. Some accounts get a
-short review. The status has to read **Access granted** before anything
-below will work.
+Wait until the console shows access granted for the model; nothing below
+works before that.
 
 **Check it worked:**
 
@@ -111,15 +138,28 @@ For a scoped IAM user or role, this is the whole policy:
 ```json
 {
   "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": "bedrock:InvokeModel",
-    "Resource": "arn:aws:bedrock:*::foundation-model/anthropic.claude-*"
-  }]
+  "Statement": [
+    {"Effect": "Allow", "Action": "bedrock:InvokeModel",
+     "Resource": ["arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
+                  "arn:aws:bedrock:*:<your-account-id>:inference-profile/*"]},
+    {"Effect": "Allow",
+     "Action": ["bedrock:ListFoundationModels", "bedrock:ListInferenceProfiles"],
+     "Resource": "*"}
+  ]
 }
 ```
 
-One action, one model family. Not `bedrock:*`, not `"Resource": "*"` —
+One invoke action, one model family. The two `List` actions are used only
+by `scripts/verify_aws.py`, which has to enumerate what the account can
+see (they do not support resource-level permissions). The inference-profile
+resource is needed only if the model you choose is called through a
+profile id like `us.anthropic.claude-...`. I have not run this policy
+against a live account; if `verify_aws.py` reports an access error, widen
+it first.
+
+Claude 3.5 Haiku is only the default, not a promise: model availability
+changes. `make aws-check` prints the Claude
+ids your account can see; export one as `SIDELINE_BEDROCK_MODEL`. Not `bedrock:*`, not `"Resource": "*"` —
 a judge reading the repo should see least privilege, and it costs
 nothing to get right.
 
@@ -177,7 +217,7 @@ The startup log tells you what is in use:
 voice: in=transcribe out=polly (Amy, neural)
 ```
 
-`in=browser out=browser` means it fell back. The simulator shows the
+`in=browser out=browser` means it fell back to the browser's own speech recognition and voice. The simulator shows the
 same thing along the bottom of the screen.
 
 **Why these two specifically.** Transcribe keeps the whole voice path in
@@ -199,9 +239,7 @@ option in the pipeline gives that.
 Neither action supports resource-level permissions, which is why these
 are the one place in the project with a `*`.
 
-**Voices.** `Amy` and `Brian` are British, `Joanna` and `Matthew`
-American. Set `SIDELINE_POLLY_VOICE`. A British voice reads European
-football names with less friction.
+**Voices.** `Amy` and `Brian` are British, `Joanna` and `Matthew` American. Set `SIDELINE_POLLY_VOICE`. A British voice reads European football names with less friction. (Voice availability and neural support were not checked against a live account.)
 
 ## Step 6 — DynamoDB, locally, for nothing
 
@@ -262,15 +300,8 @@ to configure.
 
 ## What it costs
 
-Small enough that the honest answer is "set a billing alarm and stop
-thinking about it."
-
-A catch-up is a few hundred input tokens and under a hundred out, and a
-listener asks a handful of times a match. Haiku is the cheapest model in
-the family. DynamoDB Local is free; a real on-demand table at this
-volume is pennies.
-
-The one thing that could change that is a runaway poll loop, so:
+Not measured. Set a billing alarm before turning anything on. The main
+risk is a runaway poll loop calling a paid service; a budget catches it:
 
 ```bash
 aws budgets create-budget --account-id <your-id> \
@@ -278,7 +309,9 @@ aws budgets create-budget --account-id <your-id> \
              "TimeUnit":"MONTHLY","BudgetType":"COST"}'
 ```
 
----
+(That command needs the `aws` CLI; the console's Billing → Budgets does the
+same.) Per the hackathon FAQ you do not need AWS running during judging, so
+tear things down when you are not testing.
 
 ## When it does not work
 
@@ -287,7 +320,7 @@ aws budgets create-budget --account-id <your-id> \
 | `via template` with `SIDELINE_BEDROCK=on` | Something upstream failed and we degraded silently, by design | `python3 scripts/verify_aws.py` |
 | `AccessDeniedException` on invoke | Model access not granted — **not** a credentials problem | Step 3 |
 | `ValidationException: model not found` | Wrong region, or wrong model id | `AWS_REGION=us-east-1` |
-| `Unable to locate credentials` | `aws configure` never saved | Step 2 |
+| `Unable to locate credentials` | The two key variables are not set in this terminal | Step 2, then `make env` |
 | `ThrottlingException` | New accounts have low initial quotas | It falls back to templates; request a quota increase if it persists |
 | First call slow, later ones fine | Cold start after idle — known, logged as FL-05 | Nothing to fix; the 3 s ceiling catches it |
 | `ResourceNotFoundException` on DynamoDB | Table not created, or wrong endpoint | Step 6 |
@@ -307,7 +340,7 @@ sees a working server.
 
 ```bash
 pip3 install boto3 amazon-transcribe
-aws configure                      # region: us-east-1
+export AWS_REGION=us-east-1 AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
 # console -> Bedrock -> Model access -> enable Claude 3.5 Haiku
 export SIDELINE_BEDROCK=on
 python3 scripts/verify_aws.py       # must pass before the next line

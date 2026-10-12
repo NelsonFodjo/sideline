@@ -108,13 +108,17 @@ class StatsBombProvider(Provider):
                     detail=self._shot_detail(body, shot),
                     stoppage=stoppage))
 
-            elif tid == _CARD or (raw.get("foul_committed") or {}).get("card"):
+            elif (tid == _CARD or (raw.get("foul_committed") or {}).get("card")
+                  or (raw.get("bad_behaviour") or {}).get("card")):
                 card = ((raw.get("bad_behaviour") or {}).get("card")
                         or (raw.get("foul_committed") or {}).get("card") or {})
                 name = (card.get("name") or "").lower()
                 if not name:
                     continue
-                colour = "red" if "red" in name else "yellow"
+                # StatsBomb has three card names: Yellow Card, Second
+                # Yellow, Red Card. A second yellow is a sending-off, so
+                # it is a red to the listener.
+                colour = "red" if ("red" in name or "second yellow" in name) else "yellow"
                 out.append(self.mk_card(fixture_id, minute, player, team, colour,
                                         reason=None, stoppage=stoppage))
 
@@ -156,7 +160,7 @@ class StatsBombProvider(Provider):
         """
         bits = []
         if body and body not in ("Other",):
-            bits.append(body)
+            bits.append(body.lower())   # "Right Foot" -> "right foot"
         if shot.get("type", {}).get("name") == "Penalty":
             bits.append("from the penalty spot")
         elif shot.get("type", {}).get("name") == "Free Kick":
@@ -187,10 +191,17 @@ class StatsBombProvider(Provider):
             for p in side.get("lineup", []):
                 name = p.get("player_name")
                 numbers[name] = p.get("jersey_number")
-                started = any(
-                    pos.get("start_reason") == "Starting XI"
-                    for pos in (p.get("positions") or []))
-                (xi if started else bench).append(name)
+                starts = [pos for pos in (p.get("positions") or [])
+                          if pos.get("start_reason") == "Starting XI"]
+                if starts:
+                    xi.append((starts[0].get("position_id") or 99, name))
+                else:
+                    bench.append(name)
+            # The file lists players in no particular order, but the
+            # spoken line-up reads goalkeeper first, then back to front.
+            # StatsBomb position ids run 1 = goalkeeper, then defenders,
+            # midfielders, wingers, forwards, so sorting by id does it.
+            xi = [n for _, n in sorted(xi, key=lambda t: t[0])]
             out[side.get("team_name")] = {
                 "formation": None, "xi": xi, "bench": bench, "numbers": numbers}
         return out

@@ -83,6 +83,12 @@ class Store:
 
     def listener(self, listener_id): raise NotImplementedError
     def save_listener(self, rec): raise NotImplementedError
+
+    def followers(self, fixture_id):
+        """Listener ids following a fixture. Used to precompute summaries;
+        a backend that cannot answer returns [] and the product still
+        works, just without precomputation."""
+        return []
     def append_event(self, event): raise NotImplementedError
     def events(self, fixture_id): raise NotImplementedError
     def fixture(self, fixture_id): raise NotImplementedError
@@ -237,6 +243,12 @@ class MemoryStore(Store):
         with self._lock:
             self._fixtures[rec["fixture_id"]] = rec
             return rec
+
+    def followers(self, fixture_id):
+        """Listener ids currently following this fixture."""
+        with self._lock:
+            return sorted(r["listener_id"] for r in self._listeners.values()
+                          if r.get("following") == fixture_id)
 
     def all_followed_fixtures(self):
         """Fixtures at least one listener is following - what the poller polls."""

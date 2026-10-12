@@ -11,7 +11,8 @@ anything. We resolve the window from our own state.
 
 Flow:
     1. gap_for()  - events since last_told_at, minus anything already told
-    2. bedrock.catchup() - compress to one paragraph, or template
+    2. summaries.answer() - the paragraph: precomputed by the poller, or
+       the template at once; the model is not waited on
     3. mark_told() - move the marker, record the event ids
 
 Step 3 is the one people forget. Without it the listener hears the same
@@ -35,27 +36,26 @@ def run(ctx, args, listener_id):
 
     # Events that VAR later overturned are still told, but flagged - a
     # listener who heard the crowd needs to know it was chalked off.
-    for e in events:
+    def flag(e):
         if e.get("superseded_by"):
             e = dict(e)
             e["detail"] = ((e.get("detail") or "") + " (later disallowed)").strip()
+        return e
+    events = [flag(e) for e in events]
 
     now = fx.get("minute") or to
     away = max(0, now - frm)
     long_absence = (away > LONG_ABSENCE_MINUTES and len(events) > 3
                     and not args.get("full"))
 
-    if long_absence:
-        spoken, how = ctx.lang.bedrock.milestones(events, fx, away)
-        mode = "milestones"
-    else:
-        spoken, how = ctx.lang.bedrock.catchup(events, fx, frm, to)
-        mode = "full"
+    mode = "milestones" if long_absence else "full"
+    language = ctx.store.listener(listener_id).get("language")
 
-    if ctx.store.listener(listener_id).get("language") not in (None, "", "en"):
-        spoken, how2 = ctx.lang.bedrock.translate(
-            spoken, ctx.store.listener(listener_id)["language"])
-        how = "%s+%s" % (how, how2)
+    # Precomputed when possible, so the model is not on the listener's
+    # clock; see sideline/summaries.py.
+    from .. import summaries
+    spoken, how, source = summaries.answer(ctx, mode, events, fx, frm, to,
+                                           away, language)
 
     # When we only gave the headlines, do NOT mark the rest as told. The
     # listener was offered more and may ask for it, and a tool that
@@ -70,6 +70,7 @@ def run(ctx, args, listener_id):
 
     structured = {
         "fixture_id": fid,
+        "home": fx.get("home"), "away": fx.get("away"), "minute": fx.get("minute"),
         "window": {"from_minute": frm, "to_minute": fx.get("minute") or to},
         "event_count": len(events),
         "mode": mode,
@@ -81,6 +82,11 @@ def run(ctx, args, listener_id):
         # Reported honestly so anyone reading the response can see
         # whether a model was involved in producing the words.
         "generated_by": how,
+        # Where the words came from: "precomputed" (cached model text, no
+        # model call at ask time), "template-fast" (answered at once, the
+        # model text queued for next time), "live" (model called now) or
+        # "template" (no model configured).
+        "summary_source": source,
     }
     ui = {"events": structured["events"], "score": fx["score"],
           "window": structured["window"]}
