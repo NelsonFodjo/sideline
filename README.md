@@ -75,12 +75,6 @@ also gives a useful error if you are in the wrong directory.
 > is not found, try `python` — and if neither is, install Python 3.8 or
 > newer.
 
-In another terminal:
-
-```bash
-python3 scripts/smoke_test.py           # every tool, end to end
-```
-
 It runs against a **real match** from StatsBomb Open Data, replayed at
 real speed through the identical code path a live provider uses. Not a
 mock — real events, real names, deterministic playback. See
@@ -167,7 +161,7 @@ you only read one file.
     tool discovery | OAuth linking | protocol
                       |
              OUR MCP SERVER                       this repo
-    8 tools | event log | last_told_at
+    9 tools | event log | last_told_at
          |          |           |            |
      Bedrock    DynamoDB   EventBridge   football feed
     (language) (state)     (poller)      (reach)
@@ -177,7 +171,7 @@ Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
-## The eight tools
+## The nine tools
 
 | Tool | Answers | Why it exists |
 |---|---|---|
@@ -233,6 +227,11 @@ to be narrated at, they want to be able to ask. The SSE channel in
 `mcp/server.py` is implemented and held open so that if the platform ever
 allows server-initiated messages, the notification has somewhere to go.
 
+**There is no authentication yet.** Listener identity comes from a
+header, falling back to a single shared id, so this is a single-listener
+demo server. OAuth account linking is specified in
+[docs/ALEXA_SETUP.md](docs/ALEXA_SETUP.md) and not implemented.
+
 **No blind user has tested it yet.** The design follows published
 accounts of how blind fans watch football and the structure of broadcast
 information, not our own user research. We say so in
@@ -264,7 +263,7 @@ make test
 ```
 routing phrases   tool descriptions still contain the phrasings listeners use
 language          phrasing, ordering, and the invented-scoreline guard
-tools             all eight, plus every failure that reaches the listener
+tools             all nine, plus every failure that reaches the listener
 what_did_i_miss   the gap logic the product rests on
 mcp protocol      conformance against spec 2025-11-25
 ```

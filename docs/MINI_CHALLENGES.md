@@ -10,14 +10,24 @@ both; neither requires work we were not already doing.
 **Qualifies by** using AWS services in the project with documented
 integrations.
 
+**In code, called from this repository**
+
 | Service | Used for | Where |
 |---|---|---|
-| **Amazon Bedrock** | Compressing an event window into one spoken paragraph; open questions; translation | `language/bedrock.py` |
-| **DynamoDB** | Listener state and the match event log | `state/dynamo.py` |
-| **EventBridge Scheduler** | Waking the poller every 15 s | `poller.py`, `docs/DEPLOYMENT.md` |
+| **Amazon Bedrock** | Compressing an event window into one spoken paragraph; long-absence milestones; translation | `language/bedrock.py` |
+| **Amazon Polly** | Speech out for the simulator, with word-level speech marks | `voice.py` |
+| **Amazon Transcribe** | Speech in for the simulator | `voice.py` |
+| **DynamoDB** | Listener state and the match event log (also runs against DynamoDB Local) | `state/dynamo.py` |
+| **Lambda (handler only)** | Entry point for the poller | `scripts/lambda_handler.py` |
+
+**Documented deployment design, not deployed from this repo**
+
+| Service | Intended use | Where |
+|---|---|---|
+| **EventBridge Scheduler** | Waking the poller every 15 s | `docs/DEPLOYMENT.md` |
 | **App Runner** | Hosting the Streamable HTTP endpoint | `docs/DEPLOYMENT.md` |
 | **Secrets Manager** | The football API key | `docs/DEPLOYMENT.md` |
-| **CloudWatch** | Per-tool latency, alarms | `mcp/server.py`, `docs/DEPLOYMENT.md` |
+| **CloudWatch** | Per-tool latency alarms (latency is logged by `mcp/server.py`) | `docs/DEPLOYMENT.md` |
 
 Bedrock is not decoration here. It does the one piece of work that
 cannot be delegated upward to Alexa+, because Alexa+ only sees what we
@@ -38,7 +48,8 @@ a public repository, during the hackathon window.
 
 1. **This server**, MIT licensed, documented for reuse.
 
-2. **A separate sports-feed-to-MCP adapter.** The genuinely reusable
+2. **A separate sports-feed-to-MCP adapter** *(planned; not yet
+   published, and not part of this repo)*. The genuinely reusable
    part: `providers/base.Provider` plus the normalising rules, extracted
    as its own package.
 

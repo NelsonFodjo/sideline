@@ -39,7 +39,7 @@ class Config:
     replay_start = int(os.environ.get("SIDELINE_REPLAY_START", "0"))
     football_key = os.environ.get("SIDELINE_FOOTBALL_KEY", "")
 
-    # memory (default) | dynamo (reference only in this submission)
+    # memory (default) | dynamo (implemented; needs a table, see docs/AWS_SETUP.md)
     state = os.environ.get("SIDELINE_STATE", "memory")
     table = os.environ.get("SIDELINE_TABLE", "sideline")
     region = os.environ.get("AWS_REGION", "us-east-1")

@@ -11,7 +11,7 @@ No network. No credentials. No fixtures that flatter us.
 | `test_clean_clone.py` | The repo works the way the README says. Added after `python3 -m sideline` — the first line of the README — failed on a fresh clone because every test ran with `PYTHONPATH` set. |
 | `test_routing_phrases.py` | Tool descriptions still contain the phrasings listeners use. Descriptions are the routing surface; this breaks silently when someone tidies the wording. |
 | `test_language.py` | Phrasing, goal-before-card ordering, stoppage time, and the invented-scoreline guard. |
-| `test_tools.py` | All eight tools, plus every failure a listener can reach. |
+| `test_tools.py` | All nine tools, plus every failure a listener can reach. |
 | `test_what_did_i_miss.py` | The gap logic. **If this breaks, the submission is not worth filming.** |
 | `test_mcp_protocol.py` | Conformance against spec 2025-11-25: sessions, 202 on notifications, batches, schema rejection, DELETE. |
 

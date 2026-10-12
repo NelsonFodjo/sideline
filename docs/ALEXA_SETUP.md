@@ -66,7 +66,14 @@ Our listener state is keyed on the account-linked subject. Without
 linking, every listener shares one id and one catch-up window — fine for
 a local demo, wrong for anything real.
 
-Requirements: OAuth 2.1 with PKCE, 401 responses without a
+> **Status: not implemented in this repository.** The server does not
+> verify tokens, return 401, or serve RFC 9728 metadata. It identifies a
+> listener by an `X-Sideline-Listener` header, falling back to one shared
+> id. That is acceptable for the local demo and the simulator and
+> **unsafe for more than one real listener**. The verification block in
+> `app.resolve_listener()` is a commented sketch, not working code.
+
+Requirements for a real deployment: OAuth 2.1 with PKCE, 401 responses without a
 `WWW-Authenticate` header, RFC 9728 protected resource metadata, and the
 `resource` parameter set to the server's canonical URI.
 

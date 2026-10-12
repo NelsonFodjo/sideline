@@ -82,7 +82,7 @@ category: accessibility, safety, time-critical alerts.
 
 ### FL-03 — Writing tool descriptions is undocumented craft
 
-**Task** Write eight descriptions that route reliably.
+**Task** Write nine descriptions that route reliably.
 
 **Steps** Looked for guidance on length, example phrasings,
 disambiguating adjacent tools, whether to write for a human or a model.

@@ -37,6 +37,11 @@ aws apprunner create-service \
   --source-configuration file://apprunner.json
 ```
 
+> **Not shipped in this repository:** `apprunner.json` and a Dockerfile.
+> They hold account-specific values (image or repo connection, role
+> ARNs), so you write them for your own account. Nothing in the demo
+> depends on them.
+
 Health check `/health`, port 8765.
 
 ## DynamoDB
@@ -83,6 +88,9 @@ aws scheduler create-schedule \
   --target '{"Arn":"<lambda-arn>","RoleArn":"<role-arn>"}'
 ```
 
+> **Status:** the handler exists ([scripts/lambda_handler.py](../scripts/lambda_handler.py));
+> the schedule below is documented, not deployed from this repo.
+
 The Lambda handler is three lines around `poller.poll_once(ctx)`. The
 poller does not know whether a thread or a scheduler is calling it, which
 is why the same code runs in both places.
@@ -98,6 +106,10 @@ aws secretsmanager create-secret \
   --name sideline/football-key \
   --secret-string '{"SIDELINE_FOOTBALL_KEY":"..."}'
 ```
+
+> **Status:** documented design. No code in this repo calls Secrets
+> Manager; today the key is read from the `SIDELINE_FOOTBALL_KEY`
+> environment variable, which you would populate from the secret.
 
 The key never enters the repository. This repo is public for the Open
 Source mini challenge; a committed key would be both a security incident
@@ -126,6 +138,9 @@ No wildcards on action. No `*` resource. The server invokes one model
 family, touches one table and reads one secret prefix.
 
 ## Monitoring
+
+> **Status:** latency is logged by the server; the CloudWatch alarms
+> below are not created by this repo.
 
 Per-tool latency is logged on every call (`took_ms` in `_meta`). The two
 alarms worth having:

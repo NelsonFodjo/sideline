@@ -28,7 +28,7 @@ coin toss. The test asserts each one names the other.
 
 ---
 
-## The eight
+## The nine
 
 ### `follow_match`
 

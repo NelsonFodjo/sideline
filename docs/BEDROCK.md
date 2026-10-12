@@ -21,7 +21,8 @@ and it has to be made here, because once we return, it is too late.
 | Call | Why a model is needed |
 |---|---|
 | `catchup()` | Composition and prioritisation. The one that genuinely earns it. |
-| `open_question()` | "Are we under pressure?" maps to no single tool. Reasons over retrieved events only. |
+| `milestones()` | A long absence, compressed to headlines plus an offer of detail. Called by `what_did_i_miss`. |
+| `open_question()` | "Are we under pressure?" maps to no single tool. Reasons over retrieved events only. **Implemented, not yet exposed through a tool.** |
 | `translate()` | Same facts, another language. Free accessibility win. |
 
 **Not used — these return templates**

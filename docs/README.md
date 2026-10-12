@@ -7,7 +7,7 @@ Start here, in this order.
 | [START_HERE.md](START_HERE.md) | **One page.** Run it, and where everything is |
 | [COMPLIANCE.md](COMPLIANCE.md) | Every official requirement, mapped to where we satisfy it |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How it fits together, and the decisions behind it |
-| [TOOLS.md](TOOLS.md) | The eight contracts, and why each description is worded as it is |
+| [TOOLS.md](TOOLS.md) | The nine contracts, and why each description is worded as it is |
 | [BEDROCK.md](BEDROCK.md) | Where Bedrock is used, and where it is deliberately not |
 | [ACCESSIBILITY.md](ACCESSIBILITY.md) | The rules this product holds itself to |
 | [DATA_PROVIDERS.md](DATA_PROVIDERS.md) | Match data, the replay harness, writing a provider |

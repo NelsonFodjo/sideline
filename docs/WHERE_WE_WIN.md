@@ -23,7 +23,7 @@ where we are strong, where we are thin, and what to fix first.
 - Durable, deduplicated event state with a non-trivial access pattern,
   and the gap calculation on the shared base class so backends cannot
   drift.
-- Eight small, resumable tools rather than one fat one — which is also
+- Nine small, resumable tools rather than one fat one — which is also
   what makes interruption survivable.
 - Zero runtime dependencies. A judge can clone and run it.
 
