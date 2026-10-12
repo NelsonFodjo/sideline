@@ -43,6 +43,9 @@ def _boto3():
 
 def _credentials():
     import boto3
+    bearer = os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
+    if bearer:
+        return "Bedrock API Key (bearer token configured)"
     ident = boto3.client("sts").get_caller_identity()
     return "account %s" % ident["Account"]
 
@@ -104,10 +107,11 @@ def _invoke():
 
 def _catchup_path():
     """End to end: does a real catch-up actually go through the model?"""
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tests"))
-    from conftest import make_ctx
+    from tests.conftest import make_ctx
     from sideline.poller import poll_once
     from sideline.tools import REGISTRY
+    from sideline import summaries
+    summaries.MODE = "live"
     ctx = make_ctx(start_minute=70)
     REGISTRY["follow_match"](ctx, {"team": "Arsenal"}, "verify")
     poll_once(ctx)

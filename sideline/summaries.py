@@ -52,9 +52,9 @@ import os
 import threading
 import time
 
-LOG = logging.getLogger("sideline.summaries")
+from . import autodetect
 
-MODE = os.environ.get("SIDELINE_CATCHUP_MODE", "cached").strip().lower()
+MODE = autodetect.catchup_mode(os.environ)
 MAX_ENTRIES = 256
 MAX_PARALLEL = 2
 

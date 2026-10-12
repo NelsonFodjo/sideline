@@ -18,6 +18,9 @@ from sideline import autodetect  # noqa: E402
 
 # (name, secret?, what it does, default when unset)
 GROUPS = [
+    ("Runtime mode", [
+        ("SIDELINE_MODE", False, "live | demo", "auto: live when football key is set, else demo"),
+    ]),
     ("AWS credentials (Bedrock, DynamoDB, Polly, Transcribe)", [
         ("AWS_ACCESS_KEY_ID", True, "access key id", None),
         ("AWS_SECRET_ACCESS_KEY", True, "secret access key", None),
@@ -51,8 +54,7 @@ GROUPS = [
     ]),
     ("Voice for the simulator", [
         ("SIDELINE_POLLY_VOICE", False, "Polly voice", "Amy"),
-        ("SIDELINE_STT", False, "auto | transcribe | groq | off", "auto"),
-        ("GROQ_API_KEY", True, "alternative speech-to-text", None),
+        ("SIDELINE_STT", False, "auto | transcribe | off", "auto"),
     ]),
 ]
 
@@ -92,7 +94,7 @@ def main():
               "boto3 will look elsewhere (instance role, a profile) or fall back to templates.")
     if os.environ.get("SIDELINE_PROVIDER") == "apifootball" and not (
             os.environ.get("SIDELINE_FOOTBALL_KEY") or os.environ.get("SIDELINE_FOOTBALL_SECRET")):
-        print("NOTE: SIDELINE_PROVIDER=apifootball but no key: it will serve the recorded match.")
+        print("PROBLEM: SIDELINE_PROVIDER=apifootball requires SIDELINE_FOOTBALL_KEY in .env.")
     if os.environ.get("SIDELINE_AUTH") == "required":
         for n in ("SIDELINE_AUTH_ISSUER", "SIDELINE_PUBLIC_URL"):
             if not os.environ.get(n):

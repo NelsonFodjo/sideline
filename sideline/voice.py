@@ -84,26 +84,15 @@ POLLY_VOICE = os.environ.get("SIDELINE_POLLY_VOICE", "Amy")
 POLLY_ENGINE = os.environ.get("SIDELINE_POLLY_ENGINE", "neural")
 
 # --- speech in --------------------------------------------------------
-# Amazon Transcribe streaming is the default: it keeps the whole voice
-# path inside AWS, alongside Bedrock and Polly, and it is fast enough
+# Amazon Transcribe streaming is used when configured: it keeps the whole
+# voice path inside AWS, alongside Bedrock and Polly, and it is fast enough
 # for the two-to-four second clips a turn actually produces.
 #
-# Groq's Whisper stays as an alternative because it is a useful
-# comparison and because it needs no AWS account - a reviewer with a
-# Groq key and nothing else still gets a speech-first prototype.
-#
-# Not Nova Sonic, though it is the obvious thing to reach for. It is a
-# unified speech-to-speech model, which means it would replace this
-# pipeline rather than slot into it: we would lose Polly's speech marks,
-# and with them the word-exact reading animation. It also needs an
-# experimental SDK and Python 3.12+. Worth revisiting; wrong thing to
-# stake a demo on. Noted as future work in docs/FEATURE_REQUESTS.md.
-STT_PROVIDER = os.environ.get("SIDELINE_STT", "auto")    # auto|transcribe|groq|off
+# If Transcribe is not configured, speech-to-text falls back cleanly to the
+# browser's Web Speech API (Chrome, Edge, Safari).
+STT_PROVIDER = os.environ.get("SIDELINE_STT", "auto")    # auto|transcribe|off
 TRANSCRIBE_LANG = os.environ.get("SIDELINE_TRANSCRIBE_LANG", "en-GB")
 SAMPLE_RATE = 16000
-GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = os.environ.get("SIDELINE_GROQ_MODEL", "whisper-large-v3-turbo")
-GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 
 _polly = None
 
@@ -147,17 +136,11 @@ def capabilities():
 
     stt = None
     if STT_PROVIDER != "off":
-        if STT_PROVIDER == "groq" and GROQ_KEY:
-            stt = "groq"
-        elif STT_PROVIDER == "transcribe" and aws and HAVE_TRANSCRIBE:
+        if STT_PROVIDER == "transcribe" and aws and HAVE_TRANSCRIBE:
             stt = "transcribe"
         elif STT_PROVIDER == "auto":
-            # AWS first: it keeps the whole voice path in one account
-            # and one credential chain.
             if aws and HAVE_TRANSCRIBE:
                 stt = "transcribe"
-            elif GROQ_KEY:
-                stt = "groq"
 
     tts = "polly" if aws else None
     out = {
@@ -169,8 +152,8 @@ def capabilities():
     # Say why, so the simulator can tell the user what to set rather
     # than silently being worse than it could be.
     if not stt:
-        if not aws and not GROQ_KEY:
-            out["stt_hint"] = "set AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for Transcribe, or GROQ_API_KEY"
+        if not aws:
+            out["stt_hint"] = "set AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for Transcribe"
         elif aws and not HAVE_TRANSCRIBE:
             out["stt_hint"] = "pip3 install amazon-transcribe"
         else:
@@ -228,64 +211,11 @@ def transcribe(audio_bytes, mime="audio/pcm"):
     streaming wants, and it sidesteps MediaRecorder's container
     differences between browsers entirely - WebM in Chrome, MP4 in
     Safari, neither of which Transcribe accepts.
-
-    Groq wants a file, so PCM is wrapped in a WAV header on that path.
-    Forty-four bytes, no transcoding.
     """
     which = capabilities()["stt"]
     if which == "transcribe":
         return _transcribe(audio_bytes)
-    if which == "groq":
-        return _groq(_wav(audio_bytes) if "pcm" in mime else audio_bytes,
-                     "audio/wav" if "pcm" in mime else mime)
     return None
-
-
-def _wav(pcm, rate=None):
-    """Wrap raw PCM in a WAV header. No transcoding, 44 bytes."""
-    import struct
-    rate = rate or SAMPLE_RATE
-    n = len(pcm)
-    return (b"RIFF" + struct.pack("<I", 36 + n) + b"WAVEfmt "
-            + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
-            + b"data" + struct.pack("<I", n) + pcm)
-
-
-def _groq(audio_bytes, mime):
-    """Whisper on Groq. Multipart by hand - no third-party HTTP client."""
-    boundary = "----sideline%s" % os.urandom(8).hex()
-    ext = "webm" if "webm" in mime else ("ogg" if "ogg" in mime else "wav")
-
-    def part(name, value):
-        return ('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n%s\r\n'
-                % (boundary, name, value)).encode()
-
-    body = b"".join([
-        ('--%s\r\nContent-Disposition: form-data; name="file"; '
-         'filename="clip.%s"\r\nContent-Type: %s\r\n\r\n'
-         % (boundary, ext, mime)).encode(),
-        audio_bytes, b"\r\n",
-        part("model", GROQ_MODEL),
-        part("response_format", "json"),
-        # Priming the model with the vocabulary of the domain measurably
-        # improves proper nouns, which is most of what a listener says.
-        part("prompt", "Football match commentary. Team and player names, "
-                       "minutes, goals, cards, substitutions, kick-off, "
-                       "half time, the referee."),
-        ("--%s--\r\n" % boundary).encode(),
-    ])
-
-    req = urllib.request.Request(
-        GROQ_URL, data=body,
-        headers={"Authorization": "Bearer " + GROQ_KEY,
-                 "Content-Type": "multipart/form-data; boundary=" + boundary})
-    try:
-        with urllib.request.urlopen(req, timeout=12) as r:
-            doc = json.loads(r.read().decode("utf-8"))
-        return {"text": (doc.get("text") or "").strip(), "provider": "groq"}
-    except Exception as e:                                     # noqa: BLE001
-        LOG.warning("groq whisper failed: %s", e)
-        return None
 
 
 def _transcribe(pcm_bytes):

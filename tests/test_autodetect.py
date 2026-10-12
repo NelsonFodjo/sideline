@@ -31,7 +31,11 @@ def main():
     assert a.provider_kind({"SIDELINE_FOOTBALL_SECRET": "arn"}) == "apifootball"
     assert a.provider_kind({"SIDELINE_FOOTBALL_KEY": "k", "SIDELINE_PROVIDER": "replay"}) == "replay"
     assert a.provider_kind({"SIDELINE_PROVIDER": "apifootball"}) == "apifootball"
-    print("ok  provider: a football key means live; explicit replay still wins")
+    assert a.sideline_mode({"SIDELINE_MODE": "live"}) == "live"
+    assert a.sideline_mode({"SIDELINE_MODE": "demo"}) == "demo"
+    assert a.catchup_mode({"SIDELINE_MODE": "live"}) == "live"
+    assert a.catchup_mode({"SIDELINE_MODE": "demo"}) == "cached"
+    print("ok  provider & mode: a football key or SIDELINE_MODE=live means live")
 
     # --- state
     assert a.state_kind({}) == "memory"

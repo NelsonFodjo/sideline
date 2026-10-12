@@ -51,7 +51,7 @@ no_equals_here
         looks_like_setting = ("=" in stripped and stripped.split("=")[0].isupper()
                               and " " not in stripped.split("=")[0])
         assert not (line.startswith("#") and looks_like_setting and line.startswith("# ") and
-                    stripped.split("=")[0].startswith(("AWS_", "SIDELINE_", "GROQ_"))), \
+                    stripped.split("=")[0].startswith(("AWS_", "SIDELINE_"))), \
             "commented-out setting in .env.example: " + line
     print("ok  .env.example has no commented-out settings")
 

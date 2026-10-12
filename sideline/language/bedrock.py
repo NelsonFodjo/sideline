@@ -94,13 +94,15 @@ from .. import autodetect  # noqa: E402
 ENABLED = autodetect.bedrock_enabled(os.environ)
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 MODEL_ID = os.environ.get("SIDELINE_BEDROCK_MODEL",
-                          "anthropic.claude-3-5-haiku-20241022-v1:0")
+                          "amazon.nova-micro-v1:0")
 
 # Alexa+'s QuickStart sets a round-trip target of 500 ms. A model call can
 # take longer, so the ceiling is configurable: 3.0 (default) favours the
 # better-written catch-up, 0.4 effectively makes templates the answer and
 # keeps every reply inside the target. See docs/BEDROCK.md.
-TIMEOUT_SECONDS = float(os.environ.get("SIDELINE_BEDROCK_TIMEOUT", "3.0"))
+TIMEOUT_SECONDS = float(os.environ.get(
+    "SIDELINE_BEDROCK_TIMEOUT",
+    "8.0" if autodetect.catchup_mode(os.environ) == "live" else "3.0"))
 MAX_TOKENS = 160
 MAX_EVENTS_IN_PROMPT = 12
 SPOKEN_WORD_TARGET = int(os.environ.get("SIDELINE_WORD_TARGET", "45"))
@@ -133,24 +135,22 @@ def available():
     return ENABLED and HAVE_BOTO3
 
 
-def _converse(system, user_text, max_tokens=MAX_TOKENS):
-    """One Bedrock Converse call. Returns text, or None to fall back.
+def _converse(system, user_text, max_tokens=MAX_TOKENS, on_token=None):
+    """Bedrock Converse call using real-time converse_stream.
 
-    Converse rather than invoke_model: one request shape across model
-    families, so swapping the model id is a config change rather than a
-    rewrite of the body.
-
-    Never raises. Every caller has a template path, and a failed model
-    call must degrade to a correct answer rather than an error the
-    listener has to hear.
+    Streams tokens sequentially as they arrive from the model. Calls
+    `on_token(text_chunk)` if provided, assembling the full generated
+    text while reducing memory pressure and time-to-first-token.
     """
     if not available():
         return None
     c = client()
     if c is None:
         return None
+    import time
+    t0 = time.time()
     try:
-        resp = c.converse(
+        resp = c.converse_stream(
             modelId=MODEL_ID,
             system=[{"text": system}],
             messages=[{"role": "user", "content": [{"text": user_text}]}],
@@ -158,15 +158,25 @@ def _converse(system, user_text, max_tokens=MAX_TOKENS):
                              "temperature": 0.2,   # reporting, not writing
                              "topP": 0.9},
         )
-        blocks = resp["output"]["message"]["content"]
-        out = " ".join(b.get("text", "").strip() for b in blocks if b.get("text"))
-        latency = (resp.get("metrics") or {}).get("latencyMs")
-        if latency:
-            LOG.info("bedrock %s in %dms", MODEL_ID, latency)
-        return out.strip() or None
+        stream = resp.get("stream")
+        pieces = []
+        ttft = None
+        for event in stream:
+            if "contentBlockDelta" in event:
+                delta = event["contentBlockDelta"].get("delta", {})
+                txt = delta.get("text", "")
+                if txt:
+                    if ttft is None:
+                        ttft = (time.time() - t0) * 1000
+                    pieces.append(txt)
+                    if on_token:
+                        on_token(txt)
+        out = "".join(pieces).strip()
+        total_ms = (time.time() - t0) * 1000
+        LOG.info("bedrock %s streamed in %dms (ttft: %dms)",
+                 MODEL_ID, total_ms, ttft or total_ms)
+        return out or None
     except Exception as e:                                     # noqa: BLE001
-        # ThrottlingException, timeouts, missing credentials, no model
-        # access - all mean the same thing to us: use the template.
         LOG.warning("bedrock unavailable, using template: %s", e)
         return None
 

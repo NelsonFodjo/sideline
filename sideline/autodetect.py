@@ -32,6 +32,8 @@ def aws_credentials(env):
     """
     if env.get("AWS_ACCESS_KEY_ID") and env.get("AWS_SECRET_ACCESS_KEY"):
         return True
+    if env.get("AWS_BEARER_TOKEN_BEDROCK"):
+        return True
     return any(env.get(k) for k in (
         "AWS_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE",
         "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
@@ -47,10 +49,33 @@ def bedrock_enabled(env):
     return aws_credentials(env)
 
 
+def sideline_mode(env):
+    """'live' or 'demo'. Defaults to 'demo' unless SIDELINE_MODE=live or a football key is present."""
+    v = (env.get("SIDELINE_MODE") or "").strip().lower()
+    if v in ("live", "demo"):
+        return v
+    has_key = env.get("SIDELINE_FOOTBALL_KEY") or env.get("SIDELINE_FOOTBALL_SECRET")
+    return "live" if has_key else "demo"
+
+
+def catchup_mode(env):
+    """'live' (call Bedrock on human ask, no prefill) or 'cached' (background precompute)."""
+    v = (env.get("SIDELINE_CATCHUP_MODE") or "").strip().lower()
+    if v in ("live", "cached"):
+        return v
+    mode = (env.get("SIDELINE_MODE") or "").strip().lower()
+    return "live" if mode == "live" else "cached"
+
+
 def provider_kind(env):
     v = (env.get("SIDELINE_PROVIDER") or "auto").strip().lower()
     if v != "auto":
         return v
+    mode = (env.get("SIDELINE_MODE") or "").strip().lower()
+    if mode == "demo":
+        return "replay"
+    if mode == "live":
+        return "apifootball"
     has_key = env.get("SIDELINE_FOOTBALL_KEY") or env.get("SIDELINE_FOOTBALL_SECRET")
     return "apifootball" if has_key else "replay"
 

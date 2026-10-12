@@ -42,6 +42,10 @@ class Config:
     host = os.environ.get("SIDELINE_HOST", "127.0.0.1")
     port = int(os.environ.get("SIDELINE_PORT", "8765"))
 
+    # live | demo. Live switches to real API data and real-time Bedrock queries.
+    mode = autodetect.sideline_mode(os.environ)
+    catchup_mode = autodetect.catchup_mode(os.environ)
+
     # auto (default) | replay | apifootball. Auto = live when a key is present.
     provider = autodetect.provider_kind(os.environ)
     replay_path = _path(os.environ.get("SIDELINE_REPLAY",

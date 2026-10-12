@@ -46,16 +46,11 @@ def build():
         # The environment variable wins; Secrets Manager is the fallback.
         key = CONFIG.football_key or secretsmanager.football_key(
             CONFIG.football_secret, CONFIG.region)
-        if CONFIG.provider == "apifootball" and not key:
-            # A live provider with no key would answer every question with
-            # "unavailable". Better to say so loudly and serve the real
-            # recorded match, so the server is still demonstrably working.
-            logging.getLogger("sideline").warning(
-                "SIDELINE_PROVIDER=apifootball but no key (SIDELINE_FOOTBALL_KEY "
-                "or SIDELINE_FOOTBALL_SECRET): falling back to the recorded match")
-            provider = build_provider("replay", **replay)
-        else:
-            provider = build_provider(CONFIG.provider, api_key=key)
+        if not key:
+            raise RuntimeError(
+                "SIDELINE_PROVIDER=%s requires an API key. "
+                "Set SIDELINE_FOOTBALL_KEY in .env or the environment." % CONFIG.provider)
+        provider = build_provider(CONFIG.provider, api_key=key)
 
     store = build_store(CONFIG.state, table_name=CONFIG.table, region=CONFIG.region)
     ctx = Context(provider, store, language)
@@ -76,9 +71,11 @@ def main():
     log = logging.getLogger("sideline")
     from .voice import capabilities
     caps = capabilities()
-    log.info("provider=%s state=%s bedrock=%s",
-             ctx.provider.name, type(ctx.store).__name__.replace("Store", "").lower(),
-             "on" if language.bedrock.available() else "off")
+    log.info("mode=%s provider=%s state=%s bedrock=%s (catchup=%s)",
+             CONFIG.mode, ctx.provider.name,
+             type(ctx.store).__name__.replace("Store", "").lower(),
+             "on" if language.bedrock.available() else "off",
+             CONFIG.catchup_mode)
     log.info("voice: in=%s out=%s%s",
              caps["stt"] or "browser", caps["tts"] or "browser",
              (" (%s, %s)" % (caps["voice"], caps["engine"])) if caps["tts"] else "")
