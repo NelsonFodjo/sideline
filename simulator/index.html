@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sideline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,200;0,300;0,400;0,600;1,300&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ---------------------------------------------------------------------
+   Sideline — hands-free voice client.
+
+   One control: a start button, because browsers will not open a
+   microphone without a gesture. After that nothing is clicked and
+   nothing is typed — the listener cannot see the screen.
+
+   Visual language: a reactive core, in blue on near-black. Concentric
+   rings, rotating arcs and a radial waveform are a long-standing
+   vocabulary for audio interfaces and predate any one product. What is
+   deliberately NOT here: a recreation of any specific device's light
+   ring, any proprietary typeface, any third-party mark. Public Sans
+   carries the interface, IBM Plex Mono the machine layer.
+
+   Everything in the core is driven by real audio - your microphone
+   while it listens, the returning voice while it speaks. Nothing on
+   screen is a decorative loop.
+   --------------------------------------------------------------------- */
+:root{
+  --void:#04070C;
+  --deep:#070C14;
+  --line:#13202E;
+  --cyan:#19C6F4;
+  --cyan-deep:#0A84D8;
+  --cyan-ghost:rgba(25,198,244,.14);
+  --white:#E6F3FB;
+  --dim:#5E7488;
+  --faint:#2E4254;
+  --warm:#F5C84C;
+  --hot:#FF6B4A;
+  --ok:#2FD08A;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--void)}
+body{
+  color:var(--white);
+  font-family:"Public Sans","Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* the core fills the screen behind everything */
+#core{position:fixed;inset:0;z-index:0;display:block}
+
+.shell{position:relative;z-index:1;height:100%;display:flex;flex-direction:column;
+  pointer-events:none}
+
+/* ------------------------------------------------- match line (top) */
+.match{flex:0 0 auto;padding:22px 30px 0;font-family:"IBM Plex Mono",monospace;
+  opacity:0;transition:opacity .7s ease}
+.match.on{opacity:1}
+.match-row{display:flex;align-items:baseline;gap:16px;font-size:11px;color:var(--faint);
+  letter-spacing:.04em}
+.match-row .score{color:var(--white)}
+.match-row .clock{margin-left:auto;color:var(--cyan);font-variant-numeric:tabular-nums}
+.bar{position:relative;height:22px;margin-top:10px}
+.bar .rail{position:absolute;left:0;right:0;top:10px;height:1px;background:var(--line)}
+.bar .played{position:absolute;left:0;top:10px;height:1px;background:var(--cyan-deep);
+  width:0;transition:width .6s ease;box-shadow:0 0 6px rgba(25,198,244,.5)}
+.bar .gap{position:absolute;top:7px;height:7px;background:rgba(245,200,76,.12);
+  border-left:1px solid var(--warm);border-right:1px solid var(--warm);
+  opacity:0;transition:opacity .5s ease,width .6s ease,left .6s ease}
+.bar .tick{position:absolute;top:5px;width:1px;height:11px;background:var(--faint)}
+.bar .tick.goal{height:17px;top:2px;background:var(--warm);width:2px;
+  box-shadow:0 0 7px rgba(245,200,76,.7)}
+.bar .told{position:absolute;top:2px;width:1px;height:17px;background:var(--cyan);
+  opacity:0;transition:opacity .5s ease,left .6s ease;
+  box-shadow:0 0 8px rgba(25,198,244,.8)}
+.bar .told.on{opacity:1}
+
+/* ------------------------------------------------------- the stage */
+.stage{flex:1 1 auto;display:flex;flex-direction:column;justify-content:flex-end;
+  align-items:center;padding:0 30px 4vh;min-height:0;text-align:center}
+.inner{width:100%;max-width:20em}
+
+.said{
+  font-size:13.5px;color:var(--dim);font-weight:300;font-style:italic;
+  min-height:1.5em;margin-bottom:20px;letter-spacing:.01em;
+  opacity:0;transform:translateY(5px);
+  transition:opacity .35s ease,transform .35s ease;
+}
+.said.on{opacity:1;transform:none}
+
+.answer{
+  font-size:clamp(26px,4.6vw,46px);line-height:1.22;font-weight:300;
+  letter-spacing:-.018em;min-height:2.5em;
+}
+.answer w{
+  opacity:.13;color:var(--white);
+  transition:opacity .2s ease,color .2s ease,text-shadow .2s ease;
+}
+.answer w.on{opacity:1}
+.answer w.now{color:var(--cyan);text-shadow:0 0 22px rgba(25,198,244,.55)}
+.answer.quiet{
+  font-size:clamp(15px,2vw,19px);color:var(--dim);font-weight:300;
+  letter-spacing:.02em;font-style:italic;
+}
+
+/* ------------------------------------------------ the only control */
+.gate{
+  position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:24px;background:var(--void);
+  pointer-events:auto;
+}
+.gate h1{
+  font-size:clamp(40px,9vw,92px);font-weight:200;margin:0;
+  letter-spacing:-.04em;color:var(--white);
+  text-shadow:0 0 70px rgba(25,198,244,.3);
+}
+.gate p{margin:0;color:var(--dim);font-size:16px;font-weight:300;
+  max-width:23em;text-align:center;line-height:1.6}
+.gate button{
+  font-family:inherit;font-size:15px;font-weight:400;letter-spacing:.08em;
+  text-transform:lowercase;
+  background:transparent;color:var(--cyan);
+  border:1px solid rgba(25,198,244,.45);border-radius:999px;
+  padding:14px 40px;cursor:pointer;margin-top:6px;
+  transition:border-color .3s ease,box-shadow .3s ease,color .3s ease;
+}
+.gate button:hover{border-color:var(--cyan);color:var(--white);
+  box-shadow:0 0 34px rgba(25,198,244,.25),inset 0 0 22px rgba(25,198,244,.07)}
+.gate button:focus-visible{outline:2px solid var(--cyan);outline-offset:5px}
+.gate small{font-family:"IBM Plex Mono",monospace;font-size:10.5px;
+  color:var(--faint);letter-spacing:.06em}
+.gate.gone{display:none}
+
+/* --------------------------------------------- the machine strip */
+.wire{flex:0 0 auto;border-top:1px solid var(--line);
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.03em;
+  display:flex;align-items:center;gap:14px;padding:10px 30px;color:var(--faint);
+  background:linear-gradient(180deg,transparent,rgba(4,7,12,.85))}
+.wire .dot{width:5px;height:5px;border-radius:50%;background:var(--faint);flex:0 0 auto}
+.wire .dot.ok{background:var(--ok);box-shadow:0 0 8px rgba(47,208,138,.7)}
+.wire .dot.err{background:var(--hot);box-shadow:0 0 8px rgba(255,107,74,.7)}
+.wire .tool{color:var(--white)}
+.wire .ms{color:var(--dim);font-variant-numeric:tabular-nums}
+.wire .via{color:var(--cyan-deep)}
+.wire .via.bedrock{color:var(--warm)}
+.wire .stack{margin-left:auto;color:var(--faint)}
+.wire .stack b{color:var(--dim);font-weight:400}
+
+@media (prefers-reduced-motion: reduce){
+  *{transition-duration:.001ms!important}
+  .answer w{opacity:1}
+}
+</style>
+</head>
+<body>
+
+<div class="gate" id="gate">
+  <h1>Sideline</h1>
+  <p>Say &ldquo;follow the Arsenal game&rdquo;, then just talk. It listens between answers &mdash; cut in whenever you like.</p>
+  <button id="begin" type="button">Start listening</button>
+  <small id="gatenote">needs your microphone</small>
+</div>
+
+<canvas id="core"></canvas>
+<div class="shell">
+<div class="match" id="match">
+  <div class="match-row">
+    <span id="teams"></span><span class="score" id="score"></span>
+    <span class="clock" id="clock"></span>
+  </div>
+  <div class="bar" id="bar">
+    <div class="rail"></div><div class="played" id="played"></div>
+    <div class="gap" id="gap"></div><div class="told" id="toldmark"></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="inner">
+    <div class="said" id="said"></div>
+    <div class="answer quiet" id="answer">Listening.</div>
+  </div>
+</div>
+
+<div class="wire">
+  <span class="dot" id="dot"></span>
+  <span class="tool" id="tool">connecting</span>
+  <span class="ms" id="ms"></span>
+  <span class="via" id="via"></span>
+  <span class="stack" id="stack"></span>
+</div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var $=function(i){return document.getElementById(i)};
+var BASE=(location.protocol==="file:")?"http://127.0.0.1:8765"
+        :location.origin.replace(/:\d+$/,":8765");
+
+/* ================================================================ MCP */
+var id=0,sid=null;
+async function rpc(method,params){
+  var h={"Content-Type":"application/json"};
+  if(sid)h["Mcp-Session-Id"]=sid;
+  var r=await fetch(BASE+"/mcp",{method:"POST",headers:h,
+    body:JSON.stringify({jsonrpc:"2.0",id:++id,method:method,params:params})});
+  if(r.headers.get("Mcp-Session-Id"))sid=r.headers.get("Mcp-Session-Id");
+  var t=await r.text(); return t?JSON.parse(t):null;
+}
+
+/* ============================================================== audio */
+var ctx=null, mic=null, micAn=null, outAn=null, micBuf=null, outBuf=null;
+var caps={stt:null,tts:null};
+
+async function openAudio(){
+  ctx=new (window.AudioContext||window.webkitAudioContext)();
+  var stream=await navigator.mediaDevices.getUserMedia({audio:{
+    echoCancellation:true,     // so our own voice does not retrigger us
+    noiseSuppression:true,
+    autoGainControl:true}});
+  mic=stream;
+  var src=ctx.createMediaStreamSource(stream);
+  micAn=ctx.createAnalyser(); micAn.fftSize=1024; micAn.smoothingTimeConstant=.7;
+  src.connect(micAn); micBuf=new Uint8Array(micAn.frequencyBinCount);
+
+  outAn=ctx.createAnalyser(); outAn.fftSize=1024; outAn.smoothingTimeConstant=.72;
+  outBuf=new Uint8Array(outAn.frequencyBinCount);
+  return stream;
+}
+
+/* ============================================================== core */
+/* The reactive core. Every ring is driven by real audio: your
+   microphone while it listens, the returning voice while it speaks.
+   Nothing here is a decorative loop running on a timer.
+
+   Four layers, outside in:
+     1. an outer ring of ticks, rotating slowly, denser where there is
+        energy in that part of the spectrum
+     2. two dashed arcs counter-rotating, which speed up while thinking
+     3. a radial waveform - the audio drawn as a circle, its radius
+        modulated by the actual samples
+     4. a core whose glow tracks amplitude
+
+   Colour carries state, so a sighted person can read it across a room:
+   dim blue idle, white-blue listening, deep blue thinking, warm amber
+   speaking. */
+var cv=$("core"), cx=cv.getContext("2d"), W=0, H=0, DPR=1;
+var MODE="idle";   // idle | listening | thinking | speaking
+var spin=0, spin2=0, scan=0, glow=0, pulse=0;
+
+function sizeCore(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR;
+  cv.style.width=W+"px"; cv.style.height=H+"px";
+  cx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener("resize",sizeCore);
+sizeCore();
+
+var PALETTE={
+  idle:      [36,84,110],
+  listening: [120,205,240],
+  thinking:  [25,140,220],
+  speaking:  [245,200,76]
+};
+var rgbNow=[36,84,110];
+
+function ease(a,b,t){ return a+(b-a)*t; }
+
+function drawCore(){
+  requestAnimationFrame(drawCore);
+  if(!W) sizeCore();
+  cx.clearRect(0,0,W,H);
+
+  var cxp=W/2, cyp=H*0.38, R=Math.min(W,H)*0.17;
+
+  // --- real audio --------------------------------------------------
+  var an = (MODE==="speaking") ? outAn : micAn;
+  var buf= (MODE==="speaking") ? outBuf : micBuf;
+  var freq=null, amp=0;
+  if(an){
+    an.getByteTimeDomainData(buf);
+    var sum=0;
+    for(var i=0;i<buf.length;i++){ var d=(buf[i]-128)/128; sum+=d*d; }
+    amp=Math.sqrt(sum/buf.length);
+    freq=new Uint8Array(an.frequencyBinCount);
+    an.getByteFrequencyData(freq);
+  }
+  if(MODE==="idle"||MODE==="thinking") amp*=0.18;
+
+  // --- state colour, eased so transitions do not snap ---------------
+  var target=PALETTE[MODE]||PALETTE.idle;
+  for(var c=0;c<3;c++) rgbNow[c]=ease(rgbNow[c],target[c],0.06);
+  var col=function(a){ return "rgba("+(rgbNow[0]|0)+","+(rgbNow[1]|0)+","+(rgbNow[2]|0)+","+a+")"; };
+
+  glow=ease(glow, Math.min(1,amp*4.5), 0.18);
+  pulse+=0.016;
+  spin += MODE==="thinking"?0.016:0.0035;
+  spin2-= MODE==="thinking"?0.024:0.0022;
+  scan += MODE==="thinking"?0.03:0.006;
+
+  // --- 4. the ambient glow -----------------------------------------
+  var g=cx.createRadialGradient(cxp,cyp,0,cxp,cyp,R*(3.2+glow*1.4));
+  g.addColorStop(0, col(0.16+glow*0.3));
+  g.addColorStop(0.42, col(0.05+glow*0.08));
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  cx.fillStyle=g; cx.fillRect(0,0,W,H);
+
+  // --- 3. the radial waveform --------------------------------------
+  if(an){
+    cx.beginPath();
+    var N=160;
+    for(var k=0;k<=N;k++){
+      var t=k/N, ang=t*Math.PI*2 - Math.PI/2;
+      var si=Math.floor(t*buf.length);
+      var v=(buf[si%buf.length]-128)/128;
+      // Taper at the seam so the circle closes cleanly instead of
+      // showing a step where the sample buffer wraps.
+      var seam=Math.sin(t*Math.PI);
+      var r=R + v*R*0.62*seam + Math.sin(t*14+pulse*2)*R*0.016;
+      var x=cxp+Math.cos(ang)*r, y=cyp+Math.sin(ang)*r;
+      k===0?cx.moveTo(x,y):cx.lineTo(x,y);
+    }
+    cx.closePath();
+    cx.strokeStyle=col(0.55+glow*0.4);
+    cx.lineWidth=1.4;
+    cx.shadowBlur=16+glow*26; cx.shadowColor=col(0.5);
+    cx.stroke();
+    cx.shadowBlur=0;
+  }
+
+  // --- 2. counter-rotating dashed arcs ------------------------------
+  function arc(radius,from,to,width,alpha,rot,dash){
+    cx.save(); cx.translate(cxp,cyp); cx.rotate(rot);
+    cx.beginPath(); cx.arc(0,0,radius,from,to);
+    cx.strokeStyle=col(alpha); cx.lineWidth=width;
+    if(dash) cx.setLineDash(dash);
+    cx.stroke(); cx.restore();
+  }
+  arc(R*1.42, 0, Math.PI*0.62, 1, 0.5, spin);
+  arc(R*1.42, Math.PI, Math.PI*1.4, 1, 0.28, spin);
+  arc(R*1.66, 0, Math.PI*2, 1, 0.2, spin2, [2,9]);
+  arc(R*1.9,  Math.PI*0.15, Math.PI*0.5, 2, 0.34, spin2);
+  arc(R*1.9,  Math.PI*1.15, Math.PI*1.5, 2, 0.34, spin2);
+
+  // --- 1. the spectrum ring ----------------------------------------
+  if(freq){
+    var ticks=96;
+    cx.save(); cx.translate(cxp,cyp); cx.rotate(spin*0.5);
+    for(var j=0;j<ticks;j++){
+      var a2=(j/ticks)*Math.PI*2;
+      // Low bins hold the voice; sample the lower third and mirror it
+      // so the ring is symmetrical rather than lopsided.
+      var bin=Math.floor((j<ticks/2?j:ticks-j)/(ticks/2)*(freq.length*0.34));
+      var mag=freq[bin]/255;
+      var len=3+mag*R*0.42;
+      var r0=R*2.12;
+      cx.beginPath();
+      cx.moveTo(Math.cos(a2)*r0, Math.sin(a2)*r0);
+      cx.lineTo(Math.cos(a2)*(r0+len), Math.sin(a2)*(r0+len));
+      cx.strokeStyle=col(0.12+mag*0.6);
+      cx.lineWidth=1.4; cx.stroke();
+    }
+    cx.restore();
+  }
+
+  // --- the scanning sweep, only while thinking ---------------------
+  if(MODE==="thinking"){
+    var sa=scan%(Math.PI*2);
+    var sg=cx.createLinearGradient(
+      cxp+Math.cos(sa)*R*2.3, cyp+Math.sin(sa)*R*2.3, cxp, cyp);
+    sg.addColorStop(0, col(0.5)); sg.addColorStop(1,"rgba(0,0,0,0)");
+    cx.save(); cx.translate(cxp,cyp);
+    cx.beginPath(); cx.moveTo(0,0);
+    cx.arc(0,0,R*2.3,sa-0.1,sa+0.1); cx.closePath();
+    cx.fillStyle=col(0.07); cx.fill();
+    cx.restore();
+  }
+
+  // --- the core ----------------------------------------------------
+  var cg=cx.createRadialGradient(cxp,cyp,0,cxp,cyp,R*0.78);
+  cg.addColorStop(0, col(0.5+glow*0.45));
+  cg.addColorStop(0.55, col(0.1+glow*0.16));
+  cg.addColorStop(1,"rgba(0,0,0,0)");
+  cx.fillStyle=cg;
+  cx.beginPath(); cx.arc(cxp,cyp,R*0.78,0,Math.PI*2); cx.fill();
+
+  cx.beginPath(); cx.arc(cxp,cyp,R*0.1+glow*R*0.07,0,Math.PI*2);
+  cx.fillStyle=col(0.75+glow*0.25);
+  cx.shadowBlur=22+glow*34; cx.shadowColor=col(0.9);
+  cx.fill(); cx.shadowBlur=0;
+}
+requestAnimationFrame(drawCore);
+
+function level(an,buf){
+  if(!an) return 0;
+  an.getByteTimeDomainData(buf);
+  var sum=0;
+  for(var i=0;i<buf.length;i++){ var d=(buf[i]-128)/128; sum+=d*d; }
+  return Math.sqrt(sum/buf.length);
+}
+
+/* =============================================== listening, hands-free */
+/* Energy-gated. Speech raises the level above a floor measured from the
+   room itself; a pause below it for long enough ends the turn. No wake
+   word, no button, no hold — the listener is not looking at anything. */
+var FLOOR=0.012, SILENCE_MS=850, MIN_MS=380, MAX_MS=12000;
+var speaking=false, armed=false;
+var sawVoice=false, lastVoice=0, startedAt=0, watch=null;
+
+/* Raw PCM capture, not MediaRecorder.
+
+   Transcribe streaming wants 16 kHz mono PCM, and capturing it directly
+   sidesteps the container problem entirely: MediaRecorder gives WebM in
+   Chrome and MP4 in Safari, and Transcribe accepts neither. Groq takes
+   a file, so PCM gets a 44-byte WAV header server-side.
+
+   ScriptProcessor rather than AudioWorklet: deprecated, but it works
+   everywhere without a separate module file, which matters for a page
+   opened from file://. */
+var TARGET_RATE=16000, pcmNode=null, pcmChunks=[], capturing=false;
+
+function downsample(input, inRate){
+  if(inRate===TARGET_RATE) return input;
+  var ratio=inRate/TARGET_RATE, out=new Float32Array(Math.round(input.length/ratio));
+  for(var i=0,j=0;i<out.length;i++){
+    var next=Math.round((i+1)*ratio), sum=0, n=0;
+    // Average across the window rather than picking one sample, or the
+    // downsample aliases and Transcribe hears a buzz.
+    for(;j<next&&j<input.length;j++){ sum+=input[j]; n++; }
+    out[i]=n?sum/n:0;
+  }
+  return out;
+}
+
+function toInt16(f32){
+  var out=new Int16Array(f32.length);
+  for(var i=0;i<f32.length;i++){
+    var s=Math.max(-1,Math.min(1,f32[i]));
+    out[i]=s<0?s*0x8000:s*0x7FFF;
+  }
+  return out;
+}
+
+function startCapture(){
+  if(capturing) return;
+  pcmChunks=[]; capturing=true;
+  var src=ctx.createMediaStreamSource(mic);
+  pcmNode=ctx.createScriptProcessor(4096,1,1);
+  pcmNode.onaudioprocess=function(e){
+    if(!capturing) return;
+    var f=downsample(e.inputBuffer.getChannelData(0), ctx.sampleRate);
+    pcmChunks.push(toInt16(f));
+  };
+  src.connect(pcmNode);
+  // Routed to a silent gain node: ScriptProcessor will not fire unless
+  // it is connected to the destination, and we must not play the mic
+  // back into the room.
+  var mute=ctx.createGain(); mute.gain.value=0;
+  pcmNode.connect(mute); mute.connect(ctx.destination);
+}
+
+function endCapture(){
+  capturing=false;
+  if(pcmNode){ try{pcmNode.disconnect()}catch(e){} pcmNode=null; }
+  var total=pcmChunks.reduce(function(n,c){return n+c.length},0);
+  var all=new Int16Array(total), at=0;
+  pcmChunks.forEach(function(c){ all.set(c,at); at+=c.length; });
+  pcmChunks=[];
+  return all.buffer;
+}
+
+function listen(){
+  if(!armed||speaking||!mic)return;
+  MODE="listening"; setQuiet("Listening.");
+  sawVoice=false; startedAt=performance.now(); lastVoice=0;
+  startCapture();
+
+  clearInterval(watch);
+  watch=setInterval(function(){
+    var a=level(micAn,micBuf), now=performance.now();
+    if(a>FLOOR){ sawVoice=true; lastVoice=now; }
+    var elapsed=now-startedAt, quietFor=now-(lastVoice||startedAt);
+    if((sawVoice && elapsed>MIN_MS && quietFor>SILENCE_MS) || elapsed>MAX_MS){
+      clearInterval(watch); watch=null;
+      var pcm=endCapture();
+      if(sawVoice && pcm.byteLength>6000) handleClip(pcm);
+      else if(armed) listen();
+    }
+  },60);
+}
+
+function stopListening(){
+  clearInterval(watch); watch=null;
+  if(capturing) endCapture();
+}
+
+/* Barge-in. The whole product is about being interruptible, so the
+   simulator has to be too: talk over it and it stops and listens. */
+var bargeTimer=null;
+function watchForBargeIn(){
+  clearInterval(bargeTimer);
+  var over=0;
+  bargeTimer=setInterval(function(){
+    if(!speaking){clearInterval(bargeTimer);return;}
+    over = level(micAn,micBuf)>FLOOR*2.6 ? over+1 : 0;
+    if(over>4){                       // ~240ms of real speech
+      clearInterval(bargeTimer);
+      stopSpeaking();
+      listen();
+    }
+  },60);
+}
+
+/* ========================================================= speech in */
+async function handleClip(pcm){
+  MODE="thinking"; setQuiet("");
+  var text=null;
+  if(caps.stt){
+    try{
+      var r=await fetch(BASE+"/voice/stt",{method:"POST",
+        headers:{"X-Audio-Type":"audio/pcm;rate=16000"},body:pcm});
+      if(r.ok) text=(await r.json()).text;
+    }catch(e){}
+  }
+  if(!text){ if(armed)listen(); return; }
+  text=text.trim();
+  if(text.length<2){ if(armed)listen(); return; }
+
+  $("said").textContent="\u201c"+text+"\u201d";
+  $("said").classList.add("on");
+  ask(text);
+}
+
+/* ========================================================= speech out */
+/* Polly where available, because its speech marks give the exact
+   millisecond each word is spoken. The highlight is then real rather
+   than a timer approximating a speech rate. */
+var answer=$("answer"), audioEl=null, srcNode=null, markTimers=[];
+
+function layout(text){
+  answer.classList.remove("quiet");
+  answer.innerHTML="";
+  var spans=[], at=0;
+  text.split(/(\s+)/).forEach(function(tok){
+    if(/^\s+$/.test(tok)) answer.appendChild(document.createTextNode(tok));
+    else{
+      var w=document.createElement("w");
+      w.textContent=tok; w.dataset.at=at;
+      answer.appendChild(w); spans.push(w);
+    }
+    at+=tok.length;
+  });
+  return spans;
+}
+function setQuiet(t){ answer.classList.add("quiet"); answer.textContent=t; }
+
+function reveal(spans,charIndex){
+  for(var i=0;i<spans.length;i++){
+    var a=+spans[i].dataset.at;
+    spans[i].classList.toggle("on", a<=charIndex);
+    spans[i].classList.toggle("now", a<=charIndex &&
+      (i===spans.length-1 || +spans[i+1].dataset.at>charIndex));
+  }
+}
+
+function stopSpeaking(){
+  speaking=false; clearInterval(bargeTimer);
+  markTimers.forEach(clearTimeout); markTimers=[];
+  if(audioEl){ audioEl.pause(); audioEl=null; }
+  if(window.speechSynthesis) speechSynthesis.cancel();
+}
+
+async function say(text){
+  var spans=layout(text);
+  speaking=true; MODE="speaking";
+
+  if(caps.tts){
+    try{
+      var r=await fetch(BASE+"/voice/tts",{method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({text:text})});
+      if(r.ok){
+        var doc=await r.json();
+        await playPolly(doc,spans);
+        return;
+      }
+    }catch(e){}
+  }
+  browserSay(text,spans);
+}
+
+function playPolly(doc,spans){
+  return new Promise(function(done){
+    audioEl=new Audio("data:audio/mp3;base64,"+doc.audio);
+    audioEl.crossOrigin="anonymous";
+    try{
+      srcNode=ctx.createMediaElementSource(audioEl);
+      srcNode.connect(outAn); outAn.connect(ctx.destination);
+    }catch(e){ /* already connected, or unsupported: still audible */ }
+
+    // One timer per word, from Polly's own millisecond offsets.
+    markTimers=(doc.marks||[]).map(function(m){
+      return setTimeout(function(){ reveal(spans,m.start); }, m.time);
+    });
+
+    audioEl.onended=function(){ finishSpeaking(spans,done); };
+    audioEl.onerror=function(){ finishSpeaking(spans,done); };
+    watchForBargeIn();
+    audioEl.play().catch(function(){ finishSpeaking(spans,done); });
+  });
+}
+
+function browserSay(text,spans){
+  if(!("speechSynthesis" in window)){ finishSpeaking(spans); return; }
+  speechSynthesis.cancel();
+  var u=new SpeechSynthesisUtterance(text);
+  var vs=speechSynthesis.getVoices().filter(function(v){return /^en/i.test(v.lang)});
+  var pref=vs.find(function(v){return /Google UK English Female|Samantha|Amy/.test(v.name)});
+  if(pref)u.voice=pref; else if(vs.length)u.voice=vs[0];
+  u.rate=1.02;
+  u.onboundary=function(e){ if(!e.name||e.name==="word") reveal(spans,e.charIndex); };
+  u.onend=function(){ finishSpeaking(spans); };
+  watchForBargeIn();
+  speechSynthesis.speak(u);
+}
+
+function finishSpeaking(spans,done){
+  markTimers.forEach(clearTimeout); markTimers=[];
+  spans.forEach(function(s){s.classList.add("on");s.classList.remove("now")});
+  speaking=false; audioEl=null; MODE="idle";
+  clearInterval(bargeTimer);
+  if(done)done();
+  // Hands-free: go straight back to listening. No button, no wake word.
+  setTimeout(function(){ if(armed) listen(); }, 180);
+}
+
+/* ============================================================ routing */
+/* Local keyword routing. The real router is Alexa's; this mirrors the
+   phrasings in the tool descriptions on purpose, so a miss here hints
+   at a miss there. */
+function heardWhich(t){
+  return /kick.?off/i.test(t)?"kickoff"
+       : /half.?time/i.test(t)?"half_time"
+       : /second half|restart/i.test(t)?"second_half"
+       : /full.?time|final whistle/i.test(t)?"full_time":"goal";
+}
+var ROUTES=[
+  [/kick.?off just|whistle.{0,14}gone|that'?s half.?time|second half|just scored/i,
+    function(t){return ["sync_broadcast_delay",{heard:heardWhich(t)}]}],
+  [/spoil|ahead of my|in sync|are you behind/i,
+    function(){return ["sync_broadcast_delay",{check:true}]}],
+  [/miss|happen|catch me up|fill me in|just got back|the rest|everything|yes please/i,
+    function(t){return ["what_did_i_miss",/rest|everything|yes/i.test(t)?{full:true}:{}]}],
+  [/score|winning|how long|finished|still/i, function(){return ["get_match_state",{}]}],
+  [/playing|line.?up|bench|formation|starting/i, function(){return ["get_lineups",{}]}],
+  [/ref|official|yellow|red card|booking/i, function(){return ["get_officials",{}]}],
+  [/that goal|assist|say that again|tell me about/i,
+    function(){return ["get_event_detail",{kind:"goal"}]}],
+  [/beaten|last time|record against|head to head/i, function(){return ["get_head_to_head",{}]}],
+  [/follow|watch|keep me updated|put on/i, function(t){
+    var m=t.match(/(?:follow|watch|put on)(?: the)? ([a-z\s]+?)(?: game| match|\.|$)/i);
+    return ["follow_match",{team:(m?m[1]:"Arsenal").trim(),locale:navigator.language}];
+  }],
+];
+function route(t){
+  for(var i=0;i<ROUTES.length;i++) if(ROUTES[i][0].test(t)) return ROUTES[i][1](t);
+  if(/who(?:'?s| is| was)\s+(he|that|him)\b/i.test(t))
+    return ["get_player_context",{player:"he"}];
+  var n=t.match(/who(?:'?s| is)\s+([a-z\s]{2,28})/i);
+  if(n) return ["get_player_context",{player:n[1].trim()}];
+  return ["get_match_state",{}];
+}
+
+/* =============================================================== match */
+var M={minute:0,told:null,events:[],home:"",away:"",score:null};
+function paint(){
+  if(!M.home)return;
+  $("match").classList.add("on");
+  $("teams").textContent=M.home+" v "+M.away;
+  if(M.score)$("score").textContent=M.score.home+"\u2013"+M.score.away;
+  $("clock").textContent=M.minute+"'";
+  var pc=function(m){return Math.max(0,Math.min(100,m/90*100))+"%"};
+  $("played").style.width=pc(M.minute);
+  document.querySelectorAll(".bar .tick").forEach(function(n){n.remove()});
+  M.events.forEach(function(e){
+    var t=document.createElement("div");
+    t.className="tick"+(e.kind==="goal"?" goal":"");
+    t.style.left=pc(e.minute); $("bar").appendChild(t);
+  });
+  var tm=$("toldmark");
+  if(M.told!=null){tm.classList.add("on");tm.style.left=pc(M.told);}
+  var g=$("gap");
+  if(M.told!=null&&M.minute>M.told+1){
+    g.style.left=pc(M.told);
+    g.style.width=((M.minute-M.told)/90*100)+"%"; g.style.opacity="1";
+  }else g.style.opacity="0";
+}
+
+/* ================================================================ ask */
+async function ask(text){
+  var pair=route(text),tool=pair[0],args=pair[1],t0=performance.now();
+  try{
+    var doc=await rpc("tools/call",{name:tool,arguments:args});
+    var res=(doc&&doc.result)||{}, sc=res.structuredContent||{};
+    $("dot").className="dot "+(res.isError?"err":"ok");
+    $("tool").textContent=tool;
+    $("ms").textContent=Math.round(performance.now()-t0)+" ms";
+    $("via").textContent=sc.generated_by||"";
+    $("via").className="via"+(sc.generated_by==="bedrock"?" bedrock":"");
+
+    if(sc.minute!=null)M.minute=sc.minute;
+    if(sc.home){M.home=sc.home;M.away=sc.away;}
+    if(sc.score)M.score=sc.score;
+    if(sc.window){M.told=sc.window.from_minute;M.minute=sc.window.to_minute;}
+    if(sc.events&&sc.events.length)M.events=sc.events;
+    if(tool==="what_did_i_miss")M.told=M.minute;
+    paint();
+
+    say(((res.content||[{}])[0].text)||"Sorry, nothing came back.");
+  }catch(e){
+    $("dot").className="dot err"; $("tool").textContent="no server";
+    say("I can't reach the server.");
+  }
+}
+
+/* ============================================================== start */
+$("begin").onclick=async function(){
+  try{ await openAudio(); }
+  catch(e){
+    $("gatenote").textContent="microphone blocked — allow it and reload";
+    return;
+  }
+  $("gate").classList.add("gone");
+  sizeCore(); armed=true;
+
+  try{
+    var init=await rpc("initialize",{protocolVersion:"2025-11-25",
+      clientInfo:{name:"sideline-simulator",version:"2"}});
+    await rpc("notifications/initialized");
+    var list=await rpc("tools/list");
+    $("dot").className="dot ok";
+    $("tool").textContent=init.result.serverInfo.name;
+    $("ms").textContent=list.result.tools.length+" tools";
+    $("via").textContent="spec "+init.result.protocolVersion;
+  }catch(e){
+    $("dot").className="dot err"; $("tool").textContent="server not running";
+    setQuiet("Start the server: python3 -m sideline");
+    return;
+  }
+
+  say("Listening. Tell me which match to follow.");
+};
+
+/* Ask the server what it can do, so the gate can say so before anyone
+   commits a microphone to it. */
+(async function(){
+  try{
+    var r=await fetch(BASE+"/voice/capabilities");
+    if(r.ok)caps=await r.json();
+  }catch(e){}
+  var inb=caps.stt||"browser";
+  var outb=caps.tts?("polly "+(caps.voice||"")):"browser";
+  $("stack").innerHTML="in <b>"+inb+"</b> \u00b7 out <b>"+outb+"</b>";
+  if(!caps.stt||!caps.tts){
+    $("gatenote").textContent=caps.stt_hint||caps.tts_hint||"needs your microphone";
+  }
+
+})();
+})();
+</script>
+</body>
+</html>

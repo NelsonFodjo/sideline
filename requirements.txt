@@ -1,0 +1,15 @@
+# The MCP server itself needs nothing. It is standard library Python, so
+# the repository clones and runs with no install step - which matters
+# during the judging window, where a reviewer who cannot run the project
+# scores nothing. See docs/ARCHITECTURE.md, "No dependencies".
+#
+# These enable the AWS integrations:
+
+boto3>=1.34               # Bedrock Converse, Polly, DynamoDB
+amazon-transcribe>=0.6    # Transcribe streaming, for the simulator's speech in
+
+# Everything degrades cleanly without them:
+#   no boto3             -> language falls back to deterministic templates,
+#                           and the simulator uses the browser's own speech
+#   no amazon-transcribe -> speech in falls back to Groq, or to the browser
+#   SIDELINE_STATE=memory (the default) -> no DynamoDB needed

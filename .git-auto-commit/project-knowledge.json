@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "frameworks": [],
+  "topLevelDirs": [
+    "data",
+    "docs",
+    "scripts",
+    "simulator",
+    "src",
+    "tests"
+  ],
+  "moduleMap": {
+    "data": "project module",
+    "docs": "documentation",
+    "scripts": "project module",
+    "simulator": "project module",
+    "src": "source code",
+    "tests": "tests"
+  },
+  "dependencies": [],
+  "lastUpdated": 1791777761479
+}

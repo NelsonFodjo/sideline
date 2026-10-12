@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "sampleSize": 1,
+  "dominantConvention": "mixed",
+  "confidence": 0,
+  "prefixDistribution": {},
+  "scopeUsageRate": 0,
+  "commonScopes": [],
+  "avgSummaryLength": 14,
+  "capitalizationStyle": "capitalized",
+  "endsWithPeriod": false,
+  "usesImperativeMood": true,
+  "emojiUsageRate": 0,
+  "bodyUsageRate": 0,
+  "footerPatterns": [],
+  "topVerbs": [
+    "initial"
+  ],
+  "tone": "terse",
+  "lastUpdated": 1791777761853,
+  "historyHash": "131a59fc5fe0acb2decb2d0e9f7d7028e6ce66bf"
+}
