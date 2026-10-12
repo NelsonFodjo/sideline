@@ -69,15 +69,22 @@ box, so the simulator has none. The rule, in `docs/ACCESSIBILITY.md`:
 before adding any input, ask what it requires of the listener; if the
 answer involves looking at something, it is the wrong input.
 
-## It is an MCP client
+## Nova agent and MCP
 
-The page talks to the server with real MCP over Streamable HTTP:
-`initialize`, `notifications/initialized`, `tools/list`, `tools/call`
-(see `rpc()` in `index.html`; `tests/test_simulator.py`). The hackathon FAQ
-says a web page that does this satisfies the Alexa+ track.
+The page sends each transcript to `/agent/chat`. With Bedrock enabled,
+Nova receives the MCP tool descriptions and schemas, chooses and invokes
+the server's existing registered tools, then phrases a concise reply from
+their results. The simulator still initializes its MCP connection to
+display and verify the server's tools. Other MCP clients can call `/mcp`
+directly.
 
-**It is not Alexa.** Routing from speech to a tool is keyword matching in
-the browser, and you hear the server's own wording. Say so in the video.
+If Bedrock is unavailable in demo mode, it falls back to the browser's
+local keyword router and direct MCP calls so the demo remains usable. The
+fallback is labelled "local routing"; a Nova answer is labelled "Nova".
+In live mode it reports the failure instead and does not substitute a
+prebuilt answer.
+**It is not Alexa.** Nova's agent loop is a Bedrock tool-use bridge, not an
+Alexa+ integration.
 
 ## Speech in
 

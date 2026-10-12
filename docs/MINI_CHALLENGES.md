@@ -104,6 +104,6 @@ product feedback is mandatory regardless.
 Each entry needs: task attempted, steps taken, expected versus actual,
 severity, workaround, actionable suggestion.
 
-Ours are in [FRICTION_LOG.md](FRICTION_LOG.md): seven entries, each tied to a
+Ours are in [FRICTION_LOG.md](FRICTION_LOG.md): eight entries, each tied to a
 cited source and date. Check each against your own experience before
 submitting.

@@ -11,13 +11,13 @@ run-fast:         ## same, but the match runs 20x so you can see events land
 	SIDELINE_REPLAY_SPEED=20 $(PY) -m sideline
 
 test:             ## full suite, no network, no credentials
-	@for t in tests/test_clean_clone.py tests/test_routing_phrases.py tests/test_language.py \
+	@for t in tests/test_clean_clone.py tests/test_routing_phrases.py tests/test_language.py tests/test_agent.py \
 	          tests/test_tools.py tests/test_what_did_i_miss.py \
 	          tests/test_broadcast_sync.py tests/test_pronouns.py \
 	          tests/test_envfile.py tests/test_autodetect.py tests/test_auth.py tests/test_aws_helpers.py \
 	          tests/test_statsbomb.py tests/test_apifootball.py tests/test_simulator.py tests/test_summaries.py \
 	          tests/test_mcp_protocol.py; do \
-		echo "=== $$t"; $(PY) $$t || exit 1; \
+		echo "=== $$t"; SIDELINE_MODE=demo SIDELINE_BEDROCK=off $(PY) $$t || exit 1; \
 	done
 	@echo "\nall suites passed"
 

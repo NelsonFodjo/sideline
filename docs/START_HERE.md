@@ -26,7 +26,7 @@ Then open http://127.0.0.1:8765/ (served by the running server; `make sim`) and 
 | Where is Bedrock? | [BEDROCK.md](BEDROCK.md) — and where it is deliberately *not* |
 | Where are the AWS integrations? | [MINI_CHALLENGES.md](MINI_CHALLENGES.md) |
 | Product feedback | [PRODUCT_FEEDBACK.md](PRODUCT_FEEDBACK.md) — the five questions, per tool |
-| Friction log | [FRICTION_LOG.md](FRICTION_LOG.md) — seven entries, each with a cited source |
+| Friction log | [FRICTION_LOG.md](FRICTION_LOG.md) — eight entries, each with a cited source |
 | Feature requests | [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md) |
 | What is measured, and what is not | [EVIDENCE.md](EVIDENCE.md) |
 | The official rules, with sources | [OFFICIAL_RULES.md](OFFICIAL_RULES.md) |
@@ -50,9 +50,9 @@ Then: [ARCHITECTURE.md](ARCHITECTURE.md), [TOOLS.md](TOOLS.md),
 
 ## If you are setting up AWS
 
-[AWS_SETUP.md](AWS_SETUP.md), seven steps with a check after each. It has
-not yet been followed end to end against a real account (see
-[EVIDENCE.md](EVIDENCE.md)).
+[AWS_SETUP.md](AWS_SETUP.md), seven steps with a check after each. Nova
+Bedrock has been checked once against a real account; DynamoDB and the
+deployment have not (see [EVIDENCE.md](EVIDENCE.md)).
 
 Bedrock model access has to be granted per account and model; an access
 failure can look like a credentials error.

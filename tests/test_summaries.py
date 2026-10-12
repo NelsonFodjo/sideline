@@ -50,7 +50,8 @@ def idle():
 
 
 def main():
-    saved = (bedrock._converse, bedrock.ENABLED, bedrock.HAVE_BOTO3, summaries.MODE)
+    saved = (bedrock._converse, bedrock.ENABLED, bedrock.HAVE_BOTO3,
+             bedrock.STRICT_LIVE, summaries.MODE)
     bedrock._converse, bedrock.ENABLED, bedrock.HAVE_BOTO3 = fake_converse, True, True
     try:
         summaries.MODE = "cached"
@@ -121,6 +122,22 @@ def main():
         spoken6, s6, ms6 = ask(ctx, "L6")
         assert s6["summary_source"] == "live" and len(CALLS) == before + 1 and ms6 >= 250
         print("ok  SIDELINE_CATCHUP_MODE=live calls the model at ask time (%.0f ms)" % ms6)
+
+        # --- strict live mode must neither use a cached summary nor miss fallback
+        bedrock.STRICT_LIVE = True
+        summaries.MODE = "cached"
+        REGISTRY["follow_match"](ctx, {"team": "Arsenal"}, "L9")
+        events9, frm9, to9 = ctx.store.gap_for("L9", fid)
+        fx9 = ctx.provider.fixture(fid)
+        mode9, away9 = summaries.plan(events9, fx9, frm9, to9)
+        key9 = summaries.window_key(fx9, mode9, events9, None)
+        summaries.CACHE.put(key9, "a cached answer", "bedrock")
+        before = len(CALLS)
+        spoken9, s9, _ = ask(ctx, "L9")
+        assert s9["summary_source"] == "live" and spoken9 == REPLY[0], s9
+        assert spoken9 != "a cached answer" and len(CALLS) == before + 1
+        print("ok  strict live mode calls Nova even when cached summaries are configured")
+        bedrock.STRICT_LIVE = False
 
         # --- non-English listeners are not answered in English from the template
         summaries.MODE = "cached"
@@ -193,7 +210,8 @@ def main():
             assert d.followers("F1") == ["b"], "a stale marker was not filtered"
             print("ok  DynamoDB followers: marker items, stale ones filtered (fake table; real DynamoDB not run)")
     finally:
-        bedrock._converse, bedrock.ENABLED, bedrock.HAVE_BOTO3, summaries.MODE = saved
+        (bedrock._converse, bedrock.ENABLED, bedrock.HAVE_BOTO3,
+         bedrock.STRICT_LIVE, summaries.MODE) = saved
         GATE.set()
 
     print("\nsummaries: all good")

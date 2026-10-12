@@ -40,7 +40,7 @@ the project scores nothing.
 
 | Service | Where | What it does |
 |---|---|---|
-| **Bedrock** (Converse, Claude 3.5 Haiku) | `language/bedrock.py` | Compresses an event window into one spoken paragraph; milestone mode; open questions; register switching |
+| **Bedrock** (Converse, Nova Micro) | `language/bedrock.py`, `language/agent.py` | Nova selects MCP tools, answers from their results, and composes catch-ups; demo mode retains offline templates |
 | **DynamoDB** | `state/dynamo.py` | Listener state and the match event log, single-table |
 | **CloudWatch** (EMF) | `metrics.py`, `mcp/server.py` | Per-tool latency and decline metrics |
 | **Secrets Manager** | `secretsmanager.py`, `deploy/sideline.yaml` | Football key injected as an environment variable. Not deployed by the authors |
@@ -53,11 +53,12 @@ Setup is documented step by step in [AWS_SETUP.md](AWS_SETUP.md), and
 `scripts/verify_aws.py` checks each layer so a reviewer can confirm the
 integration rather than take it on trust.
 
-boto3 is imported at module level in both integration files and the
-clients are initialised. Both degrade cleanly when boto3 or credentials
-are absent — Bedrock falls back to deterministic templates, state falls
-back to memory — so the repo still runs for a reviewer with nothing
-installed. Documented in `BEDROCK.md` and `DEPLOYMENT.md`.
+boto3 is imported behind an optional dependency guard and initialized
+lazily. In demo mode Bedrock falls back to deterministic templates and
+state falls back to memory, so the repo still runs for a reviewer with
+nothing installed. In live mode, Bedrock failures are surfaced instead
+of returning canned language. Documented in `BEDROCK.md` and
+`DEPLOYMENT.md`.
 
 ## Open Source mini challenge
 

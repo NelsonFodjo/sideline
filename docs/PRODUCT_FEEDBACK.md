@@ -67,16 +67,17 @@ tests, written from our reading of the spec; no official suite was run
 **Onboarding** `TODO(you)`.
 **Would you build with it again?** `TODO(you)`.
 
-## 3. Amazon Bedrock, Converse API, Claude 3.5 Haiku
+## 3. Amazon Bedrock, Converse API, Nova Micro
 
 **Used for** Composing the catch-up paragraph, long-absence milestones and
 translation ([sideline/language/bedrock.py](../sideline/language/bedrock.py)).
 Guarded: a generated scoreline that disagrees with the real one is
 discarded (tested in `tests/test_language.py`).
 
-**Status: not yet called against a live account.** No Bedrock request has
-been made, so there is no latency, quality or availability observation to
-report.
+**Status: verified once, not exhaustively.** `make aws-check` on
+2026-10-13 confirmed a Nova Micro response, agent tool use and a live
+catch-up. One verification invocation took about 2.1 s; this is not a
+latency guarantee or a user-quality evaluation.
 
 **What worked well** `TODO(you)`: after `make aws-check`.
 **What needs work** `TODO(you)`: cold-start latency, model access flow,

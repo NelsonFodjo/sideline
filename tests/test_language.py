@@ -53,6 +53,24 @@ def main():
     assert "nothing" in empty.lower()
     print("ok  empty gap       :", empty)
 
+    saved = bedrock._converse, bedrock.STRICT_LIVE
+    try:
+        bedrock._converse = lambda *args, **kwargs: "Nova reports no headline event."
+        bedrock.STRICT_LIVE = True
+        out, how = bedrock.milestones(
+            [{"kind": "substitution", "minute": 50, "player": "Player"}],
+            fx, 40)
+        assert out == "Nova reports no headline event." and how == "bedrock"
+        try:
+            bedrock.milestones([], fx, 40)
+        except bedrock.BedrockUnavailable:
+            pass
+        else:
+            raise AssertionError("live milestones with no event data must fail")
+    finally:
+        bedrock._converse, bedrock.STRICT_LIVE = saved
+    print("ok  live milestones never use a template for missing headlines")
+
     print("\nlanguage: all good")
 
 

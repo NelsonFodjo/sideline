@@ -1,10 +1,10 @@
 # Evidence
 
 Every number below was **measured by `scripts/collect_evidence.py`**, not
-typed in. Re-run it (`make evidence`) and this file is rewritten. Where
-something has *not* been verified, it says so and gives the command that
-would verify it. If another document disagrees with this one, this one
-is right and the other is stale.
+typed in. This is a dated snapshot, not a current status dashboard:
+subsequent live AWS verification is recorded in
+[AWS_SETUP.md](AWS_SETUP.md). Re-run it (`make evidence`) and this file is
+rewritten. Unverified items below describe the state at this snapshot.
 
 | | |
 |---|---|
@@ -97,4 +97,3 @@ been run and its output kept, treat each as **unverified**.
 | Use by a blind or low-vision person | no one has tested it | a session with a real person |
 
 Credentials detected in this environment when this ran: AWS keys: absent; football key: absent.
-

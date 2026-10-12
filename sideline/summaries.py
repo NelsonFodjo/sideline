@@ -1,50 +1,12 @@
-"""Precomputed catch-up summaries: the model is never on the listener's clock.
+"""Precomputed catch-up summaries for non-strict mode.
 
-THE PROBLEM
+In live mode, every catch-up request calls Bedrock and failures propagate.
+The cache and template-on-miss behavior below are only used outside strict
+live mode.
 
-A model-written catch-up is better prose than the template, but a model
-call can take longer than a voice turn allows (Alexa+'s QuickStart sets a
-500 ms round trip). Waiting on the model when the listener asks puts its
-latency on their clock.
-
-THE ARRANGEMENT
-
-  1. When the poller logs new events for a fixture, `schedule()` works out,
-     for every listener following it, exactly the window that listener
-     would be told about if they asked now, and has the model write it in
-     a background thread. The result goes in a small in-process cache.
-  2. When the listener asks, `answer()` looks the window up. A hit returns
-     the cached paragraph with no model call: instant.
-  3. A miss does not wait either. It answers at once with the
-     deterministic template and queues the generation, so the next ask in
-     the same state is a hit.
-
-WHAT IT CANNOT DO WRONG
-
-  * Never stale. The cache key is the fixture, mode, language, score and
-    the ids of the events in the window (marking a VAR-overturned goal
-    too). If anything changes, the key changes and it is a miss.
-  * Never ungrounded. Only text the existing guard accepted is cached:
-    a scoreline that disagreed with ours never gets in
-    (`bedrock.catchup` returns "template-after-guard" and we do not cache
-    that).
-  * Never silent. The response says where the words came from:
-    `summary_source` is "precomputed", "template-fast", "live" or
-    "template".
-
-WHAT IT DOES NOT DO
-
-  * It does not make the model faster; it moves the model off the
-    listener's clock. The first ask after a new event may still get the
-    template if generation has not finished.
-  * Non-English answers are not precomputed or served from the template
-    (a Creole listener should not be answered in English); they take the
-    live path and its latency.
-  * The cache is per process. Under a scheduler that ends the process
-    between polls (a Lambda), nothing survives to be read.
-
-SIDELINE_CATCHUP_MODE=cached (default) | live. `live` is the old behaviour:
-the model is called when the listener asks.
+In cached mode, the poller can precompute per-listener summaries in a
+background thread. A cache hit uses model-generated text; a miss uses a
+template and queues generation. Strict live mode bypasses both behaviors.
 """
 
 import logging
@@ -54,6 +16,7 @@ import time
 
 from . import autodetect
 
+LOG = logging.getLogger("sideline.summaries")
 MODE = autodetect.catchup_mode(os.environ)
 MAX_ENTRIES = 256
 MAX_PARALLEL = 2
@@ -142,7 +105,8 @@ def _queue(bedrock, key, mode, events, fx, frm, to, away):
 
 
 def enabled(ctx):
-    return MODE == "cached" and ctx.lang.bedrock.available()
+    return (MODE == "cached" and not ctx.lang.bedrock.STRICT_LIVE
+            and ctx.lang.bedrock.available())
 
 
 def schedule(ctx, fixture_id):
@@ -191,7 +155,7 @@ def answer(ctx, mode, events, fx, frm, to, away, language):
     if not bedrock.available() or not events:
         text, how = live()
         return text, how, "template"
-    if MODE != "cached" or not english:
+    if bedrock.STRICT_LIVE or MODE != "cached" or not english:
         text, how = live()
         return text, how, "live"
 

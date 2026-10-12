@@ -265,7 +265,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._serve_simulator()
         if self.path == "/health":
             return self._send(200, {"ok": True, "protocol": PROTOCOL_VERSION,
-                                    "tools": len(public_tools())})
+                                    "tools": len(public_tools()),
+                                    "mode": self.server.mode})
         if self.path == "/.well-known/oauth-protected-resource":
             auth = self.server.authenticator
             if auth is None:
@@ -363,6 +364,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path.startswith("/voice/"):
             return self._voice()
+        if self.path == "/agent/chat":
+            if not self._origin_ok():
+                return self._send(403, {"error": "origin not allowed"})
+            listener_id = self._authenticate()
+            if listener_id is None:
+                return
+            return self._agent_chat(listener_id)
         if self.path.rstrip("/") != "/mcp":
             return self._send(404, {"error": "not found"})
         if not self._origin_ok():
@@ -412,6 +420,34 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(202, None, extra)   # notification
         return self._send(200, result, extra)
 
+    def _agent_chat(self, listener_id):
+        """Simulator endpoint: Nova selects and runs tools from the MCP registry."""
+        if not self.server.agent_runner:
+            return self._send(503, {"error": "Nova agent is not configured"})
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > 16_384:
+            return self._send(413, {"error": "request is too large"})
+        try:
+            raw = self.rfile.read(length) if length else b""
+            payload = json.loads(raw.decode("utf-8")) if raw else {}
+        except (ValueError, UnicodeDecodeError):
+            return self._send(400, {"error": "invalid JSON"})
+        question = payload.get("text") if isinstance(payload, dict) else None
+        if not isinstance(question, str) or not question.strip() or len(question) > 1000:
+            return self._send(400, {
+                "error": "text must be a non-empty string of at most 1000 characters"
+            })
+        try:
+            result = self.server.agent_runner(question.strip(), listener_id)
+        except Exception as e:                           # noqa: BLE001
+            from ..language.agent import AgentUnavailable
+            if isinstance(e, AgentUnavailable):
+                LOG.warning("Nova agent unavailable: %s", e)
+                return self._send(503, {"error": "Nova agent unavailable"})
+            LOG.exception("Nova agent request failed")
+            return self._send(500, {"error": "Nova agent request failed"})
+        return self._send(200, result)
+
     def _one(self, msg, listener_id):
         msg_id = msg.get("id") if isinstance(msg, dict) else None
         try:
@@ -437,9 +473,11 @@ class McpServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
     def __init__(self, addr, tool_runner, resolve_listener, allowed_origins,
-                 authenticator=None):
+                 authenticator=None, agent_runner=None, mode="demo"):
         ThreadingHTTPServer.__init__(self, addr, Handler)
         self.authenticator = authenticator
+        self.agent_runner = agent_runner
+        self.mode = mode
         self.sessions = Sessions()
         self.dispatcher = Dispatcher(tool_runner, self.sessions)
         self.resolve_listener = resolve_listener
@@ -447,9 +485,9 @@ class McpServer(ThreadingHTTPServer):
 
 
 def serve(host, port, tool_runner, resolve_listener, allowed_origins,
-          authenticator=None):
+          authenticator=None, agent_runner=None, mode="demo"):
     srv = McpServer((host, port), tool_runner, resolve_listener, allowed_origins,
-                    authenticator)
+                    authenticator, agent_runner, mode)
     LOG.info("MCP endpoint on http://%s:%d/mcp (spec %s, auth %s)", host, port,
              PROTOCOL_VERSION, "required" if authenticator else "off")
     return srv

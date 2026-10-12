@@ -23,8 +23,9 @@ pass/fail Stage One; plus up to +10% for friction logs.
   shared base class.
 
 **Gaps, stated plainly**
-- Bedrock, DynamoDB, Polly, Transcribe and the live feed have **not been
-  run against real services** (EVIDENCE.md, "Not verified yet").
+- Nova Bedrock invocation, agent tool use and live catch-up were verified
+  once; DynamoDB, end-to-end Polly/Transcribe audio, the live feed and the
+  CloudFormation deployment have not been exercised against real services.
 - The Bedrock catch-up's latency is unmeasured and may exceed 500 ms.
 - The CloudFormation stack has never been deployed.
 
@@ -74,21 +75,24 @@ state is this project's answer, and a live feed alone would not be.
 
 ## Friction-log bonus
 
-Seven entries, each tied to a cited source (FRICTION_LOG.md). The bonus is
+Eight entries, each tied to a cited source (FRICTION_LOG.md). The bonus is
 assessed by Amazon's team; whether these earn any of it is theirs to judge.
 
 ## What to fix first, in order
 
-1. **Verify the unverified.** Run `make aws-check`, `make create-table`,
-   `make verify-data`; keep the outputs; update EVIDENCE.md.
+1. **Verify the remaining integrations.** Run `make create-table` and
+   `make verify-data`, then exercise the simulator audio paths; preserve
+   the outputs separately from the dated evidence snapshot.
 2. **A real user session**, if one can be arranged, filmed with consent.
-3. **Measure the precomputed summaries against real Bedrock**: they are
-   built and tested with a simulated model only (BEDROCK.md).
+3. **Measure precomputed summaries against real Bedrock**: the cache
+   mechanism is tested with a simulated model; strict live mode bypasses
+   it and invokes Nova per request (BEDROCK.md).
 4. **Fill every `TODO(you)`** in PRODUCT_FEEDBACK.md from real runs.
 
 ## What not to do
 
 - Put a club badge, league logo or broadcast clip in the video.
 - Imply replayed data is live.
-- Claim any integration that EVIDENCE.md lists as unverified.
+- Claim only integrations that have actually been verified; EVIDENCE.md
+  is a dated snapshot, with later AWS verification noted in AWS_SETUP.md.
 - Send private-repo invitations early (7-day expiry); a public repo avoids it.

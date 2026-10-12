@@ -83,7 +83,7 @@ only.
 | Variable | Default | |
 |---|---|---|
 | `SIDELINE_BEDROCK` | `auto` | `auto` = on when AWS credentials are present; `on` / `off` force it. |
-| `SIDELINE_BEDROCK_MODEL` | Claude 3.5 Haiku id | Any model or inference-profile id your account can call; `make aws-check` lists them. |
+| `SIDELINE_BEDROCK_MODEL` | `amazon.nova-micro-v1:0` | Any model or inference-profile id your account can call; `make aws-check` checks it. |
 | `SIDELINE_BEDROCK_TIMEOUT` | `3.0` | Seconds. Alexa+ targets 0.5 s round trip; see [BEDROCK.md](BEDROCK.md). |
 | `SIDELINE_WORD_TARGET` | `45` | Spoken-word budget for a catch-up. |
 | `SIDELINE_CATCHUP_MODE` | `cached` | `cached` = the model writes summaries in the background and asking is a lookup; `live` = the model is called when the listener asks. |

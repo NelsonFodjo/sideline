@@ -3,12 +3,12 @@
 Start to finish, in order, with a way to check each step worked before
 moving to the next.
 
-> **Status: written from AWS's documented behaviour and this repo's code.
-> The authors have not yet followed it end to end against a real account.**
-> Console menu names and model availability change; where a step fails,
-> trust the error and `make aws-check` over this page. Time estimates and
-> cost figures that appeared in earlier drafts were guesses and have been
-> removed.
+> **Status: the Bedrock path was verified once against a real account on
+> 2026-10-13** using `make aws-check` (Nova Micro invocation, agent tool
+> use, and catch-up). This is not an end-to-end deployment test; DynamoDB
+> and speech were not exercised. Console menu names and model availability
+> change; where a step fails, trust the error and `make aws-check` over
+> this page.
 
 **You do not need any of this to run Sideline.** The default is
 in-memory state and deterministic templates, and `python3 -m sideline`
@@ -102,29 +102,23 @@ make aws-check      # first lines: "credentials resolve  account 1234..."
 
 ## Step 3 — Enable Bedrock model access
 
-**This is the step everyone misses.** Bedrock models are off by default.
-Your credentials will be perfectly valid and the call will still fail,
-with an error that reads like a permissions problem rather than a "you
-have not asked for this model yet" problem.
+Check that Nova Micro is available to your account in the configured
+region. Model availability and first-use access requirements can vary.
 
 1. AWS console → **Amazon Bedrock** → make sure you are in **us-east-1**
-2. Left sidebar → **Model access**
-3. **Modify model access** / **Enable specific models**
-4. Tick **Claude 3.5 Haiku**
-5. Submit
-
-Wait until the console shows access granted for the model; nothing below
-works before that.
+2. Check **Model catalog** / **Model access** for Amazon Nova Micro
+3. Complete any model-specific first-use or access request shown there
 
 **Check it worked:**
 
 ```bash
 aws bedrock list-foundation-models --region us-east-1 \
-  --query "modelSummaries[?contains(modelId,'haiku')].modelId" --output text
+  --query "modelSummaries[?contains(modelId,'nova-micro')].modelId" --output text
 ```
 
-You want `anthropic.claude-3-5-haiku-20241022-v1:0` in the output. If
-the list is empty, access has not come through yet.
+The default id is `amazon.nova-micro-v1:0`. If it is not listed or invoke
+fails, confirm the region, account access and IAM permissions. `make
+aws-check` checks the configured model id and attempts an actual call.
 
 ---
 
@@ -139,8 +133,9 @@ For a scoped IAM user or role, this is the whole policy:
 {
   "Version": "2012-10-17",
   "Statement": [
-    {"Effect": "Allow", "Action": "bedrock:InvokeModel",
-     "Resource": ["arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
+    {"Effect": "Allow",
+     "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+     "Resource": ["arn:aws:bedrock:*::foundation-model/amazon.nova-*",
                   "arn:aws:bedrock:*:<your-account-id>:inference-profile/*"]},
     {"Effect": "Allow",
      "Action": ["bedrock:ListFoundationModels", "bedrock:ListInferenceProfiles"],
@@ -149,19 +144,16 @@ For a scoped IAM user or role, this is the whole policy:
 }
 ```
 
-One invoke action, one model family. The two `List` actions are used only
-by `scripts/verify_aws.py`, which has to enumerate what the account can
-see (they do not support resource-level permissions). The inference-profile
-resource is needed only if the model you choose is called through a
-profile id like `us.anthropic.claude-...`. I have not run this policy
-against a live account; if `verify_aws.py` reports an access error, widen
-it first.
+The agent uses `InvokeModel`; the streaming catch-up uses
+`InvokeModelWithResponseStream`. The two `List` actions are used only by
+`scripts/verify_aws.py` to enumerate available models (they do not support
+resource-level permissions). The inference-profile resource is needed only
+if the model is invoked through a profile id. If `verify_aws.py` reports an
+access error, check the model, region and IAM resource before widening access.
 
-Claude 3.5 Haiku is only the default, not a promise: model availability
-changes. `make aws-check` prints the Claude
-ids your account can see; export one as `SIDELINE_BEDROCK_MODEL`. Not `bedrock:*`, not `"Resource": "*"` —
-a judge reading the repo should see least privilege, and it costs
-nothing to get right.
+Nova Micro is the default, not a promise: model availability changes.
+`make aws-check` checks the selected id and suggests available ids. Not
+`bedrock:*`, not `"Resource": "*"` — keep the policy scoped.
 
 ---
 
@@ -317,11 +309,12 @@ tear things down when you are not testing.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `via template` with `SIDELINE_BEDROCK=on` | Something upstream failed and we degraded silently, by design | `python3 scripts/verify_aws.py` |
-| `AccessDeniedException` on invoke | Model access not granted — **not** a credentials problem | Step 3 |
+| `local routing` in the simulator | Nova agent was unavailable; simulator used its offline keyword fallback | `python3 scripts/verify_aws.py` and inspect the server log |
+| `via template` | Demo-mode catch-up used its deterministic fallback | `python3 scripts/verify_aws.py`; live mode surfaces the Bedrock failure instead |
+| `AccessDeniedException` on invoke | Model access or IAM permission is missing | Steps 3–4 |
 | `ValidationException: model not found` | Wrong region, or wrong model id | `AWS_REGION=us-east-1` |
 | `Unable to locate credentials` | The two key variables are not set in this terminal | Step 2, then `make env` |
-| `ThrottlingException` | New accounts have low initial quotas | It falls back to templates; request a quota increase if it persists |
+| `ThrottlingException` | Account quota or burst limit | Demo mode may use templates; live mode reports the failure. Request a quota increase if it persists |
 | First call slow, later ones fine | Cold start after idle — known, logged as FL-05 | Nothing to fix; the 3 s ceiling catches it |
 | `ResourceNotFoundException` on DynamoDB | Table not created, or wrong endpoint | Step 6 |
 | `ImportError: boto3` | Not installed | `pip3 install boto3` |
@@ -329,10 +322,9 @@ tear things down when you are not testing.
 | `out=browser` in the startup log | No credentials for Polly | Step 2 |
 | Robotic voice in the simulator | It fell back to the browser | Check the strip along the bottom of the page |
 
-Everything above degrades rather than crashes. If Bedrock is
-unreachable, the language layer uses templates and the product still
-works — which is deliberate, so a reviewer with no AWS account still
-sees a working server.
+In demo mode, the product uses deterministic templates when Bedrock is
+unreachable. In live mode the failure is surfaced and no canned answer
+is returned.
 
 ---
 
@@ -341,7 +333,7 @@ sees a working server.
 ```bash
 pip3 install boto3 amazon-transcribe
 export AWS_REGION=us-east-1 AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
-# console -> Bedrock -> Model access -> enable Claude 3.5 Haiku
+# console -> Bedrock -> check Nova Micro availability / access
 export SIDELINE_BEDROCK=on
 python3 scripts/verify_aws.py       # must pass before the next line
 python3 -m sideline                # expect: voice: in=transcribe out=polly

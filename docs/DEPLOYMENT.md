@@ -46,14 +46,14 @@ The output table gives you `ServiceUrl`; the MCP endpoint is
 To change parameters, pass them through `EXTRA`:
 
 ```bash
-EXTRA="BedrockModelId=us.anthropic.claude-haiku-4-5-20251001-v1:0" make deploy
+EXTRA="BedrockModelId=amazon.nova-micro-v1:0" make deploy
 EXTRA="AuthMode=required AuthIssuer=https://cognito-idp.us-east-1.amazonaws.com/<pool> \
        AuthResource=https://<ServiceUrl>/mcp AuthScopes=sideline.read \
        AuthJwksUrl=https://cognito-idp.us-east-1.amazonaws.com/<pool>/.well-known/jwks.json" make deploy
 ```
 
-(The model id above is an example of the *shape* of an inference-profile
-id; use whatever `scripts/verify_aws.py` lists for your account.)
+(Use a model id or inference-profile id available to your account; check
+it with `scripts/verify_aws.py` before deploying.)
 
 Tear it all down, and stop the bill:
 
@@ -67,9 +67,9 @@ aws cloudformation delete-stack --stack-name sideline
 |---|---|
 | **App Runner service** | Hosts the Streamable HTTP endpoint. Chosen over Lambda behind API Gateway because Streamable HTTP wants a long-lived HTTPS endpoint, with no gateway to configure and no cold start on the listener's critical path. Health check `/health`, port 8765. |
 | **DynamoDB table** | Listener state and the match event log, on-demand, TTL on `expires_at`. |
-| **Instance role** | `bedrock:InvokeModel` on `anthropic.claude-*` (and inference profiles in this account), `GetItem/PutItem/Query` on the one table, and `GetSecretValue` on the one secret if you supply one. No wildcard actions. |
+| **Instance role** | Bedrock `InvokeModel` and `InvokeModelWithResponseStream` on Nova (and inference profiles in this account), `GetItem/PutItem/Query` on the one table, and `GetSecretValue` on the one secret if you supply one. No wildcard actions. |
 | **ECR access role** | The AWS-managed policy App Runner needs to pull the image. |
-| **CloudWatch alarm** | `what_did_i_miss` p95 above 2.5 s: model calls are about to hit the 3 s ceiling and fall back to templates. |
+| **CloudWatch alarm** | `what_did_i_miss` p95 above 2.5 s: model calls may be nearing the configured request timeout. |
 
 ### DynamoDB design
 

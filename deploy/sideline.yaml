@@ -15,7 +15,7 @@ Parameters:
     Default: sideline
   BedrockModelId:
     Type: String
-    Default: anthropic.claude-3-5-haiku-20241022-v1:0
+    Default: amazon.nova-micro-v1:0
     Description: Model id or inference-profile id the account has access to (run scripts/verify_aws.py).
   BedrockEnabled:
     Type: String
@@ -89,9 +89,9 @@ Resources:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action: bedrock:InvokeModel
+                Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
                 Resource:
-                  - arn:aws:bedrock:*::foundation-model/anthropic.claude-*
+                  - arn:aws:bedrock:*::foundation-model/amazon.nova-*
                   - !Sub arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*
               - Effect: Allow
                 Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:Query]
@@ -185,8 +185,8 @@ Resources:
     Properties:
       AlarmName: sideline-catchup-p95-high
       AlarmDescription: >-
-        what_did_i_miss p95 above 2.5 s: model calls are about to hit the
-        3 s ceiling and fall back to templates.
+        what_did_i_miss p95 above 2.5 s: review Bedrock latency and timeout
+        configuration.
       Namespace: Sideline
       MetricName: ToolLatency
       Dimensions:

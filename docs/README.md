@@ -18,7 +18,7 @@ Start here, in this order.
 | [ALEXA_SETUP.md](ALEXA_SETUP.md) | Connecting the add-on, account linking |
 | [MINI_CHALLENGES.md](MINI_CHALLENGES.md) | AWS Builder and Open Source entries |
 | [PRODUCT_FEEDBACK.md](PRODUCT_FEEDBACK.md) | Feedback on every tool, API and SDK |
-| [FRICTION_LOG.md](FRICTION_LOG.md) | Seven verified entries, with evidence and a list of candidates not yet hit |
+| [FRICTION_LOG.md](FRICTION_LOG.md) | Eight verified entries, with evidence and a list of candidates not yet hit |
 | [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md) | What we'd want built, why, and how urgent |
 | [PRIOR_WORK.md](PRIOR_WORK.md) | What existed before the window (nothing) |
 | [DEMO_SCRIPT.md](DEMO_SCRIPT.md) | The three minutes, shot by shot |

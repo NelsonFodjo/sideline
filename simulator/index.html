@@ -371,6 +371,7 @@ var PACE=+(QS.get("pace")||1400);
 
 /* ================================================================ MCP */
 var id=0,sid=null;
+var LIVE_MODE=false;
 async function rpc(method,params){
   var h={"Content-Type":"application/json"};
   if(sid)h["Mcp-Session-Id"]=sid;
@@ -876,8 +877,23 @@ async function handleClip(pcm){
     try{
       var r=await fetch(BASE+"/voice/stt",{method:"POST",
         headers:{"X-Audio-Type":"audio/pcm;rate=16000"},body:pcm});
-      if(r.ok) text=(await r.json()).text;
-    }catch(e){}
+      if(!r.ok) throw new Error("HTTP "+r.status);
+      text=(await r.json()).text;
+    }catch(e){
+      console.warn("server speech recognition unavailable; switching to browser",e);
+      caps.stt=null;
+      useBrowserSTT=!!SR;
+      $("stack").innerHTML="in <b>"+(useBrowserSTT?"browser":"unavailable")+
+        "</b> · out <b>"+(caps.tts?("polly "+(caps.voice||"")):"browser")+"</b>";
+      if(useBrowserSTT){
+        setQuiet("Amazon Transcribe unavailable; switching to browser speech recognition. Please repeat.");
+        if(armed) listen();
+      }else{
+        armed=false;
+        setQuiet("Amazon Transcribe unavailable and this browser has no speech recognition.");
+      }
+      return;
+    }
   }
   if(!text){ if(armed)listen(); return; }
   text=text.trim();
@@ -1214,38 +1230,70 @@ function paint(){
 
 /* ================================================================ ask */
 async function ask(text){
-  var pair=route(text),tool=pair[0],args=pair[1],t0=performance.now();
+  var t0=performance.now();
   setMode("thinking");
   try{
-    var doc=await rpc("tools/call",{name:tool,arguments:args});
-    var res=(doc&&doc.result)||{}, sc=res.structuredContent||{};
-    var dot=$("dot"); dot.className="dot "+(res.isError?"err":"ok");
+    var response=await fetch(BASE+"/agent/chat",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({text:text})});
+    if(!response.ok) throw new Error("agent unavailable");
+    var result=await response.json();
+    var dot=$("dot"); dot.className="dot ok";
     void dot.offsetWidth; dot.classList.add("ping");
-    $("tool").textContent=tool;
+    var names=(result.tool_results||[]).map(function(item){return item.name});
+    $("tool").textContent=names.length?names.join(" · "):"conversation";
     $("ms").textContent=Math.round(performance.now()-t0)+" ms";
-    var via=sc.generated_by||"";
-    if(sc.summary_source && sc.summary_source!==via) via+=(via?" · ":"")+sc.summary_source;
-    $("via").textContent=via;
-    $("via").className="via"+(sc.generated_by==="bedrock"?" bedrock":"");
-
-    if(sc.minute!=null)M.minute=sc.minute;
-    if(sc.home){M.home=sc.home;M.away=sc.away;}
-    if(sc.score)M.score=sc.score;
-    if(sc.window){M.told=sc.window.from_minute;M.minute=sc.window.to_minute;}
-    if(sc.events&&sc.events.length){ M.events=sc.events; showPills(sc.events); }
-    if(tool==="what_did_i_miss")M.told=M.minute;
+    $("via").textContent="Nova";
+    $("via").className="via bedrock";
+    (result.tool_results||[]).forEach(applyToolResult);
     paint();
-
-    say(((res.content||[{}])[0].text)||"Sorry, nothing came back.");
+    say(result.text||"I couldn't get an answer.");
   }catch(e){
-    $("dot").className="dot err"; $("tool").textContent="no server";
-    say("I can't reach the server.");
+    if(LIVE_MODE){
+      $("dot").className="dot err"; $("tool").textContent="Nova unavailable";
+      $("via").textContent="live mode · no fallback";
+      $("via").className="via";
+      say("I can't get a live answer from Nova right now. Please try again shortly.");
+      return;
+    }
+    // Preserve the dependency-free demo path when AWS credentials, model
+    // access, or the selected Nova model are not available.
+    try{
+      var pair=route(text),tool=pair[0],args=pair[1];
+      var doc=await rpc("tools/call",{name:tool,arguments:args});
+      var res=(doc&&doc.result)||{}, sc=res.structuredContent||{};
+      $("dot").className="dot "+(res.isError?"err":"ok");
+      $("tool").textContent=tool;
+      $("ms").textContent=Math.round(performance.now()-t0)+" ms";
+      $("via").textContent="local routing";
+      $("via").className="via";
+      applyToolResult({name:tool,spoken:(res.content||[{}])[0].text,structured:sc});
+      paint();
+      say(((res.content||[{}])[0].text)||"Sorry, nothing came back.");
+    }catch(fallbackError){
+      $("dot").className="dot err"; $("tool").textContent="no server";
+      $("via").textContent="Nova unavailable";
+      say("I can't reach Nova or the match server right now.");
+    }
   }
+}
+
+function applyToolResult(item){
+  var sc=item.structured||{};
+  if(sc.minute!=null)M.minute=sc.minute;
+  if(sc.home){M.home=sc.home;M.away=sc.away;}
+  if(sc.score)M.score=sc.score;
+  if(sc.window){M.told=sc.window.from_minute;M.minute=sc.window.to_minute;}
+  if(sc.events&&sc.events.length){M.events=sc.events;showPills(sc.events);}
+  if(item.name==="what_did_i_miss")M.told=M.minute;
 }
 
 /* ============================================================== start */
 async function connect(){
   try{
+    var health=await fetch(BASE+"/health");
+    if(!health.ok) throw new Error("health check failed");
+    LIVE_MODE=(await health.json()).mode==="live";
     var init=await rpc("initialize",{protocolVersion:"2025-11-25",
       clientInfo:{name:"sideline-simulator",version:"3"}});
     await rpc("notifications/initialized");

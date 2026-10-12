@@ -14,11 +14,9 @@ speaks real MCP (initialize, tools/list, tools/call) to the server, as the
 hackathon FAQ describes. Any MCP client works the same way.
 
 One consequence holds either way: **the quality of a tool's description is
-product surface.** A client chooses a tool by reading its description (the
-Alexa+ Design Guide says to write each one to say when to call it). A badly
-worded description is a bug the listener experiences as "it keeps telling
-me the score when I asked what happened." We have not observed how
-Alexa+ itself routes; the routing test checks our own wording.
+product surface.** The simulator agent and an MCP client choose a tool by
+reading its description. A badly worded description is a bug the listener
+experiences as "it keeps telling me the score when I asked what happened."
 
 ## The layers
 
@@ -35,9 +33,9 @@ Alexa+ itself routes; the routing test checks our own wording.
 
 | Layer | Who owns it | Status |
 |---|---|---|
-| MCP client | the simulator in this repo; in the intended deployment, Alexa+ | simulator: tested to initialize and call tools (`tests/test_simulator.py`); Alexa+: unreachable |
+| MCP client | the simulator agent bridges Nova tool use to the local MCP registry; external clients use `/mcp` | simulator: tested; Alexa+: unreachable |
 | MCP server | this repo | tested, `tests/test_mcp_protocol.py` |
-| Bedrock | AWS | written; **never called** |
+| Bedrock | AWS | Nova Micro invocation, MCP tool use and catch-up verified by `make aws-check` on 2026-10-13; live integration is not broadly tested |
 | DynamoDB | AWS | written; **never run** (the in-memory store shares its logic and is tested) |
 | Poller | this repo, a thread in the server | tested; an EventBridge variant is documented, not built |
 | Match data | StatsBomb replay, or API-Football | replay: used; live: canned-response tests only |
@@ -46,19 +44,23 @@ Alexa+ itself routes; the routing test checks our own wording.
 
 The listener says **"what did I miss?"**
 
-(In the simulator, steps 1-3 are the browser: it captures speech, the
-server transcribes it, and the page picks the tool by keyword. In the
-intended Alexa+ deployment they would be Alexa+'s.)
+(In the simulator, the browser captures and transcribes speech, then sends
+the text to `/agent/chat`. The server gives Nova the MCP tool schemas,
+executes its selected tool through the registry, and returns Nova's final
+wording. External MCP clients can still call the tools directly.)
 
 1. The client captures the listener's speech.
-2. It is transcribed and mapped to a tool.
-3. The client calls `what_did_i_miss` over Streamable HTTP.
+2. It is transcribed and sent to Nova.
+3. Nova selects `what_did_i_miss` from the MCP tool definitions; the server
+   executes the registered tool and sends its result back to Nova.
 4. Our server reads this listener's `last_told_at` from the store.
 5. It pulls every logged event since, minus anything already told.
-6. Bedrock compresses them into one paragraph.
+6. The tool returns structured event facts; in the simulator, Nova uses
+   those facts to compose the catch-up (direct MCP mode can call Bedrock
+   for a summary).
 7. `last_told_at` moves forward; the event ids are recorded as told.
 8. We return text plus structured detail.
-9. The client phrases and speaks it.
+9. Nova phrases the result, and the simulator speaks it.
 
 The server side is one function; steps 1, 2 and 9 belong to the client.
 

@@ -5,11 +5,10 @@ is a real integration, not a reference: it is what qualifies the project
 for the AWS Builder mini challenge, which asks for AWS services used in
 the project with documented integrations.
 
-It still degrades cleanly. If boto3 is absent or no credentials are
-configured, every call falls back to the deterministic templates in
-templates.py and the repository runs end to end with nothing installed.
-That matters during the judging window - a reviewer who cannot run the
-project scores nothing.
+In demo mode, if boto3 is absent or no credentials are configured, calls
+fall back to deterministic templates in templates.py so the repository
+runs end to end with nothing installed. Strict live mode surfaces Bedrock
+failures; it never substitutes a canned language response.
 
 ------------------------------------------------------------------------
 WHY BEDROCK AT ALL, GIVEN ALEXA+ ALREADY HAS A MODEL
@@ -27,14 +26,15 @@ and it has to be made here, before the response exists.
 WHERE IT IS USED - AND DELIBERATELY NOT USED
 ------------------------------------------------------------------------
 USED:
+  simulator agent MCP tools Nova routes to registered tools and phrases the results
   catchup()        the one that genuinely needs it
   milestones()     long absences, compressed to headlines plus an offer
   open_question()  questions that map to no single tool
   translate()      same facts, another language or register
 
-NOT USED - these return templates:
+DIRECT MCP RESULTS ARE DETERMINISTIC FACTS:
   get_match_state   a scoreline is a fact; generating it adds risk and
-                    latency and improves nothing
+                    latency; the simulator agent uses it as tool data
   get_officials     likewise
   get_event_detail  one event, one sentence, already deterministic
   get_lineups       a list of names; nothing to compose
@@ -44,15 +44,14 @@ LATENCY BUDGET
 ------------------------------------------------------------------------
     fast tools (no model)        < 300 ms
     catch-up (one model call)    < 2.5 s
-    hard ceiling                 3 s, then the template
+    timeout                      configurable; live mode reports failure
 
-Haiku rather than a larger model, because this is compression under a
+Nova Micro rather than a larger model, because this is compression under a
 voice deadline, not writing. max_attempts=1 because a retry costs another
-three seconds and the listener does not have six.
+request timeout.
 
-The timeout is a product decision, not a safety net: a correct template
-answer at 2.9 s beats a better generated one at 5 s, because by then the
-listener has missed whatever just happened.
+In demo mode a timeout can use a deterministic template. Strict live mode
+surfaces the failure rather than substituting a canned answer.
 
 ------------------------------------------------------------------------
 SPOKEN LENGTH
@@ -86,20 +85,20 @@ except ImportError:                                            # pragma: no cove
     boto3 = None
     BotoConfig = None
     HAVE_BOTO3 = False
-    LOG.info("boto3 not installed - language falls back to templates")
+    LOG.info("boto3 not installed - Bedrock unavailable; demo mode can use templates")
 
 from .. import autodetect  # noqa: E402
 
 # "auto" (the default) means on whenever AWS credentials are present.
 ENABLED = autodetect.bedrock_enabled(os.environ)
+STRICT_LIVE = autodetect.sideline_mode(os.environ) == "live"
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 MODEL_ID = os.environ.get("SIDELINE_BEDROCK_MODEL",
                           "amazon.nova-micro-v1:0")
 
 # Alexa+'s QuickStart sets a round-trip target of 500 ms. A model call can
-# take longer, so the ceiling is configurable: 3.0 (default) favours the
-# better-written catch-up, 0.4 effectively makes templates the answer and
-# keeps every reply inside the target. See docs/BEDROCK.md.
+# take longer, so the ceiling is configurable. In live mode a timeout is
+# surfaced; demo mode may use templates. See docs/BEDROCK.md.
 TIMEOUT_SECONDS = float(os.environ.get(
     "SIDELINE_BEDROCK_TIMEOUT",
     "8.0" if autodetect.catchup_mode(os.environ) == "live" else "3.0"))
@@ -108,6 +107,10 @@ MAX_EVENTS_IN_PROMPT = 12
 SPOKEN_WORD_TARGET = int(os.environ.get("SIDELINE_WORD_TARGET", "45"))
 
 _client = None
+
+
+class BedrockUnavailable(Exception):
+    """A live-mode answer cannot be completed by Bedrock."""
 
 
 def client():
@@ -143,9 +146,13 @@ def _converse(system, user_text, max_tokens=MAX_TOKENS, on_token=None):
     text while reducing memory pressure and time-to-first-token.
     """
     if not available():
+        if STRICT_LIVE:
+            raise BedrockUnavailable("Bedrock is disabled or boto3 is unavailable")
         return None
     c = client()
     if c is None:
+        if STRICT_LIVE:
+            raise BedrockUnavailable("Bedrock client is unavailable")
         return None
     import time
     t0 = time.time()
@@ -177,6 +184,9 @@ def _converse(system, user_text, max_tokens=MAX_TOKENS, on_token=None):
                  MODEL_ID, total_ms, ttft or total_ms)
         return out or None
     except Exception as e:                                     # noqa: BLE001
+        if STRICT_LIVE:
+            LOG.error("bedrock request failed in live mode: %s", e)
+            raise BedrockUnavailable("Bedrock request failed") from e
         LOG.warning("bedrock unavailable, using template: %s", e)
         return None
 
@@ -207,6 +217,8 @@ def catchup(events, fixture, from_minute, to_minute):
     """
     fallback = templates.say_catchup(events, fixture, from_minute, to_minute)
     if not events:
+        if STRICT_LIVE:
+            raise BedrockUnavailable("No events were supplied for a live catch-up")
         return fallback, "template"
 
     payload = {
@@ -218,9 +230,13 @@ def catchup(events, fixture, from_minute, to_minute):
     }
     out = _converse(CATCHUP_SYSTEM, json.dumps(payload, ensure_ascii=False))
     if not out:
+        if STRICT_LIVE:
+            raise BedrockUnavailable("Bedrock returned no catch-up")
         return fallback, "template"
     if not _score_consistent(out, fixture):
         LOG.warning("bedrock output disagreed with the score; discarding")
+        if STRICT_LIVE:
+            raise BedrockUnavailable("Bedrock returned an inconsistent score")
         return fallback, "template-after-guard"
     return out, "bedrock"
 
@@ -238,7 +254,11 @@ def milestones(events, fixture, minutes_away):
 
     fallback = templates.say_milestones(key, events, fixture, minutes_away)
     if not key:
-        return fallback, "template"
+        if STRICT_LIVE:
+            if not events:
+                raise BedrockUnavailable("No events were supplied for live milestones")
+        else:
+            return fallback, "template"
 
     payload = {"score": templates.say_score(fixture),
                "minutes_away": minutes_away,
@@ -247,6 +267,8 @@ def milestones(events, fixture, minutes_away):
                "key_events": [_slim(e) for e in key[:6]]}
     out = _converse(MILESTONE_SYSTEM, json.dumps(payload, ensure_ascii=False))
     if not out or not _score_consistent(out, fixture):
+        if STRICT_LIVE:
+            raise BedrockUnavailable("Bedrock returned no valid milestone summary")
         return fallback, "template"
     return out, "bedrock"
 
@@ -258,6 +280,8 @@ def open_question(question, events, fixture):
                "recent_events": [_slim(e) for e in events[-MAX_EVENTS_IN_PROMPT:]]}
     out = _converse(OPEN_QUESTION_SYSTEM, json.dumps(payload, ensure_ascii=False))
     if not out:
+        if STRICT_LIVE:
+            raise BedrockUnavailable("Bedrock returned no answer")
         return "I don't have that detail from the match data.", "template"
     return out, "bedrock"
 
@@ -273,6 +297,8 @@ def translate(text, language):
     if language in (None, "", "en"):
         return text, "template"
     out = _converse(TRANSLATE_SYSTEM.format(language=language), text)
+    if not out and STRICT_LIVE:
+        raise BedrockUnavailable("Bedrock could not translate the answer")
     return (out or text), ("bedrock" if out else "template")
 
 

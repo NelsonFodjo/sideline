@@ -66,8 +66,8 @@ def _model_access():
     bedrock = boto3.client("bedrock", region_name=REGION)
     models = bedrock.list_foundation_models().get("modelSummaries", [])
     ids = [m["modelId"] for m in models]
-    # Newer models are called through an inference profile (an id such as
-    # "us.anthropic.claude-...") rather than the bare foundation-model id.
+    # Some models are invoked through inference profiles rather than their
+    # bare foundation-model ids.
     profiles = []
     try:
         profiles = [p["inferenceProfileId"] for p in
@@ -75,18 +75,17 @@ def _model_access():
     except Exception:                                          # noqa: BLE001
         pass                      # older boto3, or no permission: not fatal
     if MODEL_ID not in ids and MODEL_ID not in profiles:
-        claude = sorted(i for i in ids + profiles if "anthropic" in i)
-        haiku = [i for i in claude if "haiku" in i] or claude
+        available = sorted(i for i in ids + profiles if "nova" in i.lower())
+        available = available or sorted(ids + profiles)
         raise RuntimeError(
             "%s not available in %s.\n"
             "       Console -> Bedrock -> Model access -> enable the model, or\n"
             "       pick one this account can see and export it:\n"
             "%s\n"
             "       export SIDELINE_BEDROCK_MODEL=<one of the above>\n"
-            "       (this is the step everyone misses; the invoke error looks\n"
-            "       like a permissions problem but it is not)"
+            "       check the model id, region, account access, and IAM permissions"
             % (MODEL_ID, REGION,
-               "\n".join("         " + i for i in haiku[:8]) or
+               "\n".join("         " + i for i in available[:8]) or
                "         (none listed: access not granted yet)"))
     return MODEL_ID
 
@@ -126,6 +125,20 @@ def _catchup_path():
     return "%d events compressed via bedrock" % s["event_count"]
 
 
+def _agent_path():
+    """End-to-end check that Nova can call a registered Sideline tool."""
+    from tests.conftest import make_ctx
+    from sideline.language.agent import run
+    from sideline.tools import REGISTRY
+    ctx = make_ctx(start_minute=70)
+    result = run(ctx, "Follow Arsenal and tell me the score.", "verify-agent",
+                 lambda name, args, listener: REGISTRY[name](ctx, args, listener))
+    names = [item["name"] for item in result["tool_results"]]
+    if "follow_match" not in names:
+        raise RuntimeError("Nova responded without calling follow_match; got %s" % names)
+    return "Nova called %s" % ", ".join(names)
+
+
 def _dynamo():
     import boto3
     endpoint = os.environ.get("SIDELINE_DYNAMO_ENDPOINT")
@@ -156,6 +169,7 @@ def main():
     else:
         if check("bedrock model access", _model_access):
             if check("bedrock responds", _invoke):
+                check("Nova MCP agent tool use", _agent_path)
                 check("catch-up runs through bedrock", _catchup_path)
 
     # Voice: simulator only, but it is the difference between a

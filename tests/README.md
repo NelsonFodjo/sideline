@@ -13,7 +13,7 @@ No network. No credentials. No fixtures that flatter us.
 | `test_language.py` | Phrasing, goal-before-card ordering, stoppage time, and the invented-scoreline guard. |
 | `test_tools.py` | All nine tools, plus every failure a listener can reach. |
 | `test_what_did_i_miss.py` | The gap logic. **If this breaks, the submission is not worth filming.** |
-| `test_summaries.py` | Precomputed catch-ups: a poll does not wait on the model, asking is a cache hit with no model call, a miss answers by template at once, nothing stale or ungrounded is served, non-English takes the live path. Uses a simulated slow model, never Bedrock. |
+| `test_summaries.py` | Non-strict cached catch-ups and strict live mode: precompute/cache behavior, template-on-miss outside live mode, grounding, translation and live cache bypass. Uses a simulated slow model, never Bedrock. |
 | `test_envfile.py` | `.env` loading: environment variable > file > default; blank values skipped; the shipped `.env.example` has no commented-out settings. |
 | `test_autodetect.py` | Bedrock, live data and DynamoDB switch on when their credentials are present, explicit values win, and an unreachable table falls back to memory. |
 | `test_auth.py` | Bearer-token verification: real RS256 and HS256 signatures, expiry, issuer, audience, `alg=none`, 401 + `WWW-Authenticate`, RFC 9728 metadata, and that the listener id is the token's `sub`. |

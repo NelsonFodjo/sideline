@@ -22,6 +22,7 @@ Severity: **critical** blocks shipping · **important** costs real time ·
 | FL-05 | Plan AWS usage for the AWS Builder challenge | Rules say credit codes ran out 7 Oct; FAQ still explains how to request them | important | Mock Bedrock in tests; spin services up only to test | Update the FAQ, or restore credits for the remaining window |
 | FL-06 | Find guidance on live-content sync for voice agents | The two Design Guide pages read had nothing on a voice agent being ahead of a delayed broadcast | nice-to-have | `sync_broadcast_delay`, anchored on what the listener hears | Mention live-content latency in the conversation-surface guidance |
 | FL-07 | Share a private repo with reviewers | FAQ documents the 7-day invitation expiry; the instinct is to invite early | nice-to-have | Public repo needs no invites; otherwise invite on submission day | Surface the expiry next to the repo URL field |
+| FL-08 | Enable Amazon Transcribe streaming for the simulator | IAM full-access policy and `transcribe:*` permission were added, but streaming still returned `SubscriptionRequiredException` | important | Use browser speech recognition while investigating the AWS account/service response | Explain what account or service action resolves this exception, and distinguish it clearly from missing IAM permission |
 
 ---
 
@@ -132,6 +133,37 @@ reviewers around when you submit rather than weeks in advance".
 **Actual** Documented, easy to trip. **Severity** nice-to-have
 **Workaround** A public repo with an open-source licence needs no invites.
 **Suggestion** Surface the expiry next to the repo URL field.
+
+### FL-08 — Transcribe subscription error persists after granting IAM access
+
+**Evidence** Sideline server log, 2026-10-13: Amazon Transcribe streaming
+returned HTTP 403 `SubscriptionRequiredException` with the message "The AWS
+Access Key Id needs a subscription for the service." The AWS console
+documentation for
+[streaming setup](https://docs.aws.amazon.com/transcribe/latest/dg/streaming-setting-up.html),
+checked 2026-10-13, identifies `transcribe:StartStreamTranscription` as the
+required IAM action. During troubleshooting, the user added
+`AmazonTranscribeFullAccess` and shared a policy allowing `transcribe:*`;
+the same exception continued. No credentials or key material are recorded
+here.
+
+**Task** Enable speech input through Amazon Transcribe streaming in the
+simulator. **Steps** Configured AWS credentials, used the `us-east-1`
+region, added the Transcribe managed policy and a policy allowing
+`transcribe:*`, restarted Sideline, and retried the microphone.
+**Expected** Transcribe accepts the streaming request once the required
+permission is granted. **Actual** AWS continued returning
+`SubscriptionRequiredException`; the error does not identify what account
+or service change is required.
+
+**Severity** important: the simulator cannot use its configured AWS
+speech-to-text path, despite the permissions troubleshooting.
+**Workaround** Use browser speech recognition where available, or set
+`SIDELINE_STT=off` to avoid repeated failing Transcribe calls. Browser
+recognition may send audio to the browser vendor's service.
+**Suggestion** Explain how to resolve this exception for the account, and
+make the error distinguish service/account access problems from missing
+IAM permissions.
 
 ---
 

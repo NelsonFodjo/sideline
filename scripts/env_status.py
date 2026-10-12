@@ -29,7 +29,7 @@ GROUPS = [
     ]),
     ("AWS features", [
         ("SIDELINE_BEDROCK", False, "auto | on | off", "auto: on when AWS keys are present"),
-        ("SIDELINE_BEDROCK_MODEL", False, "model or inference-profile id", "anthropic.claude-3-5-haiku-20241022-v1:0"),
+        ("SIDELINE_BEDROCK_MODEL", False, "model or inference-profile id", "amazon.nova-micro-v1:0"),
         ("SIDELINE_BEDROCK_TIMEOUT", False, "seconds; Alexa+ targets 0.5 round trip", "3.0"),
         ("SIDELINE_CATCHUP_MODE", False, "cached | live", "cached"),
         ("SIDELINE_STATE", False, "auto | memory | dynamo", "auto: DynamoDB if keys + table, else memory"),
@@ -91,7 +91,8 @@ def main():
         return 1
     if os.environ.get("SIDELINE_BEDROCK", "").lower() == "on" and not have_id:
         print("NOTE: SIDELINE_BEDROCK=on but no AWS keys in the environment; "
-              "boto3 will look elsewhere (instance role, a profile) or fall back to templates.")
+              "boto3 will look elsewhere (instance role, a profile); live mode "
+              "fails without Bedrock access, while demo mode may use templates.")
     if os.environ.get("SIDELINE_PROVIDER") == "apifootball" and not (
             os.environ.get("SIDELINE_FOOTBALL_KEY") or os.environ.get("SIDELINE_FOOTBALL_SECRET")):
         print("PROBLEM: SIDELINE_PROVIDER=apifootball requires SIDELINE_FOOTBALL_KEY in .env.")

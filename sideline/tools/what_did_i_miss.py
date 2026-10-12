@@ -12,7 +12,7 @@ anything. We resolve the window from our own state.
 Flow:
     1. gap_for()  - events since last_told_at, minus anything already told
     2. summaries.answer() - the paragraph: precomputed by the poller, or
-       the template at once; the model is not waited on
+       the template at once in demo mode; live mode waits for Bedrock
     3. mark_told() - move the marker, record the event ids
 
 Step 3 is the one people forget. Without it the listener hears the same
@@ -26,7 +26,7 @@ goal every time they ask.
 LONG_ABSENCE_MINUTES = 15
 
 
-def run(ctx, args, listener_id):
+def run(ctx, args, listener_id, agent_mode=False):
     from . import resolve_fixture
     fx = resolve_fixture(ctx, args, listener_id)
     fid = fx["fixture_id"]
@@ -54,8 +54,13 @@ def run(ctx, args, listener_id):
     # Precomputed when possible, so the model is not on the listener's
     # clock; see sideline/summaries.py.
     from .. import summaries
-    spoken, how, source = summaries.answer(ctx, mode, events, fx, frm, to,
-                                           away, language)
+    if agent_mode:
+        # The agent needs the event facts, not a second model-generated
+        # paragraph or a template that Nova would merely paraphrase.
+        spoken, how, source = "", "tool-data", "not-generated"
+    else:
+        spoken, how, source = summaries.answer(ctx, mode, events, fx, frm, to,
+                                               away, language)
 
     # When we only gave the headlines, do NOT mark the rest as told. The
     # listener was offered more and may ask for it, and a tool that

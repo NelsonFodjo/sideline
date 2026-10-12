@@ -80,8 +80,9 @@ playback. See [docs/DATA_PROVIDERS.md](docs/DATA_PROVIDERS.md).
 Want the AWS integrations live? Follow
 [docs/AWS_SETUP.md](docs/AWS_SETUP.md), then `make aws-check` names the
 layer that failed, if any. Without credentials everything falls back to
-deterministic templates and still works. **The AWS paths have not yet been
-run against a real account**; see [docs/EVIDENCE.md](docs/EVIDENCE.md).
+deterministic templates and still work in demo mode. Live mode reports
+model failures instead of returning canned answers. **The AWS paths were
+partly verified on 2026-10-13**; see [docs/EVIDENCE.md](docs/EVIDENCE.md).
 
 Point any MCP client at `http://127.0.0.1:8765/mcp` (Streamable HTTP).
 
@@ -97,7 +98,8 @@ again. Cut in whenever you like and it stops.
 
 Speech in is Amazon Transcribe, speech out is Amazon Polly, whose speech
 marks give each word's millisecond offset for the reading animation. Both
-are written but **not yet run against a live AWS account**; without
+are implemented but their end-to-end audio paths were **not exercised**;
+`make aws-check` detected the configured capabilities. Without
 credentials the simulator uses the browser's own speech for both directions: it
 speaks with the browser's voice and transcribes you with the browser's
 speech recognition (Chrome, Edge and some Safari versions; Chrome sends that
@@ -167,8 +169,8 @@ In the intended deployment the MCP client is Alexa+ (speech, tool routing,
 wording and rendering would be Amazon's). **That path is not reachable by
 hackathon participants**: the Alexa+ add-on tooling is partner-only (see
 [docs/OFFICIAL_RULES.md](docs/OFFICIAL_RULES.md)), so this project is
-demonstrated through its own MCP client. Bedrock and DynamoDB are wired but
-not yet run against real services.
+demonstrated through its own MCP client. Nova Bedrock was verified once;
+DynamoDB has not been run against a real service.
 
 Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -237,27 +239,24 @@ or one shared id, so the default is a single-listener demo server. With
 describe; the authorization server is yours to provide
 ([docs/ALEXA_SETUP.md](docs/ALEXA_SETUP.md)).
 
-**Alexa+ targets a 500 ms round trip; the Bedrock catch-up can exceed it.**
-Fast tools answer in milliseconds. The model-written catch-up has a 3 s
-ceiling by default, configurable with `SIDELINE_BEDROCK_TIMEOUT`. To keep
-the model off the listener's clock, the poller precomputes each follower's
-catch-up in the background and asking is a cache lookup
-(`SIDELINE_CATCHUP_MODE=cached`, the default); that is tested with a
-simulated model only ([docs/BEDROCK.md](docs/BEDROCK.md)).
+**Alexa+ targets a 500 ms round trip; Nova can exceed it.** The real
+Bedrock service answered a verification call in about 2.1 s on
+2026-10-13. This is one observation, not a latency guarantee. Demo mode
+can precompute catch-ups; live mode calls Nova as part of the request and
+surfaces failures rather than substituting cached or canned answers
+([docs/BEDROCK.md](docs/BEDROCK.md)).
 
 **No blind or low-vision person has used it.** The design rests on how a
 football broadcast presents information and on our own reasoning, not on
 user research or cited sources. See
 [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md).
 
-**Bedrock is wired but has never been called.** boto3 is imported and the
-Converse client is written in
-[`language/bedrock.py`](sideline/language/bedrock.py); with
-`SIDELINE_BEDROCK=auto` (the default) it switches on when AWS credentials
-are present, and otherwise the server uses deterministic templates so it
-runs with nothing installed. No request has been made to a real account, so
-its latency and availability are unmeasured
-([docs/EVIDENCE.md](docs/EVIDENCE.md)).
+**Live Bedrock was verified once, not exhaustively.** On 2026-10-13,
+`make aws-check` confirmed Nova Micro access, a real model response, a Nova
+tool call to `follow_match`, and a seven-event catch-up through Bedrock.
+The invocation took about 2.1 s. That confirms this configured account
+and region, not every deployment or every turn
+([docs/AWS_SETUP.md](docs/AWS_SETUP.md)).
 
 **The default data is historical.** StatsBomb Open Data is real but not live. The
 rules permit a deterministic offline replay harness, and we would rather

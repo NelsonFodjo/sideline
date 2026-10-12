@@ -58,9 +58,20 @@ def build():
     def run_tool(name, args, listener_id):
         return REGISTRY[name](ctx, args, listener_id)
 
+    def run_agent(question, listener_id):
+        from .language.agent import run as run_agent_turn
+
+        def run_agent_tool(name, args, tool_listener_id):
+            if name == "what_did_i_miss":
+                return REGISTRY[name](ctx, args, tool_listener_id, agent_mode=True)
+            return run_tool(name, args, tool_listener_id)
+
+        return run_agent_turn(ctx, question, listener_id, run_agent_tool)
+
     srv = mcp_server.serve(CONFIG.host, CONFIG.port, run_tool,
                            resolve_listener, CONFIG.allowed_origins,
-                           authenticator=auth.build(CONFIG))
+                           authenticator=auth.build(CONFIG),
+                           agent_runner=run_agent, mode=CONFIG.mode)
     poller = Poller(ctx, CONFIG.poll_seconds)
     return ctx, srv, poller
 

@@ -32,7 +32,10 @@ def main():
         page = r.read().decode("utf-8")
         assert r.status == 200 and "text/html" in r.headers["Content-Type"]
     assert "tools/call" in page and "Mcp-Session-Id" in page
+    assert '"/agent/chat"' in page and "LIVE_MODE" in page
     assert "webkitSpeechRecognition" in page and "startBrowserRecognition" in page
+    assert "server speech recognition unavailable; switching to browser" in page
+    assert "Please repeat." in page
     print("ok  GET / serves the simulator, and it is an MCP client (initialize/tools/list/tools/call)")
 
     with urllib.request.urlopen(BASE + "/?preview=what%20did%20I%20miss&pace=900") as r:
