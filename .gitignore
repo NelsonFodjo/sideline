@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 .env
+
+# Git Auto Commit Generator learned data
+.git-auto-commit/
