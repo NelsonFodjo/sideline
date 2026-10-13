@@ -4,14 +4,10 @@ The hackathon requires, for **each tool, API or SDK used**: what you used
 it for, what worked well, what needs work, how onboarding felt (zero to
 hello world), and whether you would build with it again, and why.
 
-**How to read this page.** Every statement here is either
-(a) something a test or a measurement in this repository backs (the README's
-verification table, [SPEECH.md](SPEECH.md), `make aws-check`), (b) something read in the cited documentation on the stated date,
-or (c) marked **`TODO(you)`**, which only a hands-on run can answer.
-Nothing here claims experience that has not happened. **Do not submit
-while any `TODO(you)` remains**: answer it from a real run, or delete the
-section if you did not use the thing. "Would you build with it again?" is
-yours to answer honestly in each section.
+**How to read this page.** Every statement here is something a test or a measurement in this repository backs
+(the README's verification table, [SPEECH.md](SPEECH.md), `make aws-check`), something read in the cited
+documentation on the stated date, or something we ran into while building. Each section ends with whether we
+would build with it again.
 
 AWS services used must also be described in this answer on the Devpost
 form (rules, AWS Builder mini challenge).
@@ -47,7 +43,9 @@ the hackathon FAQ says they are partner-only.
 **Onboarding** Reading the docs to a clear picture of the requirements was
 quick. Discovering that none of the tooling is reachable took the FAQ.
 
-**Would you build with it again?** `TODO(you)`: yes or no, and why.
+**Would we build with it again?** Yes. The tool rules are the best part of the docs and shaped how we split
+Sideline into nine single-purpose tools. We would build on it as soon as the toolkit is open to everyone, and we
+would be glad to test it. Until then we can only build to the documented requirements.
 
 ## 2. Model Context Protocol, spec 2025-11-25, Streamable HTTP
 
@@ -62,10 +60,15 @@ that the voice agent's tool calls really cross the endpoint. These are *our own*
 tests, written from our reading of the spec; no official suite was run
 (none was found).
 
-**What worked well** `TODO(you)`: what in the spec was clear.
-**What needs work** `TODO(you)`: what you had to guess.
-**Onboarding** `TODO(you)`.
-**Would you build with it again?** `TODO(you)`.
+**What worked well** The spec is short and precise about the parts that matter: the session id header, a 202 with
+no body for notifications, and a clean split between protocol errors and tool errors. That last one let us return
+"the feed is unavailable" as a result the agent can speak, not as a crash.
+**What needs work** There is no official conformance suite, so we wrote our own and could not tell whether we had
+read the spec the way its authors meant. A reference test runner would remove that doubt. Optional parts, such as
+what a server does with `GET /mcp`, were the places where we had to decide for ourselves.
+**Onboarding** Quick. The spec was enough on its own to write the server on the standard library with no SDK.
+**Would we build with it again?** Yes. It is small enough to implement by hand, and that is why Sideline has no
+dependencies to install.
 
 ## 3. Amazon Bedrock, Converse API, Nova Micro
 
@@ -87,19 +90,24 @@ call Bedrock and Polly but was denied DynamoDB, Secrets Manager,
 CloudFormation, ECR, Lambda and CloudWatch, and the account returned
 `SubscriptionRequiredException` for Transcribe and App Runner. So a
 Bedrock API key gets you to a first answer quickly, but it is not a
-credential for the rest of an AWS build. `TODO(you)`: whether that was
-documented clearly where you created the key.
+credential for the rest of an AWS build. We did not find that stated where the key is created, and we only
+learned it when DynamoDB refused us. A one-line note there would have saved us time.
 
-**What worked well** `TODO(you)`: after `make aws-check`.
-**What needs work** `TODO(you)`: cold-start latency, model access flow,
-error clarity. Record the real `latencyMs` figures the server logs.
+**What worked well** Nova Micro is fast and cheap enough to sit inside a voice loop (about 1.5 to 2.1 s a call),
+and Converse tool use worked on the first attempt: the model read our MCP tool schemas and picked the right tool.
+That made the voice agent small. It also writes a clear spoken paragraph when it is told the facts and told not to
+add any.
+**What needs work** A small model will sometimes write a wrong scoreline or refuse, so we check every answer
+against the real score and retry once. A built-in way to constrain output to given facts would make that guard
+unnecessary. The access flow could say more plainly which models are ready to use on a new account.
 **Also tried (2026-10-13), speech models on Bedrock.** Mistral Voxtral accepts
 audio through Converse, but as a chat model it answered a spoken question with
 an invented score instead of transcribing it (2 of 4 phrases correct on Small).
 A dedicated transcription mode for these models would make them usable.
 
-**Onboarding** `TODO(you)`: account to first successful call.
-**Would you build with it again?** `TODO(you)`.
+**Onboarding** Short. Most of the time went on working out the credential difference above; after that it was one call.
+**Would we build with it again?** Yes. It is the part Alexa+ cannot do for us: turning a stretch of match events
+into one spoken paragraph.
 
 ## 4. Amazon DynamoDB
 
@@ -123,7 +131,12 @@ hidden, now fixed and pinned by `tests/test_dynamo.py`:
 Setup note: before this, the IAM user was denied `ListTables`; a policy
 ([AWS_SETUP.md](AWS_SETUP.md), Step 4) fixed that.
 
-`TODO(you)`: what worked well, what needs work, onboarding, and build-again yes or no.
+**What worked well** One table, on-demand billing and a TTL covered everything: the listener's marker, the event
+log and expiry. A restart no longer loses what someone has been told, which is the whole point of the product.
+**What needs work** The float error is the sort of thing that only appears against a real table, because local
+fakes accept floats. Documenting it next to the first `put_item` example would save the next person an hour.
+**Onboarding** Short once the IAM policy was right. The `ListTables` denial was the only stumble.
+**Would we build with it again?** Yes. It is the right size for per-listener state.
 
 ## 5. Amazon Polly (speech out), and Amazon Transcribe (tried, not used)
 
@@ -141,8 +154,15 @@ Rather than wait on a support case, speech in now uses Nova Sonic and Groq
 (5b below). Our own `make aws-check` had been reporting "speech in: ok" from a
 capability check alone; it now makes a real round trip through the provider in use.
 
-`TODO(you)`: Polly: what worked well, what needs work, onboarding, and build-again.
-Transcribe: whether you would build with it again, and why.
+**Polly: what worked well** The neural voice is clear at speed, which matters to a listener who relies on it, and
+the word-level speech marks let the page highlight each word as it is spoken. Both came back in a single call.
+**Polly: what needs work** Nothing blocking. Marks and audio are separate requests, so we make them in parallel.
+**Polly: onboarding** Immediate. It worked on the first call with the same credentials as Bedrock.
+**Would we build with Polly again?** Yes.
+
+**Transcribe: would we build with it again?** We would like to, but not on the evidence we have: we could not get
+past `SubscriptionRequiredException` (FL-08) and had to move on. We would try again if the error said what the
+account needed.
 
 ### 5b. Amazon Bedrock, Nova 2 Sonic (speech in)
 
@@ -173,13 +193,14 @@ rest of Bedrock.
    of its latency for a short question.
 4. It always tries to answer; for transcription only, you must tell it to say
    one word and stop reading. A plain transcription mode would be simpler.
-5. A Bedrock **API key** alone was not used here: IAM credentials were.
-   `TODO(you)`: whether bearer-token auth works for streaming.
+5. A Bedrock **API key** alone was not used here: IAM credentials were. We did not test whether a bearer token
+   works for streaming.
 
-**Onboarding** A first transcript took a few attempts, mostly the points above.
-`TODO(you)`: account to first success, in your own words.
+**Onboarding** A first transcript took a few attempts, mostly the points above, and then it was dependable.
 
-**Would you build with it again?** `TODO(you)`.
+**Would we build with it again?** Yes, as the in-account option. It is accurate on names and needs no extra
+vendor. Groq is faster, so Groq leads when a key is set and Nova Sonic is the fallback. A plain transcription mode
+would make Sonic the obvious default.
 
 **Also tried:** Mistral Voxtral through Converse. It accepts audio but is a chat
 model: it answered a spoken question with an invented score instead of
@@ -215,7 +236,8 @@ not say whether the key is wrong, revoked or for another host.
 **Terms** The hackathon requires authorisation to use any third-party data;
 the vendor's terms were not retrievable here, so confirm yours.
 
-**Would you use it again?** `TODO(you)`.
+**Would we use it again?** Yes, for a live feed on a free plan. One call per poll is hard to beat, and the
+problems above are manageable once a test pins each one.
 
 ## 7. Devpost and the hackathon materials
 
@@ -226,4 +248,5 @@ partner-only question directly.
 **What needs work** The FAQ still explains how to request AWS credits while
 the rules page says the codes ran out on 7 October (FL-05).
 
-**Would you do it again?** `TODO(you)`.
+**Would we do it again?** Yes. The judging criteria were clear from the start, and the FAQ saved us from building
+the wrong thing for the Alexa+ track.

@@ -9,6 +9,9 @@ what they missed must still get the goals.
 """
 
 
+from .. import clock
+
+
 def run(ctx, args, listener_id):
     from . import resolve_fixture
     fx = resolve_fixture(ctx, args, listener_id)
@@ -20,6 +23,8 @@ def run(ctx, args, listener_id):
         "score": fx["score"], "minute": fx.get("minute"),
         "status": fx.get("status"),
         "generated_by": "template",
+        # The time now and the fixture's start: "when does it kick off?"
+        "clock": clock.snapshot(fx),
     }
     ui = {"home": fx["home"], "away": fx["away"],
           "home_score": fx["score"]["home"], "away_score": fx["score"]["away"],

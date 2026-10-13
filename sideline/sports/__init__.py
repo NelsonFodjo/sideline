@@ -24,6 +24,8 @@ progress onto elapsed minutes in its provider and says it its own way in
 `when()`.
 """
 
+from .. import clock  # noqa: E402
+
 DEFAULT = "football"
 # Most headline events read out in one long-absence catch-up.
 MAX_HEADLINES = 6
@@ -153,7 +155,8 @@ class SportProfile(object):
         return {}
 
     def not_started(self, fixture):
-        return "%s against %s, not started yet." % (fixture["home"], fixture["away"])
+        base = "%s against %s, not started yet." % (fixture["home"], fixture["away"])
+        return (base + " " + clock.say_kickoff(fixture, self.start_word)).strip()
 
     def spoken_anchor(self, anchor):
         return self.anchor_spoken.get(anchor, anchor)

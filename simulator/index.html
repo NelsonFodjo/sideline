@@ -310,7 +310,7 @@ body[data-mode="thinking"] .bg{filter:hue-rotate(8deg) brightness(.95)}
 <div class="gate" id="gate">
   <div class="halo" aria-hidden="true"></div>
   <h1>Sideline</h1>
-  <p>Say &ldquo;follow the Arsenal game&rdquo;, then just talk. It listens between answers &mdash; cut in whenever you like.</p>
+  <p>Your friend for the match, in your ear. Name a game that&rsquo;s on, then just talk: what did I miss, who is he, who&rsquo;s refereeing. Look away whenever you like.</p>
   <button id="begin" type="button">Start listening</button>
   <small id="gatenote">needs your microphone</small>
 </div>
@@ -1331,7 +1331,7 @@ $("begin").onclick=async function(){
     setQuiet("This browser can’t turn speech into text. Try Chrome.");
     return;
   }
-  say("Tell me which match to follow.");
+  say("Hi, I'm Sideline. Which live game are we following?");
 };
 
 /* Ask the server what it can do, so the gate can say so before anyone

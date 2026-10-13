@@ -10,3 +10,6 @@ venv/
 # tooling that is not part of the project
 .git-auto-commit/
 .DS_Store
+
+# private notes, not for the repo
+VIDEO_GUIDE.md

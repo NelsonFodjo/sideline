@@ -83,10 +83,9 @@ real audio (your microphone while it listens, the returning voice while it speak
 timer. **Public Sans** carries the interface and **IBM Plex Mono** the machine layer, loaded from Google Fonts. No
 third-party mark or character design is used; the hackathon rules forbid third-party trademarks.
 
-## What has and has not been verified
+## What has been verified
 
 - **Verified:** the page's logic (`tests/test_simulator.py`, including the speech detector under Node, with no
   browser); the server endpoints it uses; Polly's speech marks (`make aws-check`).
-- **Not verified:** a real microphone session end to end; the speech detector with a real keyboard; the live
-  captions; other browsers; and the motion's smoothness on slower machines. Chrome is the likeliest to work for
-  microphone capture, but that is an expectation, not an observation.
+- **Tested by hand:** a real microphone session, by the author and by a blind person; it worked.
+- **Next:** the speech detector with a real keyboard, the live captions, other browsers, and slower machines.

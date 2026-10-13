@@ -9,7 +9,7 @@ Side effect that matters: following a match is what tells the poller to
 start watching it. See poller.py.
 """
 
-from .. import sports, sync
+from .. import clock, sports, sync
 from ..mcp.errors import ToolError
 
 
@@ -81,7 +81,8 @@ def run(ctx, args, listener_id):
     if fx.get("status") in ("finished", "FT"):
         spoken = "That %s has finished. %s." % (sp.game, sp.say_score(fx))
     elif minute <= 0:
-        spoken = "Following %s against %s. Not started yet." % (fx["home"], fx["away"])
+        spoken = ("Following %s against %s. Not started yet. %s"
+                  % (fx["home"], fx["away"], clock.say_kickoff(fx, sp.start_word))).strip()
     else:
         spoken = "Following %s against %s. %s" % (
             fx["home"], fx["away"], sp.say_match_state(fx))

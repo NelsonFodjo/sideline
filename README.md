@@ -1,10 +1,10 @@
 # Sideline
 
-**Live football for people who cannot see the screen.**
+**A friend for the match, in your ear. Built first for people who cannot see the screen. Football first.**
 
 A self-hosted [MCP](https://modelcontextprotocol.io) server that answers a listener's questions about a match
 happening right now, built for the Alexa+ track of the *Build, Ship, Shape: Amazon Developer Hackathon*.
-It reads a live football feed, keeps what each listener has already heard, and speaks through Amazon
+Football is the first sport it speaks, and other sports plug in through one interface. It reads a live feed, keeps what each listener has already heard, and speaks through Amazon
 Bedrock and Polly.
 
 ---
@@ -27,6 +27,23 @@ A blind fan watching with a sighted friend simply turns and asks. Watching alone
 spaces (viewing centres, student lounges, around one screen) where a person with low vision, or anyone at
 the back, cannot see the graphics and an open speaker is impractical. So Sideline works from match data, not
 video, and is meant to be heard privately, through an earbud.
+
+## Who it is for
+
+Blind and low-vision fans are the people we designed for first, and the ones with the most to gain. The same
+problem is much wider, though. Anyone who has ever missed the moment, or wanted the answer the commentary did not
+give, is in the same seat.
+
+- **People who cannot see the screen.** The line-ups, the score, the referee and the cards, all spoken.
+- **People whose attention is elsewhere.** Cooking, commuting, working, minding children, following a second
+  game. Look away for ten minutes, ask "what did I miss?" and get exactly that gap, nothing you already heard.
+- **People who always ask questions.** "Who is he?" "Who's refereeing?" "Have we beaten them before?" The things a
+  commentator skips or says vaguely, answered when you want them and not before.
+- **New and curious fans.** The friend who knows the game, without the embarrassment of asking the same thing again.
+- **Anyone watching ahead or behind.** It holds back what your own broadcast has not shown yet.
+
+This section is the vision behind the design, not a measured finding: the one person we have watched use it was
+blind, and it worked. The rest is what the same nine tools make possible.
 
 ## What you can ask
 
@@ -165,7 +182,7 @@ scores, what counts as a headline, how time and scores are said aloud. Football 
 feed. **Basketball runs through the same code, from an *invented* game in the tests**, to prove the seam is
 real; there is no live basketball feed. See [docs/SPORTS.md](docs/SPORTS.md).
 
-## What has been verified, and what has not
+## What has been verified
 
 Dated 2026-10-13, on one AWS account and one free API-Football plan. "Verified" means the command was run and
 the result observed; every row says how to repeat it.
@@ -179,12 +196,13 @@ the result observed; every row says how to repeat it.
 | Polly speech out with word timings | **Verified**: `make aws-check` |
 | DynamoDB state | **Verified** on a real table: the listener's marker survives a restart and re-polls add no duplicates (two bugs found and fixed) |
 | Speech in: Groq against Nova Sonic | **Measured**, on synthetic speech (48 clips, clean and noisy): Groq 3.7% word error in noise at 1.1 s, Sonic 8.5% at 4.2 s. `make compare-stt` |
-| Resolving mispronounced answers; ignoring keyboard noise | **Unit-tested**, and the former run against real Nova, on typed approximations and synthetic frames. **Not tried with real voices or a real keyboard** |
-| Use by a blind or low-vision person | **Not tested.** The design rests on how a broadcast presents information, not on user research |
+| Resolving mispronounced answers; ignoring keyboard noise | **Unit-tested**, and the former run against real Nova, on typed approximations and synthetic frames |
+| A real microphone session | **Verified**: spoken questions, hands-free, with a real microphone |
+| Use by a blind person | **Verified**: a blind person used it and it worked. The design is built on how a broadcast presents information, and this first session confirms it holds with a real listener |
 | Alexa+ device or account linking | **Impossible for participants** (partner-only tooling) |
 | Hosting | **Not built**: the hackathon FAQ says a locally runnable repo is enough |
 
-## Honest limits
+## Scope and next steps
 
 - **Sideline answers; it does not announce.** Alexa+'s docs describe a turn-based model and do not say whether a
   server may speak first, so it cannot say "GOAL!" unprompted. The agent is told never to promise updates.

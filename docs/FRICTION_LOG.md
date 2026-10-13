@@ -23,6 +23,11 @@ Severity: **critical** blocks shipping · **important** costs real time ·
 | FL-06 | Find guidance on live-content sync for voice agents | The two Design Guide pages read had nothing on a voice agent being ahead of a delayed broadcast | nice-to-have | `sync_broadcast_delay`, anchored on what the listener hears | Mention live-content latency in the conversation-surface guidance |
 | FL-07 | Share a private repo with reviewers | FAQ documents the 7-day invitation expiry; the instinct is to invite early | nice-to-have | Public repo needs no invites; otherwise invite on submission day | Surface the expiry next to the repo URL field |
 | FL-08 | Enable Amazon Transcribe streaming for the simulator | IAM full-access policy and `transcribe:*` permission were added, but streaming still returned `SubscriptionRequiredException` (also seen on App Runner, 2026-10-13) | important | Use browser speech recognition while investigating the AWS account/service response | Explain what account or service action resolves this exception, and distinguish it clearly from missing IAM permission |
+| FL-09 | Add Nova 2 Sonic speech in to a Python service | Not in boto3: needs a separate package (`aws-sdk-bedrock-runtime`, Python 3.12+) and `awscrt`; the config cannot be built directly and the transport keyword is not the one the type names suggest | important | Read the SDK's errors until it ran; pinned in `voice.py` | Put the Python install, the `resolve()` config call and a minimal streaming example in the Nova Sonic docs |
+| FL-10 | Use Nova 2 Sonic only to transcribe | Closing the input right after the audio returns nothing: it waits for silence, so a trailing 2 s of silence is required, which is most of the 4.2 s latency of a short question. It also always tries to answer | important | Append silence, instruct it to say one word, read only the transcript events | Offer a transcription-only mode, and document the silence requirement |
+| FL-11 | Pick credentials for a first Bedrock call, then the rest of the build | A Bedrock API key (backed by an IAM user) called Bedrock and Polly but was denied DynamoDB, Secrets Manager, CloudFormation, ECR, Lambda and CloudWatch; nothing at the point of creation says so | important | Switched to IAM credentials with an explicit policy | State, where the key is created, that it is scoped to Bedrock and what to use for everything else |
+| FL-12 | Store listener state in DynamoDB with boto3 | `put_item` rejects Python floats (`Float types are not supported`), and reads return `Decimal`, which JSON cannot encode; a local fake accepts both, so nothing failed until a real table was used (every event was silently not logged) | important | Convert on write and read; `tests/test_dynamo.py` pins it | Show the Decimal rule next to the first `put_item` example, and make the error name the attribute |
+| FL-13 | Transcribe a spoken question with a speech-capable model on Bedrock (Mistral Voxtral via Converse) | It accepts audio but is a chat model: it answered a spoken question with an invented score instead of transcribing it (2 of 4 phrases correct on Small) | nice-to-have | Used Nova 2 Sonic and Groq instead | Add a transcription mode to Converse for audio models, or say clearly that they are chat-only |
 
 ---
 
@@ -171,6 +176,73 @@ recognition may send audio to the browser vendor's service.
 make the error distinguish service/account access problems from missing
 IAM permissions.
 
+### FL-09 — Nova 2 Sonic is not in boto3, and its config cannot be built directly
+
+**Evidence** Sideline build, 2026-10-13, `sideline/voice.py`; numbers in [SPEECH.md](SPEECH.md).
+
+**Task** Stream a listener's audio to Nova 2 Sonic from a Python service and read the transcript back.
+**Steps** Tried the default boto3 Bedrock Runtime client; then the separate SDK; built its config.
+**Expected** The same client we use for Converse. **Actual** boto3 does not offer it. It needs
+`aws-sdk-bedrock-runtime` (Python 3.12+) and `awscrt`. The default transport fails with `UnsupportedTransportError`
+(clear, which helped). The config cannot be built directly (`ConfigError: ... Use await
+AsyncBedrockRuntimeConfig.resolve(...)`), and the transport option is `transport=`, not `http_client=`; neither
+is obvious from the type names.
+
+**Severity** important: the first transcript took several attempts. **Workaround** Followed the errors; the working
+setup is in `voice.py`. **Suggestion** Add the Python install, the `resolve()` call and a minimal streaming example
+to the Nova Sonic documentation.
+
+### FL-10 — Nova 2 Sonic waits for silence, and always tries to answer
+
+**Evidence** Sideline build, 2026-10-13; head-to-head against Groq in [SPEECH.md](SPEECH.md) (48 clips).
+
+**Task** Use Sonic as an ear only: speech in, text out. **Steps** Sent audio and closed the prompt right after.
+**Expected** A transcript. **Actual** Nothing: it waits to hear silence, so a trailing 2 s of silence is needed.
+It also answers, so it has to be told to say one word and stop; the transcript arrives as text events before
+that. In noise it measured 8.5% word error at 4.2 s per clip, against 3.7% at 1.1 s for Groq on the same clips.
+
+**Severity** important for a voice product: the silence is most of the latency of a short question.
+**Workaround** Append silence, constrain the reply, read only the transcript events.
+**Suggestion** A transcription-only mode, and the silence requirement stated in the docs.
+
+### FL-11 — A Bedrock API key is not a credential for the rest of an AWS build
+
+**Evidence** Sideline build, 2026-10-13. The key is backed by an IAM user (`BedrockAPIKey-...`).
+
+**Task** Get a first Bedrock answer, then add the rest of the stack. **Steps** Created the key, called Bedrock
+and Polly, then DynamoDB, Secrets Manager, CloudFormation, ECR, Lambda and CloudWatch. **Expected** One
+credential good for the build. **Actual** Bedrock and Polly worked; the others were denied. Nothing at the point
+of creation says the key is scoped.
+
+**Severity** important: it surfaced only when DynamoDB refused us, after the code was written.
+**Workaround** IAM credentials with an explicit policy ([AWS_SETUP.md](AWS_SETUP.md)).
+**Suggestion** One line where the key is created: what it covers, and what to use for everything else.
+
+### FL-12 — DynamoDB rejects floats, and a local fake hides it
+
+**Evidence** Sideline build, 2026-10-13, first run against a real table; pinned by `tests/test_dynamo.py`.
+
+**Task** Log match events and the listener's marker. **Steps** Wrote events with a float timestamp.
+**Expected** The write to work as it did against our in-memory store. **Actual** boto3 raised `Float types are
+not supported. Use Decimal types instead.`; every event was dropped, so the poller logged zero. Reads return
+`Decimal`, which JSON cannot encode. A second bug appeared in the same run: the conditional write meant to dedupe
+events keyed on an id the live feed mints fresh on every read, so it would never have fired.
+
+**Severity** important: silent data loss that no test against a fake could show. **Workaround** Convert on write
+and on read, and key events by a digest. **Suggestion** Show the Decimal rule beside the first `put_item` example,
+and have the error name the offending attribute.
+
+### FL-13 — Speech models on Converse are chat models, not transcribers
+
+**Evidence** Sideline build, 2026-10-13: Mistral Voxtral through Converse.
+
+**Task** Transcribe a spoken question. **Steps** Sent audio and asked for a transcript. **Expected** The words.
+**Actual** It accepts audio but answered the question: it invented a score instead of transcribing (2 of 4 phrases
+correct on Small). For a blind listener an invented score is worse than silence.
+
+**Severity** nice-to-have **Workaround** Nova 2 Sonic and Groq. **Suggestion** A transcription mode for audio models
+on Converse, or a note that they are chat-only.
+
 ---
 
 ## Candidates: add an entry only if you actually hit it
@@ -181,7 +253,6 @@ observation and its numbers.
 
 - Bedrock first-call latency after idle, or retry/timeout defaults too slow
   for voice. Measure with `make aws-check` and real calls.
-- Bedrock model-access flow or error messages being unclear.
 - Free football-data tiers being delayed or capped. Unverified: the vendor
   pages blocked automated reading; check them by hand.
 - `_meta` conventions for UI payloads. No observation.

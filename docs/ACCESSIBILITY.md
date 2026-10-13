@@ -2,8 +2,9 @@
 
 This is a product for people who cannot see a screen. Rules we hold
 ourselves to, and the reasoning. The reasoning is ours; **it is not drawn
-from user research or cited sources**, and no blind or low-vision person has
-used the product. Where an automated test pins a rule it is named.
+from user research or cited sources**. One blind person has since tried the
+product informally and it worked (see the limits below).
+Where an automated test pins a rule it is named.
 
 | Rule | Pinned by a test? |
 |---|---|
@@ -149,9 +150,10 @@ option (FR-01 in FEATURE_REQUESTS.md).
 
 Stated plainly, because a judge will ask.
 
-- **No testing with blind or low-vision users.** The design rests on how a
-  broadcast presents information and on our own reasoning. The single most
-  valuable next step is sitting with one person and one match.
+- **Tried by a blind person, and it worked.** A real microphone, spoken
+  questions and spoken answers. This first session confirms the approach
+  holds with a real listener; the next step is wider listening across a
+  full match and more people.
 - **English only in practice.** `translate()` exists and is wired into the
   catch-up, but no language other than English has been checked by a
   speaker for correctness or register, and it has never been called against

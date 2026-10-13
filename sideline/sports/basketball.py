@@ -12,6 +12,7 @@ Differences from football that the profile has to absorb:
     headline for a long absence is the three-pointer, not every basket.
 """
 
+from .. import clock
 from . import SportProfile, register
 
 QUARTER = 12
@@ -162,7 +163,8 @@ class Basketball(SportProfile):
                                   if "technical" in (e.get("detail") or "").lower())}
 
     def not_started(self, fixture):
-        return "%s against %s, waiting for tip-off." % (fixture["home"], fixture["away"])
+        base = "%s against %s, waiting for tip-off." % (fixture["home"], fixture["away"])
+        return (base + " " + clock.say_kickoff(fixture, self.start_word)).strip()
 
 
 def _join(names):

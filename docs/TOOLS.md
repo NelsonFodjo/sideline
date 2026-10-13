@@ -51,7 +51,10 @@ the first catch-up read out the wrong game.
 ### `get_match_state`
 
 Score and clock. The most-asked question, so the fastest path: no
-Bedrock, template only: no model call.
+Bedrock, template only: no model call. Before kick-off it also says when the match starts ("Kick-off is
+in 1 hour 56 minutes, at 11:45"), and the structured result carries a `clock` block (the time now, the
+kickoff, minutes between). The clock is `sideline/clock.py`; spoken clock times are in the server machine's
+local zone, which is the listener's when it runs on their machine.
 
 **Does not advance `last_told_at`.** Hearing the score is not the same as
 being told what happened. A listener who asks the score and then asks
