@@ -248,7 +248,118 @@ def main():
     assert "what did i miss" in hint.lower()
     assert "Martin Ødegaard" in voice.vocabulary_hint(ctx, "v", max_names=24)
     assert voice.vocabulary_hint(ctx, "nobody").startswith("Questions about")
+    # Someone who has followed nothing still gets the teams on today, so Arsenal is not heard as "asana".
+    assert "Arsenal" in voice.vocabulary_hint(ctx, "nobody") and "Tottenham" in voice.vocabulary_hint(ctx, "nobody")
+    # An accented name is also given in plain letters, which is how a recogniser spells what it hears.
+    ctx.provider.fixtures_on = lambda off: [{"fixture_id": 9, "home": "Sønderjyske Fodbold", "away": "FC København",
+                                             "status": "NS", "kickoff": "2026-10-13T19:00:00+00:00"}] if off == 0 else []
+    hint = voice.vocabulary_hint(ctx, "nobody")
+    assert "Sønderjyske Fodbold" in hint and "sonderjyske fodbold" in hint and "fc kobenhavn" in hint, hint
     print("ok  the prompt carries the followed match's teams and players, and a stranger gets the basics")
+
+    # Whisper prints its own prompt when it is given noise: team names nobody said.
+    hint = voice._BASE_HINT + " Hartlepool, Newcastle United U21"
+    assert voice.echoes_hint("Hartlepool, Newcastle U21", hint), "the names alone are an echo"
+    assert voice.echoes_hint("Newcastle United U21.", hint)
+    assert not voice.echoes_hint("Follow Hartlepool", hint), "a real command is kept"
+    assert not voice.echoes_hint("Who is refereeing?", hint), "a real question is kept"
+    assert not voice.echoes_hint("", hint) and not voice.echoes_hint("Hartlepool", "")
+    assert not voice.echoes_hint("Hartlepool", hint), "one bare name could be the answer to 'which team?'"
+    offered = "The listener is choosing between: Hartlepool, Newcastle United U21. " + hint
+    assert not voice.echoes_hint("Hartlepool", offered), "after an offer a bare name IS the answer"
+    # Whisper's own doubt: probably silence and not confident is a hallucinated segment.
+    doc = {"text": "Thanks for watching Hartlepool", "segments": [
+        {"text": " Thanks for watching", "no_speech_prob": 0.9, "avg_logprob": -1.4},
+        {"text": " who is refereeing", "no_speech_prob": 0.05, "avg_logprob": -0.2}]}
+    assert voice._spoken_text(doc) == "who is refereeing", voice._spoken_text(doc)
+    assert voice._spoken_text({"text": " hello there "}) == "hello there", "no segments: the text as is"
+    print("ok  noise that Whisper turns into its own hint, or into a doubted segment, is dropped")
+
+    # ------------------------------------------------------ speech out: natural voice, exact timings
+    import base64
+
+    def frames(n, id3=False):
+        """n MPEG-2 layer III frames at 48 kbps and 24 kHz: 24 ms each (576 / 24000), 144 bytes."""
+        head = b"\xff\xf3\x64\x00"
+        tag = b"ID3\x04\x00\x00\x00\x00\x00\x04abcd" if id3 else b""
+        return tag + (head + b"\x00" * 140) * n
+    assert abs(voice.mp3_seconds(frames(100)) - 2.4) < 1e-6 and abs(voice.mp3_seconds(frames(100, id3=True)) - 2.4) < 1e-6
+    assert voice.mp3_seconds(b"") == 0 and voice.mp3_seconds(b"not audio at all") == 0
+    assert voice._id3_size(frames(1, id3=True)) == 14 and voice._id3_size(frames(1)) == 0
+    print("ok  an MP3's exact length is read from its frames, with or without an ID3 tag")
+
+    txt = "Arsenal host Lille. It's at St. Mirren Park, in Paisley! A. Saka scored. Newcastle United U21 won 3-0."
+    toks = [(m.start(), m.end()) for m in __import__("re").finditer(r"\S+", txt)]
+    spans = [" ".join(txt[a:b] for a, b in toks[lo:hi]) for lo, hi in voice._sentence_ranges(txt, toks)]
+    assert spans == ["Arsenal host Lille.", "It's at St. Mirren Park, in Paisley!", "A. Saka scored.",
+                     "Newcastle United U21 won 3-0."], spans
+    assert voice.speakable("U21") == "under-21" and voice.speakable("U19,") == "under-19," and voice.speakable("Uruguay") == "Uruguay"
+    assert voice.speakable("Arsenal") == "Arsenal" and voice.speakable("U2") == "U2"
+    print("ok  sentences split at . ! ? before a capital, not after St. or an initial; U21 is said 'under 21'")
+
+    even = voice._marks_fitted([], 4, 2000)
+    assert even == [0, 500, 1000, 1500], "no usable marks: the words spread evenly"
+    fitted = voice._marks_fitted([{"time": 0, "value": "a"}, {"time": 500, "value": "bb"}, {"time": 1000, "value": "ccc"}], 3, 1700)
+    assert fitted[0] == 0 and fitted[1] < fitted[2] < 1700, fitted
+    print("ok  word timings are fitted to the audio's real length, or spread evenly when the words do not line up")
+
+    class FakePolly:
+        """Sentence in, frames out (one per character), and one word mark per word. Generative can be made to fail."""
+        def __init__(self, fail_generative=False):
+            self.fail, self.calls = fail_generative, []
+
+        def synthesize_speech(self, Text, OutputFormat, VoiceId, Engine, SpeechMarkTypes=None):
+            self.calls.append((Engine, OutputFormat, Text))
+            if OutputFormat == "mp3":
+                if Engine == "generative" and self.fail:
+                    raise RuntimeError("ValidationException: not supported")
+                return {"AudioStream": io.BytesIO(frames(len(Text), id3=True))}
+            words = Text.split()
+            lines, t = [], 0
+            for w in words:
+                lines.append(json.dumps({"time": t, "type": "word", "value": w}))
+                t += 24 * (len(w) + 1)
+            return {"AudioStream": io.BytesIO("\n".join(lines).encode())}
+
+    real_client, real_engine = voice._polly_client, voice.POLLY_ENGINE
+    try:
+        text = "Arsenal host Lille. It's at St. Mirren Park."
+        for fail, want_engine in ((False, "generative"), (True, "neural")):
+            fake = FakePolly(fail_generative=fail)
+            voice._polly_client = lambda f=fake: f
+            voice.POLLY_ENGINE = "generative"
+            out = voice.synthesize(text)
+            assert out["engine"] == want_engine and out["format"] == "mp3", out["engine"]
+            marks = out["marks"]
+            assert [m["value"] for m in marks] == text.split(), "one mark per word as written"
+            assert all(text[m["start"]:m["end"]] == m["value"] for m in marks), "positioned in the text as written"
+            assert [m["time"] for m in marks] == sorted(m["time"] for m in marks), "in order"
+            audio = base64.b64decode(out["audio"])
+            assert voice._id3_size(audio) == 0, "one stream, no tags"
+            assert abs(voice.mp3_seconds(audio) - len(text) * 0.024) < 1e-6, "the whole answer is one piece of audio"
+            assert sum(1 for c in fake.calls if c[1] == "mp3" and c[0] == "generative") == 1, "one call, so the voice flows"
+        # Only an answer too long for one call is cut, and at a sentence end.
+        long_text = " ".join("Arsenal host Lille at ground number %d." % i for i in range(60))
+        fake = FakePolly()
+        voice._polly_client = lambda f=fake: f
+        voice.POLLY_ENGINE = "generative"
+        out = voice.synthesize(long_text)
+        calls = sum(1 for c in fake.calls if c[1] == "mp3")
+        assert calls > 1 and [m["value"] for m in out["marks"]] == long_text.split(), calls
+        voice.POLLY_ENGINE = "neural"
+        fake = FakePolly()
+        voice._polly_client = lambda: fake
+        assert voice.synthesize(text)["engine"] == "neural" and not any(c[0] == "generative" for c in fake.calls)
+        voice._polly_client = lambda: None
+        assert voice.synthesize(text) is None and voice.synthesize("") is None
+
+        def no_such_profile():
+            raise RuntimeError("The config profile (123456789012) could not be found")
+        voice._polly_client = no_such_profile
+        assert voice.synthesize(text) is None, "a client that cannot be built means the browser voice, not a crashed request"
+    finally:
+        voice._polly_client, voice.POLLY_ENGINE = real_client, real_engine
+    print("ok  the natural voice, an answer in one piece: one mark per word as written, a generative failure falls back to neural, neural on request")
 
     print("\nvoice: all good")
 

@@ -14,6 +14,7 @@ Contract:
     lineups(fixture_id)          -> {team: {...}}
     officials(fixture_id)        -> {...}
     head_to_head(fixture_id, n)  -> [past results]
+    fixtures_on(offset_days)     -> [fixture dicts] for today, tomorrow (1) or yesterday (-1)
 
 Normalising rules, which exist because every vendor gets these wrong in
 a different way:
@@ -39,8 +40,16 @@ class ProviderUnavailable(Exception):
     """
 
 
+# What a feed can supply. Tools are listed only when the feed behind them can answer, so the
+# model is never offered a tool that would fail. (Whether a feed's PLAN allows a thing is a
+# separate matter: a refusal is spoken in the vendor's own words.)
+CAPABILITIES = ("fixtures", "events", "lineups", "officials", "h2h", "form", "stats",
+                "injuries", "search", "competitions", "standings", "top_scorers", "player_stats")
+
+
 class Provider:
     name = "base"
+    capabilities = frozenset({"fixtures", "events", "lineups", "officials"})
 
     def fixtures_today(self):
         raise NotImplementedError
@@ -59,6 +68,43 @@ class Provider:
 
     def head_to_head(self, fixture_id, limit=5):
         return []
+
+    # Optional reads. A provider that implements one lists it in `capabilities`.
+    def search(self, query, kind="team"):
+        """[{"kind": "team"|"player"|"competition", "name", "id", "country"}] for a name."""
+        raise NotImplementedError
+
+    def competitions(self, country=None):
+        """[{"id", "name", "country"}] the feed covers (a free plan covers a few)."""
+        raise NotImplementedError
+
+    def standings(self, competition):
+        """[{"position", "team", "played", "points"}] for a competition named in words, or None."""
+        raise NotImplementedError
+
+    def top_scorers(self, competition):
+        """[{"player", "team", "goals"}] for a competition named in words, or None."""
+        raise NotImplementedError
+
+    def match_stats(self, fixture_id):
+        """{team: {"possession": 62, "shots": 12, "shots_on_target": 6, "corners": 5, ...}}"""
+        raise NotImplementedError
+
+    def player_stats(self, player, team=None):
+        """{"name", "team", "goals", "assists", "appearances", ...} for this season, or None."""
+        raise NotImplementedError
+
+    def injuries(self, fixture_id):
+        """[{"player", "team", "reason"}] ruled out of this match."""
+        raise NotImplementedError
+
+    def form(self, fixture_id):
+        """{"home": "WWDLW", "away": "LDWWW"}: each side's recent results, W/D/L."""
+        raise NotImplementedError
+
+    def fixtures_on(self, offset_days=0):
+        """Fixtures `offset_days` from today (0, 1, -1), or [] where the feed cannot see that day."""
+        return self.fixtures_today() if offset_days == 0 else []
 
     # --------------------------------------------------------- helpers
     @staticmethod

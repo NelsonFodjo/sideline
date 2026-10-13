@@ -126,6 +126,15 @@ def main():
     assert s.fixture(7)["ratio"] == 0.5 and s.all_followed_fixtures() == [7]
     print("ok  listener marker and fixture survive a round trip")
 
+    # 6. The poller is told about matches somebody follows now, not every match ever saved.
+    s.save_fixture({"fixture_id": 8, "home": "Celtic", "away": "Hearts"})
+    assert s.all_followed_fixtures() == [7], "8 was saved but nobody follows it"
+    rec = s.listener("u")
+    rec["following"] = 8
+    s.save_listener(rec)
+    assert s.all_followed_fixtures() == [8], "7 has no follower any more, so it is no longer polled"
+    print("ok  only matches with a current follower are polled")
+
     print("\ndynamo: all good")
 
 

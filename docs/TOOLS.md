@@ -31,7 +31,7 @@ coin toss. The test asserts each one names the other.
 
 ---
 
-## The nine
+## The tools
 
 ### `follow_match`
 
@@ -159,6 +159,50 @@ midpoint.
 
 The offset is applied once, in `resolve_fixture()`, so no other tool has
 to know any of this happened.
+
+### `get_fixtures`
+
+What is on, for a listener who has not named a team: "which teams are playing", "what's live", "any Premier
+League tonight". Up to five matches, **each with its time** in the listener's own clock (or its minute if it is
+under way), live ones first, then the big competitions, then the rest, and a count of the remainder. It reads the
+day's list the server already keeps, so it costs no extra feed request. Every place Sideline names a match, in a
+list, in "which one?", and in "did you mean?", carries the time, because for a match the time is what the listener
+is asking about.
+
+### `get_match_preview`
+
+What a friend says before the game: who is hosting whom and in which competition, where it is played, when it
+starts **in the listener's own clock**, the weather at the ground, how each side lines up, and who the data
+vendor's model favours. Every part is a real fact or left out and named in `missing`; nothing is guessed, and no id
+is ever said. Times use the zone the page reports (its offset and its name) and are said the way people say them: "10 PM Mauritius
+time", "5 PM US Eastern time", "8 PM India time". With no zone known they are UTC, said as such.
+
+The football feed has no weather, so a city and country go to [Open-Meteo](https://open-meteo.com/) and are
+accepted only when the country matches (a Hartlepool in another country is not used). `SIDELINE_WEATHER=off` keeps
+that off the network. The estimate is the vendor's, labelled as an estimate, and is not advice.
+
+Does not advance `last_told_at`: a preview is not news of what happened.
+
+### The other thirteen: discovery, tables, numbers, people, you
+
+Each is one intent, each names its neighbour in its description so routing never has to guess, and each is read-only
+except the two that remember. All of them say what is missing instead of guessing it.
+
+| Group | Tool | Notes |
+|---|---|---|
+| Discover | `search`, `get_competitions` | A heard name is checked against what exists; a free feed's few leagues are listed. |
+| | `get_standings`, `get_top_scorers` | Positions are said as words (first, second...). With no competition named, the followed match's is used; with neither, it asks which. |
+| | `get_schedule` | A team's matches from yesterday to tomorrow, with times; the window is all a free feed sees, and an empty answer says so. Owns "what time is X playing"; `get_match_preview` owns "tell me about the match". |
+| The match | `get_match_stats`, `get_team_form`, `get_injuries` | The numbers, the last results as won/drew/lost, who is out and why. |
+| People | `get_player_stats` | A player's season; `get_player_context` stays for what he just did. |
+| You | `set_favourites`, `get_my_matches` | Only names the listener gave are stored. "Are my teams on" then needs no name. Nothing is pushed: Alexa+ cannot be spoken first. |
+| | `set_preferences` | "Brief", "normal" or "full", and a language. The detail reaches the agent's instructions; the language is what `what_did_i_miss` already translates to. |
+| Meta | `get_capabilities` | Read from the tools actually offered, so it is true for this feed. |
+
+**Tools follow the feed.** `registry.TOOL_REQUIRES` maps a tool to the capability it needs, and a feed lists what it
+has (`Provider.capabilities`). The server offers only the tools whose need is met, on `tools/list` and to the voice
+agent alike. A feed that adds a capability gains its tools with no change to them. For a small model,
+`SIDELINE_AGENT_TOOLS=core` offers only the core eleven.
 
 ### `get_head_to_head`
 

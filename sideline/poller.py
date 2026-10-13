@@ -23,10 +23,23 @@ Two things it gets right that a naive loop would not:
 
 import logging
 import threading
+import time
+
+from . import clock
+from .status import OVER
 
 LOG = logging.getLogger("sideline.poller")
 
 OVERLAP_MINUTES = 3
+
+# The fast interval (SIDELINE_POLL_SECONDS) is for a match in play. A match that has not started
+# cannot change, so it is looked at only now and then, and kept to the fast rate from shortly
+# before the kick-off. A match that is over is read once (below).
+WAITING_SECONDS = 300
+LEAD_SECONDS = 600
+
+# A match that is over cannot change, so once it has been read in that state the poller leaves it
+# alone: every poll is a call against the feed's hourly limit.
 
 
 def poll_once(ctx):
@@ -36,7 +49,11 @@ def poll_once(ctx):
     except AttributeError:
         fixtures = []
     found = 0
+    done = ctx.__dict__.setdefault("finished_fixtures", set())
+    due = ctx.__dict__.setdefault("next_read", {})
     for fid in fixtures:
+        if fid in done or time.time() < due.get(fid, 0):
+            continue
         try:
             fx = ctx.provider.fixture(fid)
             if not fx:
@@ -53,6 +70,14 @@ def poll_once(ctx):
                     LOG.info("logged %s on %s' in fixture %s",
                              e["kind"], e["minute"], fid)
                     _handle_var(ctx, fid, e)
+            if fx.get("status") in OVER:
+                done.add(fid)
+            elif fx.get("status") == "NS":
+                ko = clock.until_kickoff(fx)
+                if ko is None or ko.total_seconds() > LEAD_SECONDS:
+                    due[fid] = time.time() + WAITING_SECONDS
+            else:
+                due.pop(fid, None)
         except Exception as e:                                  # noqa: BLE001
             # A provider wobble must not kill the poller. The listener
             # would rather have a gap in the log than a dead server.
@@ -84,13 +109,13 @@ class Poller(threading.Thread):
         threading.Thread.__init__(self, name="sideline-poller")
         self.ctx = ctx
         self.interval = interval
-        self._stop = threading.Event()
+        self._halt = threading.Event()
 
     def run(self):
         LOG.info("poller started, every %ds", self.interval)
-        while not self._stop.is_set():
+        while not self._halt.is_set():
             poll_once(self.ctx)
-            self._stop.wait(self.interval)
+            self._halt.wait(self.interval)
 
     def stop(self):
-        self._stop.set()
+        self._halt.set()

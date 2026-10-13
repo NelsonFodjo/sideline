@@ -43,7 +43,7 @@ give, is in the same seat.
 - **Anyone watching ahead or behind.** It holds back what your own broadcast has not shown yet.
 
 This section is the vision behind the design, not a measured finding: the one person we have watched use it was
-blind, and it worked. The rest is what the same nine tools make possible.
+blind, and it worked. The rest is what the same tools make possible.
 
 ## What you can ask
 
@@ -92,10 +92,10 @@ they just *heard* ("that's half time") and we hold everything back to match thei
          \                                         /
           MCP over Streamable HTTP, spec 2025-11-25
                           |
-                   Sideline MCP server           9 tools · event log · last_told_at · sport profile
+                   Sideline MCP server          24 tools · event log · last_told_at · sport profile
               /          |            \                   \
         Bedrock      DynamoDB      poller         live football feed
-   (Nova Micro:      (listener     (a thread,     (API-Football)
+   (Nova Micro:      (listener     (a thread,     (Sportmonks)
     the wording,      state)        followed
     the agent)                      matches only)
    Polly (voice)   Nova Sonic / Groq (speech in)
@@ -110,7 +110,7 @@ made over the MCP endpoint, exactly as an external client's would be.
 |---|---|
 | **Bedrock, Nova Micro** | writes the spoken catch-up; in the simulator, the agent that chooses which tool to call |
 | **Bedrock, Nova 2 Sonic** | speech in: hears the listener (the fallback when no Groq key is set) |
-| **Polly** (neural) | speech out, with word timings so the screen highlights each word as it is spoken |
+| **Polly** (generative voice, neural fallback) | speech out in Polly's most natural voice, an answer in one flowing piece, with word timings so the screen highlights each word as it is spoken |
 | **DynamoDB** | listener state and the event log, so what a listener has heard survives a restart |
 
 Where Bedrock is used, and where it deliberately is not: [docs/BEDROCK.md](docs/BEDROCK.md). More on the design:
@@ -123,7 +123,7 @@ and its voice runs on AWS.
 
 | To get | You need |
 |---|---|
-| The server to start | a free [API-Football](https://dashboard.api-football.com) key |
+| The server to start | a free [Sportmonks](https://www.sportmonks.com) token (`SPORTMONKS_TOKEN`): a few leagues, 180 calls an hour |
 | Written and spoken answers, and the voice agent | AWS credentials with Bedrock access (Nova Micro) |
 | The voice | Polly access too. A Bedrock API key alone is not enough |
 | Durable state | DynamoDB access and the table (`make create-table`) |
@@ -136,7 +136,7 @@ git clone https://github.com/NelsonFodjo/sideline && cd sideline
 pip3 install boto3                                 # the AWS integrations (all optional)
 pip3 install aws-sdk-bedrock-runtime awscrt        # Nova Sonic speech in (Python 3.12+; optional)
 
-cp .env.example .env        # then fill in SIDELINE_FOOTBALL_KEY and your AWS credentials
+cp .env.example .env        # then fill in SPORTMONKS_TOKEN and your AWS credentials
 make env                    # what is set; never prints a secret
 make verify-data            # does the feed key work, and what is on today?
 make aws-check              # does each AWS piece actually work?
@@ -155,16 +155,18 @@ curl -s localhost:8765/mcp -H 'Content-Type: application/json' \
 make verify-data ARGS=--tools                      # every tool against a real match, printed
 ```
 
-Settings are environment variables, documented in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) (19, and a test
-keeps that page, `.env.example` and the code in step). **A free feed plan allows 100 requests a day**, which
-one followed match at the default 60 s poll spends in about an hour and a half.
+Settings are environment variables, documented in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) (23, and a test
+keeps that page, `.env.example` and the code in step). **The free feed plan allows 180 calls an hour**, and one
+match in play at the default 30 s poll uses two thirds of them; a match not yet started or already finished costs almost nothing (see `SIDELINE_POLL_SECONDS`).
 
-## The nine tools
+## The tools
 
 | Tool | Answers | Why it exists |
 |---|---|---|
 | `follow_match` | "Follow the Arsenal game." | Binds the listener to a match so nothing afterwards needs context. |
 | `get_match_state` | "What's the score?" | The most-asked question. Fast path, no model. |
+| `get_fixtures` | "Which teams are playing?" | What is on, for a listener who knows no team yet. Every match is read with its kick-off time in their own clock. |
+| `get_match_preview` | "Tell me about the match." | The ground, the time in your own clock, the weather there, the formations and the odds. Parts we do not have are left out, never guessed. |
 | `get_lineups` | "Who's playing?" | The graphic shown for eight seconds and never read out. |
 | `what_did_i_miss` | "What did I miss?" | **The headline.** Reads the listener's own gap. |
 | `get_event_detail` | "Tell me about that goal." | Live commentary never lets you go back. This does. |
@@ -172,6 +174,25 @@ one followed match at the default 60 s poll spends in about an hour and a half.
 | `get_player_context` | "Who is he?" | The on-screen caption, spoken. |
 | `get_head_to_head` | "Have we beaten them before?" | What a friend on the sofa actually says. |
 | `sync_broadcast_delay` | "Kick-off just went." | **The spoiler guard.** Anchors us on what the listener *heard*. |
+| `search` | "Is there a team called Gamba Osaka?" | Checks a heard name against what exists. |
+| `get_competitions` | "What leagues can you cover?" | A free feed covers a few: this is how a listener finds out. |
+| `get_standings` | "Where is Arsenal in the league?" | The table, or one team's place and points. |
+| `get_top_scorers` | "Who's the top scorer?" | The leaders in a competition. |
+| `get_schedule` | "What time is Arsenal playing?" | A team's matches from yesterday to tomorrow, each with its time. |
+| `get_match_stats` | "Who has more possession?" | The numbers: possession, shots, corners, fouls. |
+| `get_player_stats` | "Has he scored this season?" | A player's season so far. |
+| `get_injuries` | "Who's injured?" | Who is out of the match, and why. |
+| `get_team_form` | "How have they been playing?" | Each side's last results, as words. |
+| `set_favourites` | "I support Arsenal." | Remembers the teams the listener names, and only those. |
+| `get_my_matches` | "Are my teams playing?" | Their teams' matches, with times, no team name needed. |
+| `set_preferences` | "Keep it short." / "Speak French." | How much to say, and in which language. |
+| `get_capabilities` | "What can you do?" | Read from the tools actually offered, so it is true for this feed. |
+
+**Twenty-four tools, each one intent.** A feed declares what it can supply (events, line-ups, standings, statistics...),
+and a tool whose need is missing is not offered, so a model is never shown one that would fail; Sportmonks' free plan
+supplies all twenty-four. Football is the sport the demo and the tests run on; the tools are sport-neutral and the
+sport's words live in its `SportProfile`. Because a small model routes worse the more tools it sees,
+`SIDELINE_AGENT_TOOLS=core` holds the voice agent to the core eleven.
 
 Contracts, and the reasoning behind each description: [docs/TOOLS.md](docs/TOOLS.md).
 
@@ -184,13 +205,13 @@ real; there is no live basketball feed. See [docs/SPORTS.md](docs/SPORTS.md).
 
 ## What has been verified
 
-Dated 2026-10-13, on one AWS account and one free API-Football plan. "Verified" means the command was run and
+Dated 2026-10-13, on one AWS account and one free Sportmonks plan. "Verified" means the command was run and
 the result observed; every row says how to repeat it.
 
 | | Status |
 |---|---|
-| MCP server, nine tools, spoiler guard, sport seam | **Verified**: `make test` (offline, no keys) |
-| Live football feed (free plan) | **Verified**: real fixtures, a live match and a finished one read through every tool; five bugs the feed exposed are fixed and pinned by tests. `make verify-data ARGS=--tools` |
+| MCP server, twenty-four tools, spoiler guard, sport seam | **Verified**: `make test` (offline, no keys) |
+| Live football feed (Sportmonks free plan) | **Verified** against a real, finished match (AGF against Sønderjyske, 2026-10-12): fixture, goals with assists, substitutions (on and off), cards, VAR notes, line-ups with formations, referee, statistics, head to head, standings, top scorers, injuries, recent form and a player's season all read correctly, and an unbroken read-through of the core tools. **Not yet seen during a live match**: the plan's four leagues had no match in play when it was checked. `make verify-data ARGS="--tools <fixture id>"` |
 | Bedrock (Nova Micro): wording and tool use | **Verified**: a call takes about 1.5 to 2.1 s. `make aws-check` |
 | The voice agent's tool calls go over MCP | **Verified**: with real Nova, through the MCP endpoint. `tests/test_mcp_client.py` |
 | Polly speech out with word timings | **Verified**: `make aws-check` |
@@ -210,8 +231,11 @@ the result observed; every row says how to repeat it.
   several people.
 - **Alexa+ targets a 500 ms round trip.** A Bedrock catch-up takes about two seconds. The fast tools (score,
   line-ups, officials) call no model.
-- **A free feed plan is thin.** 100 requests a day; some matches have no line-ups or referee yet, and the tools
-  say so rather than guess.
+- **A free feed plan is thin.** Sportmonks' free plan covers four leagues (the Danish Superliga and the Scottish
+  Premiership, with their play-offs) and 180 calls an hour per kind of data, so a match must be in one of them. Its
+  statistics have possession, corners and cards but no shots, and it offers no win estimate. When the feed refuses,
+  the listener hears its own error, word for word, and "try again shortly"; some matches have no line-ups or referee
+  yet, and the tools say so rather than guess.
 - **Speech in has a privacy cost.** Groq is a third party, and the live captions use the browser's own
   recognition, which sends audio to the browser vendor. Both are switchable: [docs/SPEECH.md](docs/SPEECH.md).
 
@@ -226,7 +250,7 @@ DynamoDB). How each requirement is met, the third-party material, and the dates:
 | | |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it fits together, and why |
-| [docs/TOOLS.md](docs/TOOLS.md) | The nine contracts, and why each description is worded as it is |
+| [docs/TOOLS.md](docs/TOOLS.md) | The contracts, and why each description is worded as it is |
 | [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | Every environment variable |
 | [docs/AWS_SETUP.md](docs/AWS_SETUP.md) | The AWS side, step by step, and what each service needs |
 | [docs/BEDROCK.md](docs/BEDROCK.md) | Where Bedrock is used, and where it is not |
@@ -240,5 +264,5 @@ DynamoDB). How each requirement is met, the third-party material, and the dates:
 
 ## Attribution and licence
 
-Football data from [API-Football](https://www.api-football.com) under your own key and its terms. MIT licensed:
+Football data from [Sportmonks](https://www.sportmonks.com), under your own token and its terms. Weather for the match preview comes from [Open-Meteo](https://open-meteo.com/) (CC BY 4.0, no key; `SIDELINE_WEATHER=off` disables it). MIT licensed:
 see [LICENSE](LICENSE).

@@ -85,11 +85,14 @@ def client():
     if _client is None:
         if not HAVE_BOTO3:
             return None
-        _client = boto3.client(
-            "bedrock-runtime",
-            region_name=REGION,
-            config=BotoConfig(read_timeout=TIMEOUT_SECONDS, connect_timeout=1.0,
-                              retries={"max_attempts": 1}))
+        try:
+            _client = boto3.client(
+                "bedrock-runtime",
+                region_name=REGION,
+                config=BotoConfig(read_timeout=TIMEOUT_SECONDS, connect_timeout=1.0,
+                                  retries={"max_attempts": 1}))
+        except Exception as e:                                 # noqa: BLE001  a bad profile, say
+            raise BedrockUnavailable("Bedrock client could not start: %s" % e) from e
         LOG.info("bedrock-runtime client ready: %s in %s", MODEL_ID, REGION)
     return _client
 

@@ -69,8 +69,10 @@ def main():
         system_prompt = model.calls[0]["system"][0]["text"]
         assert "output only the answer to the listener" in system_prompt
         assert "Never say what you are thinking" in system_prompt
-        assert model.calls[0]["inferenceConfig"]["maxTokens"] <= 120
+        assert model.calls[0]["inferenceConfig"]["maxTokens"] <= 220
         assert model.calls[1]["messages"][2]["content"][0]["toolResult"]["toolUseId"] == "call-1"
+        assert model.calls[0]["toolConfig"]["toolChoice"] == {"any": {}}, "a match question must start with a tool"
+        assert "toolChoice" not in model.calls[1]["toolConfig"], "after a tool, the model chooses freely"
         print("ok  Nova receives MCP schemas, calls a registered tool, and uses its result")
 
         followup = agent.run(
@@ -90,6 +92,9 @@ def main():
             lambda name, args, listener: REGISTRY[name](ctx, args, listener))
         assert cleaned["text"] == "Hello! How can I assist you today?"
         assert "<thinking>" not in cleaned["text"]
+        assert "toolChoice" not in model.calls[-1]["toolConfig"], "a greeting needs no tool"
+        assert agent._is_chitchat("hello") and agent._is_chitchat("Thanks!") and agent._is_chitchat("hi there")
+        assert not agent._is_chitchat("tell me about the Arsenal match") and not agent._is_chitchat("What time is it?")
         assert agent.CONVERSATIONS.get("reasoning-listener")[-1]["content"][0]["text"] == cleaned["text"]
         assert agent._listener_answer(
             "<thinking>private</thinking>") == ""
@@ -131,7 +136,10 @@ def main():
     finally:
         bedrock.available = original_available
 
-    def runner(question, listener_id):
+    seen = {}
+
+    def runner(question, listener_id, tz=None, cut=None, name=None):
+        seen.update(tz=tz, cut=cut, name=name)
         return {"text": question, "generated_by": "nova", "tool_results": [
             {"name": "get_match_state", "structured": {"fixture_id": 1208341}}
         ]}
@@ -145,6 +153,12 @@ def main():
         status, result = _post("/agent/chat", {"text": "What's the score?"})
         assert status == 200 and result["generated_by"] == "nova"
         assert _post("/agent/chat", {"text": ""})[0] == 400
+        _post("/agent/chat", {"text": "and him?", "tz_offset_minutes": 240, "tz_name": "Indian/Mauritius",
+                              "interrupted": "Hartlepool host   Newcastle"})
+        assert seen == {"tz": 240, "cut": "Hartlepool host Newcastle", "name": "Indian/Mauritius"}, seen
+        _post("/agent/chat", {"text": "x1", "tz_offset_minutes": 9999, "interrupted": 5, "tz_name": "../etc/passwd; drop"})
+        assert seen == {"tz": None, "cut": None, "name": None}, "out-of-range, non-text or odd values are ignored"
+        print("ok  the listener's zone and 'I cut in here' reach the agent; nonsense is dropped")
         assert _post("/agent/chat", {"text": "hello"}, "https://evil.example")[0] == 403
         print("ok  /agent/chat validates input and enforces the MCP origin allow-list")
     finally:
@@ -162,6 +176,50 @@ def main():
     finally:
         disabled.shutdown()
         disabled.server_close()
+    # The listener hears the real error, not a model's apology for it.
+    from sideline.mcp.errors import ToolError
+    real = "The match data feed said: rateLimit: Too many requests. Your rate limit is 10 requests per minute. Try again shortly."
+
+    def refusing(name, args, listener):
+        raise ToolError(real, {"reason": "provider_unavailable", "problem": "rateLimit"})
+    model2 = FakeBedrock()
+    bedrock.available = lambda: True
+    bedrock.client = lambda: model2
+    out = agent.run(ctx, "Follow Arsenal, please.", "err-listener", refusing)
+    assert out["text"] == real and out["generated_by"] == "tool" and len(model2.calls) == 1, out
+    print("ok  a feed error is spoken as it is, with no model call to reword it")
+
+    # A match is followed only when the listener asked. A model that guesses is refused.
+    ran = []
+    model3 = FakeBedrock()          # its first move is always follow_match
+    bedrock.client = lambda: model3
+    agent.run(ctx, "Tell me about the Arsenal match", "guess-listener",
+              lambda name, args, listener: ran.append(name) or REGISTRY[name](ctx, args, listener))
+    assert "follow_match" not in ran, ran
+    assert model3.calls[1]["messages"][2]["content"][0]["toolResult"]["status"] == "error"
+    assert agent._asked_to_follow("Follow Arsenal") and agent._asked_to_follow("I'm watching the Spurs game")
+    assert agent._asked_to_follow("Arsenal against Lille (fixture_id 5)") and not agent._asked_to_follow("When is Arsenal playing?")
+    print("ok  follow_match is refused unless the listener asked to follow, or chose an offered match")
+    from sideline.language.agent import _without_invented_id as strip
+    assert strip({"fixture_id": 9999, "team": "Arsenal"}, "tell me about the match") == {"team": "Arsenal"}, "invented"
+    assert strip({"fixture_id": 7}, "Arsenal against Lille (fixture_id 7)") == {"fixture_id": 7}, "the handoff's own id"
+    assert strip({"fixture_id": 8}, "Arsenal against Lille (fixture_id 7)") == {}, "a different id is invented"
+    assert strip({"team": "Arsenal"}, "x") == {"team": "Arsenal"} and strip(None, "x") is None
+    print("ok  an id the listener did not give is dropped; the handoff's own id is kept")
+    bedrock.available, bedrock.client = original_available, original_client
+
+    # A small model invents weather when asked for it; weather is only said if a tool gave it.
+    from sideline.language import agent as agent_mod
+    assert agent_mod._invents_weather("Partly cloudy with a high of 15\u00b0C", [])
+    assert agent_mod._invents_weather("There is a chance of rain.", [{"spoken": "Arsenal host Lille."}])
+    assert not agent_mod._invents_weather("Arsenal host Lille at 11 PM.", [])
+    assert not agent_mod._invents_weather("clear skies, 12 degrees",
+                                          [{"structured": {"weather": {"sky": "clear skies"}}}])
+    assert not agent_mod._invents_weather("The train leaves at nine", []), "whole words only"
+    assert agent_mod._denies_live("Sorry, but I can't provide real-time updates or the current state of any match.")
+    assert agent_mod._denies_live("I'm unable to give live scores.") and not agent_mod._denies_live("Arsenal host Lille.")
+    print("ok  weather the model made up (no tool gave it) is caught; weather from a tool is allowed")
+    print("ok  'I can't provide real-time updates' is recognised, and the model is told it can")
     print("\nagent: all good")
 
 

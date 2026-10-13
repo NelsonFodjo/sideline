@@ -155,6 +155,16 @@ def main():
     assert r["text"] == "what's the score" and not r["changed"]
     print("ok  a failure while understanding falls back to the words as heard")
 
+    # A team nobody has followed is repaired too, from the teams on today ("Midtylland" for "Midtjylland").
+    nobody = make_ctx()
+    nobody.provider.fixtures_on = lambda off: [{"fixture_id": 7, "home": "FC Midtjylland", "away": "Brøndby IF",
+                                                "status": "NS"}] if off == 0 else []
+    r = resolve.understand(nobody, "fresh", "when does midtylland play")
+    assert r["text"] == "when does Midtjylland play" and r["changed"] and r["why"] == "name", r
+    r = resolve.understand(nobody, "fresh", "when does the match start")
+    assert not r["changed"], "ordinary words are never touched"
+    print("ok  a team heard a little off is repaired from the teams on today, even if nobody follows it")
+
     print("\nresolve: all good")
 
 

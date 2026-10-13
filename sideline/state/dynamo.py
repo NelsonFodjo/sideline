@@ -132,17 +132,18 @@ class DynamoStore(Store):
         return sorted(i for i in ids if self.listener(i).get("following") == fixture_id)
 
     def all_followed_fixtures(self):
-        """Fixtures at least one listener is following.
+        """Fixtures at least one listener is following right now: what the poller polls.
 
-        The one access pattern that needs a GSI in a real deployment -
-        at hackathon scale the poller is told which fixtures to watch by
-        follow_match, so this is a bounded read rather than a scan. See
-        a GSI if this ever needs to grow.
+        INDEX#FOLLOWED lists every fixture ever saved, so each is checked against its followers
+        (the same marker-then-profile check `followers` does). Without that, every match anyone ever
+        followed would be polled for ever, against a feed that allows a few hundred calls an hour.
+        The set is small and bounded by how many matches one server has seen, and it needs no scan.
         """
         r = self._t.query(
             KeyConditionExpression=Key("PK").eq("INDEX#FOLLOWED")
                                    & Key("SK").begins_with("FIXTURE#"))
-        return sorted({from_ddb(i["data"])["fixture_id"] for i in r.get("Items", [])})
+        indexed = {from_ddb(i["data"])["fixture_id"] for i in r.get("Items", [])}
+        return sorted(f for f in indexed if self.followers(f))
 
     # ----------------------------------------------------------- writes
     def save_listener(self, rec):

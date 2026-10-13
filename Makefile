@@ -2,9 +2,9 @@
 PY ?= python3
 export PYTHONPATH := .:tests
 
-.PHONY: run sim test env verify-data aws-check create-table stt-check compare-stt clean
+.PHONY: run sim test env verify-data next-matches route-check logs log-report aws-check create-table stt-check compare-stt clean
 
-run:              ## start the server (needs SIDELINE_FOOTBALL_KEY; see README)
+run:              ## start the server (needs SPORTMONKS_TOKEN; see README)
 	$(PY) -m sideline
 
 sim:              ## open the voice simulator (served by the running server)
@@ -16,7 +16,7 @@ sim:              ## open the voice simulator (served by the running server)
 test:             ## full suite, offline
 	@for t in $(sort $(wildcard tests/test_*.py)); do \
 		echo "=== $$t"; \
-		env SIDELINE_BEDROCK=off SIDELINE_STATE=memory SIDELINE_FOOTBALL_KEY= GROQ_API_KEY= \
+		env SIDELINE_LOG_DIR=off SIDELINE_BEDROCK=off SIDELINE_STATE=memory SPORTMONKS_TOKEN= GROQ_API_KEY= \
 		    AWS_ACCESS_KEY_ID= AWS_SECRET_ACCESS_KEY= AWS_PROFILE= AWS_BEARER_TOKEN_BEDROCK= \
 		    $(PY) $$t || exit 1; \
 	done
@@ -25,7 +25,19 @@ test:             ## full suite, offline
 env:              ## show which environment variables are set (never prints a secret)
 	$(PY) scripts/env_status.py
 
-verify-data:      ## check the football feed key and quota (add ARGS=--tools to run every tool)
+logs:             ## follow today's log file
+	@tail -f logs/sideline-$$(date +%Y-%m-%d).log
+
+log-report:       ## summarise the call logs: tools used, speed, declines, speech (ARGS=2026-10-17 for one day)
+	$(PY) scripts/log_report.py $(ARGS)
+
+next-matches:     ## the next matches in the leagues the token covers (to plan a demo; ARGS=21 for three weeks)
+	$(PY) scripts/next_matches.py $(ARGS)
+
+route-check:      ## does the voice agent pick the right tool? (real Nova, invented data, no feed calls)
+	$(PY) scripts/route_check.py
+
+verify-data:      ## check the football feed token and quota (add ARGS=--tools to run the core tools)
 	$(PY) scripts/verify_data.py $(ARGS)
 
 aws-check:        ## check the AWS integrations layer by layer

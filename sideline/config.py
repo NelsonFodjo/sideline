@@ -5,8 +5,8 @@ in whatever is not exported (sideline/envfile.py); it is git-ignored. Every
 variable is documented in docs/ENVIRONMENT.md, and tests/test_environment.py
 fails if the code, `.env.example` and that page ever disagree.
 
-There is no demo mode and no recorded data: the server needs a football feed key
-(SIDELINE_FOOTBALL_KEY) and says so at startup if it is missing.
+There is no demo mode and no recorded data: the server needs a Sportmonks token
+(SPORTMONKS_TOKEN) and says so at startup if it is missing.
 """
 
 import os
@@ -17,12 +17,14 @@ import os
 # (name, secret?, default, what it does)
 VARIABLES = [
     # The live football feed
-    ("SIDELINE_FOOTBALL_KEY", True, "", "API-Football key. Required: there is no recorded or demo data"),
-    ("SIDELINE_POLL_SECONDS", False, "60", "Seconds between polls of a followed match (free plan: 100 requests a day)"),
+    ("SPORTMONKS_TOKEN", True, "", "Sportmonks token (free plan: a few leagues, 180 calls an hour). Required: there is no recorded or demo data"),
+    ("SIDELINE_POLL_SECONDS", False, "30", "Seconds between polls of a followed match while it is in play (free plan: 180 calls an hour). A match not yet started is checked every 5 minutes, a finished one once"),
     # The server
     ("SIDELINE_HOST", False, "127.0.0.1", "Interface to bind"),
     ("SIDELINE_PORT", False, "8765", "Port"),
     ("SIDELINE_LOG", False, "INFO", "Log level"),
+    ("SIDELINE_LOG_DIR", False, "logs", "Folder for daily log files (a text log and a JSON line per call); off disables. Git-ignored"),
+    ("SIDELINE_LOG_KEEP_DAYS", False, "14", "Days of log files to keep; older ones are deleted"),
     ("SIDELINE_ALLOWED_ORIGINS", False, "localhost,127.0.0.1", "Browser origins allowed (DNS-rebinding guard)"),
     # AWS: credentials, then what uses them
     ("AWS_REGION", False, "us-east-1", "Region for Bedrock, DynamoDB and Polly"),
@@ -36,8 +38,11 @@ VARIABLES = [
     ("SIDELINE_TABLE", False, "sideline", "DynamoDB table name"),
     # Voice, for the simulator
     ("SIDELINE_POLLY_VOICE", False, "Amy", "Polly voice (speech out)"),
+    ("SIDELINE_POLLY_ENGINE", False, "generative", "Polly engine: generative (most natural, falls back to neural) or neural"),
     ("SIDELINE_STT", False, "auto", "Speech in: auto, groq, sonic, or off"),
     ("GROQ_API_KEY", True, "", "Turns on Groq Whisper for speech in. Audio then leaves AWS"),
+    ("SIDELINE_WEATHER", False, "on", "on adds the weather at the ground to a match preview (city and country go to Open-Meteo); off does not"),
+    ("SIDELINE_AGENT_TOOLS", False, "all", "Tools offered to the voice agent: all, or core (the core eleven, which route more reliably on a small model)"),
     ("SIDELINE_LIVE_CAPTION", False, "browser", "browser types interim words while you speak (audio also reaches the browser vendor); off does not"),
 ]
 
@@ -82,12 +87,14 @@ class Config:
     host = os.environ.get("SIDELINE_HOST", "127.0.0.1")
     port = int(os.environ.get("SIDELINE_PORT", "8765"))
     log_level = os.environ.get("SIDELINE_LOG", "INFO")
+    log_dir = os.environ.get("SIDELINE_LOG_DIR", "logs")
+    log_keep_days = int(os.environ.get("SIDELINE_LOG_KEEP_DAYS", "14"))
 
-    # The live football feed (API-Football). Required to start the server.
-    football_key = os.environ.get("SIDELINE_FOOTBALL_KEY", "")
-    # Seconds between polls of each followed match. A free plan allows 100
-    # requests a day, which one match at 15 s burns in under half an hour: 60.
-    poll_seconds = int(os.environ.get("SIDELINE_POLL_SECONDS", "60"))
+    # The live football feed (Sportmonks). Required to start the server.
+    sportmonks_token = os.environ.get("SPORTMONKS_TOKEN", "")
+    # Seconds between polls of each followed match. The free plan allows 180 calls an
+    # hour per kind of data, so one match in play at 30 s uses two thirds of it.
+    poll_seconds = int(os.environ.get("SIDELINE_POLL_SECONDS", "30"))
 
     # Listener state: DynamoDB, or memory. Table: docs/AWS_SETUP.md.
     state = state_kind()

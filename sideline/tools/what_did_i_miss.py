@@ -35,6 +35,9 @@ def long_absence_minutes(fx):
 def _words(ctx, mode, events, fx, frm, to, away, language):
     """The spoken paragraph and who wrote it. (text, generated_by)."""
     bedrock = ctx.lang.bedrock
+    if not events:
+        # Nothing happened in the gap: that is a fact, not something for a model to write about.
+        return ctx.lang.templates.say_catchup(events, fx, frm, to), "template"
     try:
         if mode == "milestones":
             text, how = bedrock.milestones(events, fx, away)
@@ -47,7 +50,7 @@ def _words(ctx, mode, events, fx, frm, to, away, language):
     except bedrock.BedrockUnavailable as e:
         # Say so. A canned answer here would be a confident guess about a match
         # the listener cannot see.
-        raise ToolError("I can't put that into words right now. Ask me again in a moment.",
+        raise ToolError("The language model said: %s. Try again shortly." % e,
                         {"reason": "language_unavailable", "problem": str(e)})
 
 

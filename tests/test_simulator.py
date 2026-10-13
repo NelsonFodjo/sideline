@@ -123,6 +123,20 @@ def main():
     assert "webkitSpeechRecognition" in page and "startBrowserRecognition" in page
     assert "server speech recognition unavailable; switching to browser" in page
     assert "Please repeat." in page
+    # The space bar pauses (and resumes); an in-flight answer is kept.
+    assert 'e.code==="Space"' in page
+    # The zone and "I cut in here" ride along with a question; noise stays off the caption.
+    assert 'id="hint"' in page and "to pause" in page, "the footer says how to pause"
+    assert "function hideMatch" in page and "else hideMatch()" in page and "var aboutMatch" in page, "no match data, no match header"
+    assert "fadeSaid(false); hideMatch();" in page, "the teams leave with the text after a minute"
+    assert "IDLE_MS=60000" in page, "the text leaves a minute after the last word"
+    # A noise is not a word: a barge-in needs about 360 ms of speech, the voice ducks at the first
+    # sign and comes back if it was noise, the start of the word is kept, and only the eye remains
+    # after a minute of quiet.
+    assert "if(over>=6){" in page and "duck(true)" in page and "duck(false)" in page, "the interruption rule"
+    assert "preroll=carry" in page and "pcmChunks=preroll||[]" in page, "the start of a word is kept"
+    assert "body.calm .hud,body.calm .wire,body.calm .stage{opacity:0" in page and "classList.add(\"calm\")" in page
+    assert "tz_offset_minutes" in page and "interrupted:takeCut()" in page and "if(t && sawVoice)" in page and "pendingAnswer" in page
     assert "startLiveCaption" in page and 'caps.caption!=="browser"' in page
     print("ok  GET / serves the simulator, and it is an MCP client (initialize/tools/list/tools/call)")
 
@@ -159,6 +173,32 @@ def main():
     assert post("null", init)[0] == 403
     assert post("https://evil.example", init)[0] == 403
     print("ok  Origin: null and foreign origins are still refused (the allow-list stays strict)")
+
+    def voice(path, origin, body=b"{}"):
+        h = {"Content-Type": "application/json"}
+        if origin:
+            h["Origin"] = origin
+        try:
+            with urllib.request.urlopen(urllib.request.Request(BASE + path, body, h), timeout=3) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    # The speech endpoints spend AWS and Groq credits, so another page must not be able to call them.
+    assert voice("/voice/tts", "https://evil.example") == 403
+    assert voice("/voice/stt", "null") == 403
+    assert voice("/voice/tts", BASE) != 403, "the page's own origin is let through"
+    try:
+        assert voice("/voice/stt", BASE, b"x" * (13 * 1024 * 1024)) == 413, "an oversized clip is refused unread"
+    except (ConnectionError, urllib.error.URLError):
+        pass                    # the server may hang up before the client finishes sending: also a refusal
+    req = urllib.request.Request(BASE + "/voice/capabilities", headers={"Origin": "https://evil.example"})
+    try:
+        urllib.request.urlopen(req, timeout=3)
+        raise AssertionError("a foreign origin read the capabilities")
+    except urllib.error.HTTPError as e:
+        assert e.code == 403
+    print("ok  the speech endpoints refuse foreign origins and oversized clips")
 
     check_vad(page)
     srv.shutdown()

@@ -24,6 +24,8 @@ import threading
 import time
 import unicodedata
 
+from .status import OVER
+
 TTL_SECONDS = 120            # an offer is about the next thing said, not the next hour
 MAX_ITEMS = 80
 
@@ -340,7 +342,7 @@ def snap(listener_id, text, names=(), now=None):
 
 # ------------------------------------------------- the two calls the app makes
 def match_names(ctx, listener_id, limit=60):
-    """Teams and players of the match this listener follows (no feed requests)."""
+    """Teams and players of the match this listener follows, then the teams on today (the cached day list)."""
     names = []
     try:
         fid = ctx.store.listener(listener_id).get("following")
@@ -350,6 +352,12 @@ def match_names(ctx, listener_id, limit=60):
             for e in ctx.store.events(fid):
                 names += [e.get("player"), e.get("player_off"), e.get("assist")]
     except Exception:                                          # noqa: BLE001
+        pass
+    try:
+        # The teams on today too, so a team nobody has followed yet ("Sønderjyske") is still
+        # repaired when it is heard as "Sunderjuska". One cached list, no extra feed call.
+        names += teams_today_ranked(ctx)
+    except Exception:                                          # noqa: BLE001  a courtesy
         pass
     seen, out = set(), []
     for n in names:
@@ -384,11 +392,20 @@ def learn(ctx, listener_id, result):
         BOOK.clear(listener_id)
 
 
-def _teams_today(ctx, limit=40):
-    fixtures = ctx.provider.fixtures_today()
-    live = [f for f in fixtures if f.get("status") not in ("NS", "FT", "finished")]
-    rest = [f for f in fixtures if f not in live]
-    names = []
-    for f in (live + rest)[:limit]:
-        names += [f.get("home"), f.get("away")]
+def teams_today_ranked(ctx):
+    """Every team on today (from the one cached date list): live ones first, then by kick-off.
+    No extra feed request."""
+    def rank(f):
+        live = f.get("status") not in ("NS",) + OVER
+        return (0 if live else 1, f.get("kickoff") or "")
+    names, seen = [], set()
+    for f in sorted(ctx.provider.fixtures_on(0), key=rank):
+        for n in (f.get("home"), f.get("away")):
+            if n and n not in seen:
+                seen.add(n)
+                names.append(n)
     return names
+
+
+def _teams_today(ctx, limit=40):
+    return teams_today_ranked(ctx)[:limit]

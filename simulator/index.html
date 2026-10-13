@@ -286,6 +286,11 @@ body[data-mode="thinking"] .bg{filter:hue-rotate(8deg) brightness(.95)}
 .wire .ms{color:var(--dim);font-variant-numeric:tabular-nums}
 .wire .via{color:var(--cyan-deep)}
 .wire .via.bedrock{color:var(--warm)}
+.wire .hint{color:var(--dim)}
+/* After a minute of quiet only the eye remains; anything said or asked brings the rest back. */
+.hud,.wire,.stage{transition:opacity 1.6s ease}
+body.calm .hud,body.calm .wire,body.calm .stage{opacity:0;pointer-events:none}
+.wire .hint kbd{font:inherit;border:1px solid var(--faint);border-radius:3px;padding:0 5px;color:var(--white)}
 .wire .stack{margin-left:auto;color:var(--faint)}
 .wire .stack b{color:var(--dim);font-weight:400}
 
@@ -311,7 +316,7 @@ body[data-mode="thinking"] .bg{filter:hue-rotate(8deg) brightness(.95)}
   <div class="halo" aria-hidden="true"></div>
   <h1>Sideline</h1>
   <p>Your friend for the match, in your ear. Name a game that&rsquo;s on, then just talk: what did I miss, who is he, who&rsquo;s refereeing. Look away whenever you like.</p>
-  <button id="begin" type="button">Start listening</button>
+  <button id="begin" type="button" aria-label="Go live: start listening through your microphone">Go live</button>
   <small id="gatenote">needs your microphone</small>
 </div>
 
@@ -345,6 +350,7 @@ body[data-mode="thinking"] .bg{filter:hue-rotate(8deg) brightness(.95)}
     <span class="tool" id="tool">connecting</span>
     <span class="ms" id="ms"></span>
     <span class="via" id="via"></span>
+    <span class="hint" id="hint"><kbd>space</kbd> to pause</span>
     <span class="stack" id="stack"></span>
   </footer>
 </div>
@@ -751,7 +757,7 @@ function harshNow(an){
 
    ScriptProcessor rather than AudioWorklet: deprecated, but it works
    everywhere without a separate module file. */
-var TARGET_RATE=16000, pcmNode=null, pcmChunks=[], capturing=false;
+var TARGET_RATE=16000, pcmNode=null, pcmChunks=[], capturing=false, preroll=null, rolling=false;
 
 function downsample(input, inRate){
   if(inRate===TARGET_RATE) return input;
@@ -777,7 +783,9 @@ function toInt16(f32){
 
 function startCapture(){
   if(capturing) return;
-  pcmChunks=[]; capturing=true;
+  // A clip can begin with audio already heard (the start of a word that cut Sideline off),
+  // so the first syllable is not lost to the time it took to decide it was speech.
+  pcmChunks=preroll||[]; preroll=null; capturing=true;
   var src=ctx.createMediaStreamSource(mic);
   pcmNode=ctx.createScriptProcessor(4096,1,1);
   pcmNode.onaudioprocess=function(e){
@@ -808,32 +816,50 @@ function endCapture(){
    (display only: it never asks anything). The server's transcript replaces
    them. SIDELINE_LIVE_CAPTION=off turns this off, which also keeps your audio
    from the browser vendor. */
-var CAP=null;
+var CAP=null, capWanted=false, capFails=0, capText="";
 function startLiveCaption(){
+  capWanted=true;
   if(!SR||caps.caption!=="browser"||CAP) return;
   try{
     var r=new SR();
     r.lang=navigator.language||"en-GB"; r.interimResults=true; r.continuous=true; r.maxAlternatives=1;
     r.onresult=function(e){
+      capFails=0;
       var t="";
       for(var i=0;i<e.results.length;i++) t+=e.results[i][0].transcript;
-      t=t.trim(); if(t) liveSaid(t,true);
+      t=t.trim();
+      // The browser will "hear" words in a fan or a keyboard. Show nothing until our
+      // own detector (sustained, not click-like) agrees someone is speaking.
+      capText=t;
+      if(t && sawVoice) liveSaid(t,true);
     };
-    r.onerror=function(){};                 // best effort: the clip path does the real work
-    r.onend=function(){ if(CAP===r) CAP=null; };
+    r.onerror=function(e){                  // best effort: the clip path does the real work
+      if(e.error==="not-allowed"||e.error==="service-not-allowed"||e.error==="audio-capture"){
+        capWanted=false; console.warn("live caption off:",e.error);
+      }else if(e.error!=="no-speech"&&e.error!=="aborted"){ capFails++; }
+    };
+    // The browser ends recognition after a few quiet seconds. If it is not running
+    // when you finally speak, the first words wait for the server. So while we are
+    // still listening, start it again straight away: it is then already warm and
+    // types the first word as you say it.
+    r.onend=function(){
+      if(CAP===r) CAP=null;
+      if(capWanted && capFails<3) setTimeout(function(){ if(capWanted&&!CAP&&!speaking) startLiveCaption(); },120);
+    };
     CAP=r; r.start();
   }catch(e){ CAP=null; }
 }
 function stopLiveCaption(){
+  capWanted=false; capFails=0;
   if(CAP){ var r=CAP; CAP=null; try{r.abort()}catch(e){} }
 }
 
 function listen(){
-  if(!armed||speaking||!mic)return;
+  if(!armed||speaking||!mic||paused)return;
   if(useBrowserSTT){ startBrowserRecognition(); return; }
   setMode("listening");      // the state label already says so; the last
                              // answer stays on screen until you speak again
-  sawVoice=false; startedAt=performance.now(); lastVoice=0;
+  sawVoice=false; startedAt=performance.now(); lastVoice=0; capText="";
   startCapture();
   startLiveCaption();
 
@@ -844,7 +870,11 @@ function listen(){
     // Voice begins only when sound is sustained and not click-like; once it has,
     // any loud frame that is not very harsh keeps the turn open.
     if(v.sustained || (sawVoice && v.active && hs<0.6)){
-      if(!sawVoice) answer.classList.add("stale");   // you are speaking: dim the last answer
+      if(!sawVoice){
+        clearTimeout(idleT); wake();
+        answer.classList.add("stale");               // you are speaking: dim the last answer
+        if(capText) liveSaid(capText,true);          // words heard so far, now known to be speech
+      }
       sawVoice=true; lastVoice=now;
     }
     var elapsed=now-startedAt, quietFor=now-(lastVoice||startedAt);
@@ -865,20 +895,85 @@ function stopListening(){
   if(capturing) endCapture();
 }
 
+/* Pause. The space bar stops the voice and the microphone, and pressing it again
+   resumes. Pause/Break and Escape do the same. An answer that was already on its
+   way is kept and spoken on resume, so nothing the listener asked for is lost.
+   Once the page is live, the "Go live" button is gone, so Space cannot click it. */
+var paused=false, pendingAnswer=null;
+function setPaused(on){
+  if(!armed||on===paused) return;
+  paused=on;
+  wake();
+  if(on){
+    stopSpeaking(); stopListening();
+    clearTimeout(idleT);
+    setMode("idle");
+    setQuiet("Paused. Press the space bar to carry on.");
+    $("hint").innerHTML="paused &middot; <kbd>space</kbd> to resume";
+  }else{
+    $("hint").innerHTML="<kbd>space</kbd> to pause";
+    setQuiet("");
+    if(pendingAnswer){ var t=pendingAnswer; pendingAnswer=null; say(t); }
+    else listen();
+  }
+}
+document.addEventListener("keydown",function(e){
+  if(e.repeat) return;
+  if(!armed) return;                       // before "Go live", Space keeps its usual job
+  if(e.code==="Space"||e.code==="Pause"||e.code==="Escape"){
+    e.preventDefault(); setPaused(!paused);
+  }
+});
+
 /* Barge-in. The whole product is about being interruptible, so the
    simulator has to be too: talk over it and it stops and listens. */
-var bargeTimer=null;
+var bargeTimer=null, cut=null;
+/* What had been said when the listener cut in, so their next words are read as a
+   follow-up to it ("and him?", "wait, which one?") and not as a new subject. */
+function spokenSoFar(){
+  var said=[];
+  for(var i=0;i<allSpans.length;i++){
+    if(allSpans[i].classList.contains("read")||allSpans[i].classList.contains("now")) said.push(allSpans[i].textContent);
+  }
+  return said.join(" ");
+}
+function takeCut(){
+  var c=cut; cut=null;
+  return (c && Date.now()-c.at<45000) ? c.said : undefined;
+}
+function duck(on){ if(audioEl){ try{ audioEl.volume=on?0.25:1; }catch(e){} } }
+function stopRolling(){ if(rolling){ rolling=false; if(capturing) endCapture(); } }
+
 function watchForBargeIn(){
   clearInterval(bargeTimer);
   if(!micAn) return;
-  var over=0;
+  var over=0, ticks=0, leak=0, ducked=false;
+  // Listen while it talks, keeping the last ~0.8 s, so that if you do cut in the clip starts
+  // at the beginning of your word.
+  if(!capturing){ startCapture(); rolling=true; }
   bargeTimer=setInterval(function(){
-    if(!speaking){clearInterval(bargeTimer);return;}
-    // Louder than the room, and not click-like: typing while it talks must not
-    // cut it off. ~300 ms of sustained speech.
-    over = (level(micAn,micBuf)>Math.max(FLOOR,vad.noise*3.2)*2.6 && harshNow(micAn)<VAD_HARSH) ? over+1 : 0;
-    if(over>4){
+    if(!speaking){ clearInterval(bargeTimer); stopRolling(); return; }
+    while(pcmChunks.length>9) pcmChunks.shift();
+    var lv=level(micAn,micBuf);
+    // The first half second is only our own voice leaking back into the microphone:
+    // measure it, so a loud speaker raises the bar instead of cutting itself off.
+    if(++ticks<=8){ leak=Math.max(leak,lv); return; }
+    // A noise is not a word. Louder than the room (by a wide margin) and than our own
+    // leakage, and not click-like, for about 360 ms: the length of a short word. A cough, a
+    // door or a keystroke does not last that long; a pause between syllables does not reset it.
+    var bar=Math.max(FLOOR*2, vad.noise*4, leak*2);
+    var hit=lv>bar && harshNow(micAn)<VAD_HARSH;
+    over=hit?over+1:Math.max(0,over-1);
+    // First sign of a sound: just turn the voice down. If it was noise, it comes straight back.
+    if(over>=2 && !ducked){ ducked=true; duck(true); }
+    if(over===0 && ducked){ ducked=false; duck(false); }
+    if(over>=6){
       clearInterval(bargeTimer);
+      cut={said:spokenSoFar(),at:Date.now()};
+      var carry=pcmChunks.slice();
+      rolling=false; endCapture();
+      preroll=carry;
+      duck(false);
       stopSpeaking();
       listen();
     }
@@ -897,6 +992,7 @@ var useBrowserSTT=false, REC=null;
 
 function liveSaid(text,interim){
   var s=$("said");
+  clearTimeout(idleT); wake();
   if(allSpans.length) answer.classList.add("stale");      // you are speaking: dim the last answer
   s.textContent="\u201c"+text+(interim?"\u2026":"")+"\u201d";
   s.classList.add("on","live"); s.classList.toggle("interim",!!interim);
@@ -963,6 +1059,7 @@ async function handleClip(pcm){
       return;
     }
   }
+  if(paused) return;
   if(!text){ if(armed)listen(); return; }
   text=text.trim();
   if(text.length<2){ if(armed)listen(); return; }
@@ -1072,7 +1169,7 @@ function reveal(spans,charIndex){
 }
 
 function stopSpeaking(){
-  speaking=false; clearInterval(bargeTimer);
+  speaking=false; clearInterval(bargeTimer); stopRolling();
   markTimers.forEach(clearTimeout); markTimers=[];
   if(audioEl){ audioEl.pause(); audioEl=null; }
   if(window.speechSynthesis) speechSynthesis.cancel();
@@ -1111,6 +1208,7 @@ async function say(text){
   $("sr").textContent=""; $("sr").textContent=text;          // announce once
   var spans=layout(text);
   speaking=true; setMode("speaking");
+  clearTimeout(idleT); wake();
 
   if(caps.tts){
     try{
@@ -1173,13 +1271,25 @@ function browserSay(text,spans){
   },900));
 }
 
+var idleT=null, IDLE_MS=60000;
+function wake(){ document.body.classList.remove("calm"); }
+function armIdleClear(){
+  clearTimeout(idleT); wake();
+  idleT=setTimeout(function(){
+    if(speaking||paused||MODE==="thinking"||sawVoice) return;
+    setQuiet(""); fadeSaid(false); hideMatch();      // all of it leaves; the next match answer brings it back
+    document.body.classList.add("calm");             // and the status line: only the eye remains
+  },IDLE_MS);
+}
+
 function finishSpeaking(spans,done){
   markTimers.forEach(clearTimeout); markTimers=[];
   spans.forEach(function(s){ s.classList.add("read"); s.classList.remove("now"); });
   moveBeam(null);
   answer.classList.add("settled");
   speaking=false; audioEl=null; setMode("idle");
-  clearInterval(bargeTimer);
+  clearInterval(bargeTimer); stopRolling();
+  armIdleClear();
   if(done)done();
   // Hands-free: go straight back to listening. No button, no wake word.
   setTimeout(function(){ if(armed) listen(); }, 180);
@@ -1224,6 +1334,12 @@ function showPills(events){
   });
 }
 
+function hideMatch(){
+  $("match").classList.remove("on");
+  $("pills").innerHTML="";
+  placeText();
+}
+
 function paint(){
   placeText();
   if(!M.home && !M.score && !(M.events&&M.events.length)) return;
@@ -1258,12 +1374,15 @@ function paint(){
 
 /* ================================================================ ask */
 async function ask(text){
-  var t0=performance.now();
+  var t0=performance.now(); clearTimeout(idleT); wake();
   setMode("thinking");
   try{
     var response=await fetch(BASE+"/agent/chat",{method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({text:text})});
+      body:JSON.stringify({text:text,
+        tz_offset_minutes:-new Date().getTimezoneOffset(),
+        tz_name:(function(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone||undefined; }catch(e){ return undefined; } })(),
+        interrupted:takeCut()})});
     if(!response.ok) throw new Error("agent unavailable");
     var result=await response.json();
     // Said "gamma osaka", meant "Gamba Osaka": show what we acted on.
@@ -1275,9 +1394,16 @@ async function ask(text){
     $("ms").textContent=Math.round(performance.now()-t0)+" ms";
     $("via").textContent="Nova";
     $("via").className="via bedrock";
-    (result.tool_results||[]).forEach(applyToolResult);
-    paint();
-    say(result.text||"I couldn't get an answer.");
+    // The teams and score belong to the topic: shown only when this answer carried match data.
+    // No tool, or a tool that declined (nothing found, the feed refused), and they go.
+    var aboutMatch=(result.tool_results||[]).some(function(i){
+      var sc=i.structured||{}; return !!(sc.home||sc.score||(sc.events&&sc.events.length));
+    });
+    if(aboutMatch){ (result.tool_results||[]).forEach(applyToolResult); paint(); }
+    else hideMatch();
+    var spoken=result.text||"I couldn't get an answer.";
+    if(paused) pendingAnswer=spoken;      // already told to the server: keep it, say it on resume
+    else say(spoken);
   }catch(e){
     // There is no offline fallback: the answer comes from Nova and the live
     // feed, or the listener is told it did not.

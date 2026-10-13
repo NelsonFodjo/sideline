@@ -44,7 +44,7 @@ the hackathon FAQ says they are partner-only.
 quick. Discovering that none of the tooling is reachable took the FAQ.
 
 **Would we build with it again?** Yes. The tool rules are the best part of the docs and shaped how we split
-Sideline into nine single-purpose tools. We would build on it as soon as the toolkit is open to everyone, and we
+Sideline into single-purpose tools (twenty-four now). We would build on it as soon as the toolkit is open to everyone, and we
 would be glad to test it. Until then we can only build to the documented requirements.
 
 ## 2. Model Context Protocol, spec 2025-11-25, Streamable HTTP
@@ -206,38 +206,29 @@ would make Sonic the obvious default.
 model: it answered a spoken question with an invented score instead of
 transcribing it. A transcription mode for these models would make them usable.
 
-## 6. API-Football (live data): hands-on findings
+## 6. Sportmonks (live football data): hands-on findings
 
-**Used for** Today's fixtures, live events, line-ups, the referee and
-head-to-head ([sideline/providers/apifootball.py](../sideline/providers/apifootball.py)).
-Run against the live service on 2026-10-13 on a **Free plan** (100
-requests a day).
+**Used for** Today's fixtures, live events, line-ups, the referee, head to head, tables, statistics and a player's
+season ([sideline/providers/sportmonks.py](../sideline/providers/sportmonks.py)). Run against the live service on
+2026-10-13 on the **Free plan** (four leagues, 180 calls an hour), on a real finished match.
 
-**What worked well** One `fixtures?id=` response embeds events and line-ups,
-so a followed match costs about one request per poll. Scores, cards,
-substitutions and own goals came through for a finished match and a live
-one (minute 89).
+**What worked well** One request returns a fixture with its events, line-ups, formations, state and score through
+`include`, so a followed match costs one call per poll. The per-hour limit comes back in every response
+(`rate_limit.remaining`, `resets_in_seconds`), which is how a free plan should behave. Substitutions say who came on
+and who went off, goals name the assist and the running score, and VAR decisions come with a plain note.
 
-**What needs work** Found only by running against real data, and pinned by
-tests:
-1. The vendor labels an ordinary goal "Normal Goal"; read aloud it sounds
-   like a fault.
-2. Own goals are credited to the benefiting team, so "X scored" is wrong.
-3. Head-to-head with `last=` is refused on the Free plan, and the response
-   includes the match being watched.
-4. A bad key is HTTP 200 with an `errors` field, which reads as "no such
-   match" unless handled.
-5. Line-ups and referee can be absent on a live fixture.
+**What needs work** Found only by running against real data:
+1. The pricing page does not say what the free plan includes; we learned it (four leagues, 180 a hour) from the
+   dashboard and then from the `leagues` endpoint.
+2. An empty day is an HTTP 200 with a `message` saying "you may not have access", which reads the same as "nothing
+   on": the caller cannot tell a quiet day from a plan limit.
+3. The free plan's statistics have possession, corners and cards but no shots or fouls, with no way to know before asking.
+4. The `starting_at` time is a string with no zone (UTC); a timestamp field exists and is safer.
+5. Win estimates are an add-on, so a match preview cannot say who is favoured.
 
-**Onboarding** Slower than it should have been: the first key was rejected
-(`Error/Missing application key`) and a replacement worked; the error does
-not say whether the key is wrong, revoked or for another host.
-
-**Terms** The hackathon requires authorisation to use any third-party data;
-the vendor's terms were not retrievable here, so confirm yours.
-
-**Would we use it again?** Yes, for a live feed on a free plan. One call per poll is hard to beat, and the
-problems above are manageable once a test pins each one.
+**Onboarding** Quick once the token existed; the docs are open without an account, which helped.
+**Would we use it again?** Yes for a hackathon-sized project: the hourly limit cannot be spent in a day the way a daily
+one can (FL-14).
 
 ## 7. Devpost and the hackathon materials
 

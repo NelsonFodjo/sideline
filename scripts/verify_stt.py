@@ -14,11 +14,9 @@ vocabulary prompt helps. Compare with the browser by saying the same phrases
 into the simulator.
 """
 
-import io
 import os
 import re
 import sys
-import wave
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import sideline  # noqa: E402,F401  (loads .env)

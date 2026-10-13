@@ -25,7 +25,7 @@ experiences as "it keeps telling me the score when I asked what happened."
                      OUR MCP SERVER                          this repo
             |           |            |              |
         Bedrock     DynamoDB      poller       live football feed
-        (wording,   (listener     (a thread    (API-Football)
+        (wording,   (listener     (a thread    (Sportmonks)
          agent)      state)        in the
                                    server)
 ```
@@ -35,7 +35,7 @@ experiences as "it keeps telling me the score when I asked what happened."
 | MCP client | the simulator page opens a session and lists the tools; the voice agent makes every `tools/call` over `/mcp` ([`mcp/client.py`](../sideline/mcp/client.py)). External clients use `/mcp` directly |
 | MCP server | this repo ([`mcp/server.py`](../sideline/mcp/server.py)) |
 | Bedrock | AWS: Nova Micro writes the catch-up and, in the simulator, chooses tools; Nova 2 Sonic hears speech |
-| Polly | AWS: speech out, with word timings |
+| Polly | AWS: speech out (generative voice), with word timings |
 | DynamoDB | AWS: listener state and the event log (memory when no table is available) |
 | Poller | this repo: a thread in the server process |
 | Match data | the live feed, behind a provider interface ([`providers/`](../sideline/providers/)) |
@@ -76,7 +76,8 @@ Two decisions inside it worth knowing:
   to. Feeds revise events: a goal gets an assist attached a minute later, a card is upgraded to red. Re-reading
   is cheap and correct; bookkeeping is neither.
 - **It only polls fixtures somebody is following.** Polling every live match in the world is a good way to
-  exhaust a request budget by lunchtime.
+  exhaust a request budget by lunchtime. A match that is over is read once more and then left alone, and a match
+  nobody follows any more is dropped from the list, so a finished game does not keep spending the hourly limit.
 
 ## One product, many sports
 
@@ -89,7 +90,7 @@ fixture's `sport` key picks the profile; absent means football. See [SPORTS.md](
 
 The server imports nothing outside the Python standard library. That is a deliberate choice:
 
-1. **A reviewer can run it.** Clone, set a key, `python3 -m sideline`. No virtualenv, no version conflict.
+1. **A reviewer can run it.** Clone, set a token, `python3 -m sideline`. No virtualenv, no version conflict.
 2. **Supply chain.** A public repo with a handful of transitive dependencies is a public repo with a handful of
    things that can be compromised between now and judging.
 3. **It forced better decisions.** No web framework meant writing the Streamable HTTP transport properly rather
@@ -128,7 +129,7 @@ twice is worse than a listener hearing nothing: it makes them distrust everythin
 
 | Failure | What happens | Why |
 |---|---|---|
-| The feed is down, refuses the key, or the quota is spent | `ProviderUnavailable`: the tool answers "I can't get that from the match data right now" | A feed wobble must not reach the listener as a protocol error |
+| The feed is down, refuses the key, or the quota is spent | `ProviderUnavailable`: the tool answers "The match data feed said: <the vendor's own error>. Try again shortly." and the voice agent says exactly that | A feed wobble must not reach the listener as a protocol error |
 | Bedrock is on and fails, or invents a score | The failure is reported to the caller (a spoken decline); the listener's gap is **kept**, so asking again still works | Never a canned guess about a match the listener cannot see |
 | Bedrock is off | The deterministic template, labelled `generated_by: template` | The fast tools never need a model |
 | No match followed | `ToolError` with "tell me which game" | "Which match?" is a reasonable thing to be asked |

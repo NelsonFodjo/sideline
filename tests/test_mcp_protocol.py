@@ -69,7 +69,7 @@ def main():
         code, doc, _ = _post({"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
                              {"Mcp-Session-Id": sid})
         names = [t["name"] for t in doc["result"]["tools"]]
-        assert len(names) == len(public_tools()) == 9, names
+        assert len(names) == len(public_tools()) == 24, names
         assert "what_did_i_miss" in names
         assert "sync_broadcast_delay" in names
         for t in doc["result"]["tools"]:

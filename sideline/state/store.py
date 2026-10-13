@@ -176,8 +176,8 @@ class MemoryStore(Store):
     """Default backend.
 
     Used by the test suite and when no DynamoDB table is available.
-    Deliberately the default so the whole repository can be run and
-    judged with no AWS account - see README, "Run it in sixty seconds".
+    Deliberately the default when there are no AWS credentials, so the
+    server runs (and the tests pass) without an AWS account - see README, "Run it".
     """
 
     def __init__(self):

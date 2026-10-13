@@ -11,6 +11,8 @@ from sideline.app import Context                    # noqa: E402
 from sideline.state import MemoryStore              # noqa: E402
 from support import ReplayProvider                  # noqa: E402
 
+os.environ["SIDELINE_WEATHER"] = "off"       # no test reaches the network
+
 _FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 
 # INVENTED fixtures (see tests/support.py). Never real data, never a demo.

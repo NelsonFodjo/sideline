@@ -28,6 +28,7 @@ Severity: **critical** blocks shipping · **important** costs real time ·
 | FL-11 | Pick credentials for a first Bedrock call, then the rest of the build | A Bedrock API key (backed by an IAM user) called Bedrock and Polly but was denied DynamoDB, Secrets Manager, CloudFormation, ECR, Lambda and CloudWatch; nothing at the point of creation says so | important | Switched to IAM credentials with an explicit policy | State, where the key is created, that it is scoped to Bedrock and what to use for everything else |
 | FL-12 | Store listener state in DynamoDB with boto3 | `put_item` rejects Python floats (`Float types are not supported`), and reads return `Decimal`, which JSON cannot encode; a local fake accepts both, so nothing failed until a real table was used (every event was silently not logged) | important | Convert on write and read; `tests/test_dynamo.py` pins it | Show the Decimal rule next to the first `put_item` example, and make the error name the attribute |
 | FL-13 | Transcribe a spoken question with a speech-capable model on Bedrock (Mistral Voxtral via Converse) | It accepts audio but is a chat model: it answered a spoken question with an invented score instead of transcribing it (2 of 4 phrases correct on Small) | nice-to-have | Used Nova 2 Sonic and Groq instead | Add a transcription mode to Converse for audio models, or say clearly that they are chat-only |
+| FL-14 | Build and test against a free football feed for a day | The first feed's free plan allowed 100 requests a day and 10 a minute, with only yesterday to tomorrow visible; the day's quota was spent before the build was done, so every question returned the feed's error | important | Replaced it with Sportmonks, whose free plan is limited per hour, not per day | State the per-minute and date-window limits beside the daily number, return remaining quota on every response, and offer a hackathon-sized free tier |
 
 ---
 
@@ -242,6 +243,34 @@ correct on Small). For a blind listener an invented score is worse than silence.
 
 **Severity** nice-to-have **Workaround** Nova 2 Sonic and Groq. **Suggestion** A transcription mode for audio models
 on Converse, or a note that they are chat-only.
+
+### FL-14 — The first free football feed ran out in a day, so we replaced it
+
+**Evidence** Sideline's own logs and the first feed's (API-Football's) responses, 2026-10-13 (a third-party feed,
+not an Amazon service: this entry explains a decision in this repository). It is named only here.
+
+**Task** Build and test a live-only product against a free football feed. **Steps** Followed matches, searched
+fixtures by team, and ran the voice agent against the live feed over a day of development; the poller ran at the
+same time. **Expected** A free plan to last a day of building. **Actual**, in the vendor's own words:
+`rateLimit: Too many requests. Your rate limit is 10 requests per minute.`, then `requests: You have reached the
+request limit for the day`. Looking further than a day ahead was refused too: `Free plans do not have access to this
+date, try from 2026-10-12 to 2026-10-14`, with the same kind of refusal for the `next` parameter and for the
+current season on a team query. So "when does Arsenal play next week" could not be answered on that plan at all.
+
+**Severity** important: once the quota was gone, every question returned the feed's error until the next day.
+Our own testing was a large part of the use, and the poller added one request a minute.
+
+**What we did.** First, in code: cached the day's list for five minutes, asked for less per question, waited once
+and retried on a rate limit, and made every refusal reach the listener in the vendor's own words ("The match data
+feed said: ... Try again shortly.") instead of being reworded. Then we **replaced the feed with Sportmonks**, whose
+free plan is limited **per hour** (180 calls, per kind of data) and not per day, so it cannot be spent in a day the
+same way. The trade is coverage: four leagues on that plan, so a demo needs a match in one of them. We removed the
+old provider, its tests and its settings rather than keep two paths to maintain; Sportmonks was checked against a
+real finished match first (README, docs/DATA_PROVIDERS.md).
+
+**Suggestion** Put the per-minute limit and the date window on the plan page next to the daily number; return the
+remaining quota in every response (Sportmonks does, in `rate_limit`); and offer a small hackathon-sized free tier,
+because a daily cap that a day of development spends is a cap on building.
 
 ---
 

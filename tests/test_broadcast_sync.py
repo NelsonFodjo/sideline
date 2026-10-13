@@ -8,7 +8,6 @@ They cannot see it - that is the whole premise of the product. These tests
 exist so that design error cannot come back.
 """
 
-import time
 
 from conftest import make_ctx
 

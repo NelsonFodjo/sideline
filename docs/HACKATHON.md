@@ -53,7 +53,7 @@ The rules say to describe the AWS services and how they are used in the Product 
 |---|---|---|---|
 | **Amazon Bedrock, Nova Micro** | the spoken catch-up; the voice agent choosing tools | [`language/bedrock.py`](../sideline/language/bedrock.py), [`language/agent.py`](../sideline/language/agent.py) | `make aws-check` |
 | **Amazon Bedrock, Nova 2 Sonic** | speech in (streaming) | [`voice.py`](../sideline/voice.py) | `make aws-check`, `make compare-stt` |
-| **Amazon Polly** | speech out, with word timings | [`voice.py`](../sideline/voice.py) | `make aws-check` |
+| **Amazon Polly** | speech out in a generative voice, with word timings | [`voice.py`](../sideline/voice.py) | `make aws-check` |
 | **Amazon DynamoDB** | listener state and the event log | [`state/dynamo.py`](../sideline/state/dynamo.py) | `make create-table`, then a restart test; `tests/test_dynamo.py` pins the bugs it exposed |
 
 Bedrock is not decoration here: it does the one piece of work that cannot be delegated upward to Alexa+, because
@@ -85,7 +85,7 @@ AWS Builder.
 - **"Free of charge and without any restriction."** The rules (§4, Testing) say the project must be available
   free of charge and without restriction to the Sponsor, Administrator and judges until judging ends. The FAQ says
   a locally runnable public repo plus the video is enough and hosting is not required. Sideline needs a free
-  API-Football key and AWS credentials to run (there is no demo data), which is arguably a restriction. Rules §11
+  Sportmonks token and AWS credentials to run (there is no demo data), which is arguably a restriction. Rules §11
   says an entrant who thinks a term is ambiguous "must submit a written request for clarification" **before the
   deadline**: the contact in the rules is `support@devpost.com`.
 - **No edits after the deadline**, other than removing infringing or personal material. Drafts can be saved before.
@@ -127,14 +127,15 @@ until judging ends (20 November).
 
 | What | How it is used | Terms |
 |---|---|---|
-| API-Football (api-sports.io) | the live feed, under the user's own key; free plan is enough | the user must be authorised under its terms. **Not read** by the authors: the vendor's site blocked automated reading |
+| Sportmonks | the live feed, under the user's own token; the free plan covers a few leagues and 180 calls an hour | **Not read**: the pricing page does not state the free plan's terms |
 | Groq (hosted Whisper) | optional speech in, off unless `GROQ_API_KEY` is set; sends the listener's audio to Groq | **Not read.** Reported free-tier limits are from community sources |
 | AWS (Bedrock, Polly, DynamoDB) | as above | the user's own account and charges; no credits were available (see FL-05) |
+| Open-Meteo | weather at the ground for a match preview; a city and country are sent, nothing about the listener; off with `SIDELINE_WEATHER=off` | CC BY 4.0, free for non-commercial use, no key |
 | MCP specification 2025-11-25 | implemented from the spec, no SDK | open standard |
 | boto3, aws-sdk-bedrock-runtime, awscrt | optional AWS SDKs | their licences |
 | Public Sans, IBM Plex Mono | the simulator page's fonts, loaded from Google Fonts | open licences; confirm before relying on this |
 | Python standard library | everything else | n/a |
 
 **Judges need their own keys.** There is no recorded or demo data, so running the project needs a free
-API-Football key, and the voice needs AWS credentials. The README says exactly what each piece unlocks, and what
+Sportmonks token, and the voice needs AWS credentials. The README says exactly what each piece unlocks, and what
 still works without AWS. The video is the main evidence for anyone who prefers not to set that up.

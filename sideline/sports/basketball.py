@@ -13,6 +13,7 @@ Differences from football that the profile has to absorb:
 """
 
 from .. import clock
+from ..status import FINISHED
 from . import SportProfile, register
 
 QUARTER = 12
@@ -87,7 +88,7 @@ class Basketball(SportProfile):
         score = self.say_score(fixture)
         status = fixture.get("status")
         minute = fixture.get("minute") or 0
-        if status in ("finished", "FT"):
+        if status in FINISHED:
             return "Final. %s." % score
         if status in ("HT",):
             return "Halftime. %s." % score
@@ -164,7 +165,7 @@ class Basketball(SportProfile):
 
     def not_started(self, fixture):
         base = "%s against %s, waiting for tip-off." % (fixture["home"], fixture["away"])
-        return (base + " " + clock.say_kickoff(fixture, self.start_word)).strip()
+        return (base + " " + clock.say_kickoff(fixture, self.start_word, tz_minutes=fixture.get("tz_offset_minutes"))).strip()
 
 
 def _join(names):

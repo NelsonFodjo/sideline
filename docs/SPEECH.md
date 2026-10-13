@@ -205,17 +205,60 @@ press is loud for a moment. Two layers now stop it:
   room's own (continuously learned) noise, is not click-like (a click has much of
   its energy above 5 kHz, speech little), and holds for several frames in a row.
   A keystroke lasts under 30 ms, a mug on the desk under 100; a word is far
-  longer. Barge-in uses the same rule, so typing while it talks does not cut the
-  answer off. The logic runs under Node in `tests/test_simulator.py`.
+  longer. Barge-in uses the same rule, measured against the speaker's own leakage into the microphone, so typing
+  while it talks does not cut the answer off, and speaking over it does. What had been said when you cut in is
+  sent with your next question, so "and him?" is read as a follow-up. The logic runs under Node in `tests/test_simulator.py`.
 - **On the server**: before a clip goes to any provider it must contain at least
   160 ms of *sustained* sound. A clip of clicks is dropped and costs no request
   (Whisper turns clicks into "Thank you."). Speech with typing in the background
   is kept.
+- **The live caption**: the browser's own recognition will "hear" words in a fan, so its text is shown only
+  once the page's detector agrees someone is speaking.
+- **Whisper reading its own hint**: given noise and a prompt, Whisper tends to print the prompt, which once
+  produced two team names nobody had said. Two guards: segments Whisper itself rates as probably silence and
+  low confidence are dropped (`verbose_json`), and a transcript made only of names from the hint, with no
+  question words, is discarded unless the listener was just offered a choice (then a bare name is the answer).
+  Both are pinned in `tests/test_voice.py`.
+
+- **Cutting in is a whole word, not a noise.** While it speaks, the page measures its own voice leaking into the
+  microphone for half a second, then needs about 360 ms of speech-like sound (louder than the room by a wide margin
+  and than that leakage, not click-like) before it stops. At the first sign of sound the voice is only turned down,
+  and it comes straight back if the sound was a cough or a door. The last 0.8 s are kept, so the clip starts at the
+  beginning of your word and the first syllable is not lost to the time it took to decide.
 
 Limits, stated plainly: this is a detector tuned on synthetic frames, **not tried
 in a real browser with a real keyboard**; a constant hum (a fan) is learned over
 a few seconds rather than rejected at once; and typing very close to the
 microphone while you are silent but *then* speaking is the hardest case.
+
+## Speech out: a voice that flows
+
+The first voice (Polly's neural Amy) read every sentence alike, which is what "generic" sounds like over a long answer.
+Polly's **generative** voices vary pace and stress as a person does, so that is the default (`SIDELINE_POLLY_ENGINE`).
+Two problems came with it, and both are handled in `voice.synthesize`:
+
+- **No word timings.** The page highlights each word as it is spoken, and the generative engine cannot return the marks.
+  The marks come from the neural voice for the same sentence, one per word, and are fitted to the generative audio's
+  exact length (read from the MP3's own frame headers, `mp3_seconds`). They are positioned in the text as written, so
+  nothing shifts when the spoken form differs ("U21" is said "under 21").
+- **Flow.** Made a sentence at a time, each sentence started afresh and the joins sounded like a list. So a short answer is
+  made in one call, and the voice keeps its pace and stress across its sentences. Measured against the real service,
+  the word highlighting stays within about half a second. An answer longer than about 150 characters is cut at sentence ends into pieces of
+  two or three sentences, made at once: that keeps a long preview ready in about 2 to 3 s, where one piece took 4.6 s.
+
+If the generative engine is not available for the voice or region, the answer falls back to neural with its own exact
+timings, and says so in the log. Pinned in `tests/test_voice.py` with a fake Polly; whether it *sounds* better is for your
+ears: `SIDELINE_POLLY_ENGINE=neural` is the one-line way back, and `SIDELINE_POLLY_VOICE` accepts any generative voice
+(en-GB: Amy, Brian; en-US: Matthew, Ruth, Stephen, Joanna, Danielle, Salli, Tiffany).
+
+## Getting names right
+
+Names are where recognisers fail, so three layers work on them. The hint carries the teams on today (live ones
+first), each also in plain letters ("Sønderjyske" and "Sonderjyske"). A name heard a little off is repaired inside
+the sentence from those teams and the followed match's players, only when it is very close ("Midtylland" becomes
+"Midtjylland"; ordinary words are never touched). And a team the repair would not trust is still found by the tools
+by spelling and sound, or offered back: "I couldn't find asana. Did you mean Arsenal against Lille?" Nicknames
+(Spurs, Man City, Copenhagen) are a short table. `scripts/compare_stt.py` is how to re-measure the recogniser.
 
 ## How the vocabulary hint works
 

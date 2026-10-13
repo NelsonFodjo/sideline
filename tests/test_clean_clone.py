@@ -21,7 +21,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Blank secrets beat a developer's own .env, so this test never uses real keys.
-BLANK = {"SIDELINE_FOOTBALL_KEY": "", "GROQ_API_KEY": "", "AWS_ACCESS_KEY_ID": "",
+BLANK = {"SIDELINE_LOG_DIR": "off", "SPORTMONKS_TOKEN": "", "GROQ_API_KEY": "", "AWS_ACCESS_KEY_ID": "",
          "AWS_SECRET_ACCESS_KEY": "", "AWS_PROFILE": "", "AWS_BEARER_TOKEN_BEDROCK": "",
          "SIDELINE_BEDROCK": "off", "SIDELINE_STATE": "memory"}
 
@@ -77,15 +77,15 @@ def main():
                        capture_output=True, text=True, timeout=20)
     out = r.stdout + r.stderr
     assert r.returncode != 0, "the server must not start without a football key"
-    assert "SIDELINE_FOOTBALL_KEY is not set" in out and "no recorded" in out, out
+    assert "SPORTMONKS_TOKEN is not set" in out and "no recorded" in out, out
     assert "Traceback" not in out, "a missing key is a message, not a stack trace:\n" + out
     print("ok  with no football key it refuses to start and says exactly what to do")
 
     # ----------------------------------------------------- with a key: it serves
-    proc = _start(8799, SIDELINE_FOOTBALL_KEY="not-a-real-key")
+    proc = _start(8799, SPORTMONKS_TOKEN="not-a-real-token")
     try:
         health = _wait_for_health(proc, 8799)
-        assert health["protocol"] == "2025-11-25" and health["tools"] == 9, health
+        assert health["protocol"] == "2025-11-25" and health["tools"] == 24, health
         assert "mode" not in health, "there is no demo/live mode any more"
         status, page = _get(8799, "/")
         assert status == 200 and "Sideline" in page
@@ -96,7 +96,7 @@ def main():
             json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).encode(),
             {"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=2) as resp:
-            assert len(json.loads(resp.read())["result"]["tools"]) == 9
+            assert len(json.loads(resp.read())["result"]["tools"]) == 24
         print("ok  with a key `python -m sideline` serves on a clean shell:",
               "%d tools, spec %s, the simulator page, MCP tools/list" % (
                   health["tools"], health["protocol"]))

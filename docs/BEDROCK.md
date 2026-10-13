@@ -40,7 +40,7 @@ papered over with canned wording:
 - a call that errors or times out raises `BedrockUnavailable` (not retried: a retry costs another timeout);
 - text that comes back empty or with a wrong score is refused, **retried once** (it is quick and often not
   repeated), and then raises `BedrockUnavailable`;
-- the `what_did_i_miss` tool turns that into a spoken decline ("I can't put that into words right now, ask me
+- the `what_did_i_miss` tool turns that into a spoken decline ("The language model said: <the real error>. Try again shortly", or earlier wording: "I can't put that into words right now, ask me
   again in a moment") **without moving the listener's marker**, so asking again still gets the whole gap;
 - the voice agent surfaces it as "no answer".
 
@@ -96,8 +96,22 @@ Bedrock Converse tool use. When Nova picks a tool, the call goes through
 (session, `tools/call`, schema validation) exactly as an external client's would. The result goes back to Nova for
 a short, grounded reply.
 
-Recent turns are kept in a bounded in-process history (30-minute idle expiry) so follow-ups have context; it is not
-persisted across restarts. The model never receives AWS credentials. The agent is told to answer in at most two
+Conversation context is four layers, each small and bounded, and none is persisted across restarts:
+
+1. **Recent turns**: the last 12 messages per listener, 30-minute idle expiry, 256 listeners at most.
+2. **The topic** (`Focus` in `agent.py`): after each turn the real tool results, not the model's wording, are reduced to
+   the match, team and player just discussed, and the next turn's system prompt says so ("The listener was last talking
+   about the match Arsenal against Lille, the player Saka..."). That is what makes "and their form?", "what about him?"
+   and "that match" mean something on a small model, including for a match the listener is not following. It expires
+   after ten minutes, a new match drops the old player, a bare pronoun is never a topic, and the prompt says it is
+   context, not a fact to state.
+3. **Offers** (`resolve.py`): what was just offered ("Arsenal or Arsenal W?") is remembered for two minutes, so a
+   mispronounced or one-word answer snaps to an option.
+4. **The interruption**: if the listener talked over the last answer, the words that were cut off are passed along so
+   what they say next is read as a follow-up to them.
+
+The durable context, which team is followed, what has been told (`last_told_at`), the broadcast delay, favourites and
+time zone, lives in the state store and survives restarts. The model never receives AWS credentials. The agent is told to answer in at most two
 short sentences, never to narrate, and never to promise to keep the listener updated (the server cannot speak
 first).
 

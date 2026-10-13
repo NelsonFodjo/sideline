@@ -5,10 +5,11 @@ listening and the talking, and the MCP server never touches audio. The simulator
 is our own client, so it has to BE the voice. The browser captures audio and
 posts it here; this module calls a provider; keys never reach the browser.
 
-SPEECH OUT: Amazon Polly (neural). It returns, alongside the audio, speech marks:
-every word with its offset in milliseconds, which is what lets the page highlight
-each word at exactly the moment the voice reaches it. The two calls (audio, marks)
-run in parallel. Without AWS credentials the page uses the browser's own voice.
+SPEECH OUT: Amazon Polly, its generative voice (the most natural) with the neural one as the fallback.
+The page also needs speech marks, every word with its offset in milliseconds, so it can highlight each
+word at the moment the voice reaches it; only the neural voice returns them, so they are fetched from it
+and fitted to the generative audio. An answer is made in one piece, so the voice flows (see "speech out"
+below). Without AWS credentials the page uses the browser's own voice.
 
 SPEECH IN: the providers below, best first, with a per-clip fallback. Measured
 head to head (scripts/compare_stt.py, 48 clips, clean and noisy; docs/SPEECH.md):
@@ -31,7 +32,7 @@ import base64
 import json
 import logging
 import os
-import urllib.request
+import re
 
 LOG = logging.getLogger("sideline.voice")
 
@@ -63,7 +64,7 @@ REGION = os.environ.get("AWS_REGION", "us-east-1")
 # football and a matching accent is less jarring than a US voice reading
 # "Ødegaard". Override with SIDELINE_POLLY_VOICE.
 POLLY_VOICE = os.environ.get("SIDELINE_POLLY_VOICE", "Amy")
-POLLY_ENGINE = "neural"
+POLLY_ENGINE = os.environ.get("SIDELINE_POLLY_ENGINE", "generative").strip().lower()   # generative|neural
 
 # --- speech in
 STT_PROVIDER = os.environ.get("SIDELINE_STT", "auto")          # auto|groq|sonic|off
@@ -97,8 +98,8 @@ def _polly_client():
         if not HAVE_BOTO3:
             return None
         _polly = boto3.client("polly", region_name=REGION,
-                              config=BotoConfig(read_timeout=6, connect_timeout=2,
-                                                retries={"max_attempts": 1}))
+                              config=BotoConfig(read_timeout=12, connect_timeout=3,
+                                                retries={"max_attempts": 2}))
         LOG.info("polly ready: %s (%s) in %s", POLLY_VOICE, POLLY_ENGINE, REGION)
     return _polly
 
@@ -192,49 +193,155 @@ def warm():
 
 
 # ------------------------------------------------------------ speech out
+# Polly's GENERATIVE voices are its most natural: they vary pace and stress the way a person does, where the
+# neural ones read every sentence alike. They cannot return word timings, which the page needs to highlight
+# each word as it is spoken, so the timings come from the neural voice for the same sentence and are fitted to
+# the generative audio's exact length. The whole answer is made in one piece so the voice keeps its pace and
+# stress from one sentence to the next; only an answer too long for one call is cut, at a sentence end.
+_ABBREVIATIONS = {"st", "mr", "mrs", "ms", "dr", "vs", "v", "fc", "no", "jr", "sr", "u", "w"}
+CHUNK_CHARS = 150          # Polly takes 3000 billed characters a call; an answer is nowhere near that
+_MP3_KBPS = {1: [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+             2: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]}
+_MP3_HZ = {1: [44100, 48000, 32000], 2: [22050, 24000, 16000], 3: [11025, 12000, 8000]}
+
+
+def _id3_size(b):
+    """Bytes taken by an ID3v2 tag at the start of an MP3 (0 if there is none)."""
+    if b[:3] == b"ID3" and len(b) > 10:
+        return 10 + ((b[6] & 0x7F) << 21 | (b[7] & 0x7F) << 14 | (b[8] & 0x7F) << 7 | (b[9] & 0x7F))
+    return 0
+
+
+def mp3_seconds(b):
+    """The exact length of an MP3 in seconds, from its frame headers (Polly's are constant bitrate)."""
+    i, total, n = _id3_size(b), 0.0, len(b)
+    while i + 4 <= n:
+        if b[i] == 0xFF and (b[i + 1] & 0xE0) == 0xE0:
+            version = {3: 1, 2: 2, 0: 3}.get((b[i + 1] >> 3) & 3)         # MPEG 1, 2 or 2.5
+            layer3 = ((b[i + 1] >> 1) & 3) == 1
+            rate, hz_i, pad = (b[i + 2] >> 4) & 15, (b[i + 2] >> 2) & 3, (b[i + 2] >> 1) & 1
+            if version and layer3 and 0 < rate < 15 and hz_i < 3:
+                kbps, hz = _MP3_KBPS[1 if version == 1 else 2][rate], _MP3_HZ[version][hz_i]
+                total += (1152 if version == 1 else 576) / float(hz)
+                i += (144 if version == 1 else 72) * kbps * 1000 // hz + pad
+                continue
+        i += 1
+    return total
+
+
+def speakable(token):
+    """One written token as it should be said. One for one, so word positions never shift."""
+    m = re.fullmatch(r"([Uu])(\d{2})([,.;:!?]*)", token)
+    if m:                                                   # "U21" is "under twenty-one", not "you twenty-one"
+        return "under-%s%s" % (m.group(2), m.group(3))
+    return token
+
+
+def _sentence_ranges(text, tokens):
+    """Token index ranges, one per sentence: a full stop, ! or ? ends one when a capital follows,
+    except after an abbreviation or an initial ("St. Mirren", "A. Saka")."""
+    ranges, start = [], 0
+    for i, (a, b) in enumerate(tokens):
+        word = text[a:b]
+        if i + 1 < len(tokens) and word[-1:] in ".!?":
+            stem = word.rstrip(".!?").lower()
+            nxt = text[tokens[i + 1][0]:tokens[i + 1][0] + 1]
+            if nxt.isupper() or nxt.isdigit():
+                if word[-1] != "." or (stem not in _ABBREVIATIONS and len(stem) > 1):
+                    ranges.append((start, i + 1))
+                    start = i + 1
+    ranges.append((start, len(tokens)))
+    return [r for r in ranges if r[1] > r[0]]
+
+
+def _chunk_ranges(ranges, text, tokens, limit=CHUNK_CHARS):
+    """Sentence ranges joined into stretches of at most `limit` characters.
+
+    A voice reads a whole answer with one continuous pace and pitch, where sentences made one at a
+    time each start afresh and the joins sound like a list. So an answer is made in one piece, and
+    only one too long for that is cut, at a sentence end.
+    """
+    chunks = []
+    for lo, hi in ranges:
+        size = tokens[hi - 1][1] - tokens[lo][0]
+        if chunks and (tokens[hi - 1][1] - tokens[chunks[-1][0]][0]) <= limit and size <= limit:
+            chunks[-1] = (chunks[-1][0], hi)
+        else:
+            chunks.append((lo, hi))
+    return chunks
+
+
+def _marks_fitted(raw_marks, n_tokens, duration_ms):
+    """Start time in ms for each of `n_tokens` words. Polly's own word marks when they line up one for
+    one with the words, scaled to the audio's real length; otherwise the words spread evenly."""
+    if n_tokens and len(raw_marks) == n_tokens:
+        last = raw_marks[-1]["time"] + max(250, 60 * len(raw_marks[-1].get("value", "")))
+        scale = max(0.5, min(2.0, (duration_ms - 120.0) / float(last))) if last else 1.0
+        return [m["time"] * scale for m in raw_marks]
+    step = duration_ms / float(max(1, n_tokens))
+    return [i * step for i in range(n_tokens)]
+
+
+def _one_sentence(client, sentence):
+    """(mp3 bytes, word marks, engine used) for one sentence. A voice or region without the generative
+    engine falls back to neural for that sentence, with the neural voice's own exact timings."""
+    def audio(engine):
+        return client.synthesize_speech(Text=sentence, OutputFormat="mp3", VoiceId=POLLY_VOICE,
+                                        Engine=engine)["AudioStream"].read()
+
+    def marks():
+        raw = client.synthesize_speech(Text=sentence, OutputFormat="json", SpeechMarkTypes=["word"],
+                                       VoiceId=POLLY_VOICE, Engine="neural")["AudioStream"].read()
+        # Polly returns speech marks as newline-delimited JSON, one object per mark - not an array.
+        return [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_marks = pool.submit(marks)
+        if POLLY_ENGINE == "generative":
+            try:
+                mp3 = audio("generative")
+                return mp3, f_marks.result(), "generative"
+            except Exception as e:                                  # noqa: BLE001
+                LOG.warning("polly generative voice unavailable (%s); using neural", e)
+        return audio("neural"), f_marks.result(), "neural"
+
+
 def synthesize(text):
     """Audio plus word timings.
 
-    Returns {"audio": base64 mp3, "marks": [{"time": ms, "start": char,
-    "end": char, "value": word}], "voice": ...} or None to fall back.
-
-    The marks are the point. Without them the simulator has to guess
-    where the voice is; with them the highlight is exact.
+    Returns {"audio": base64 mp3, "marks": [{"time": ms, "start": char, "end": char, "value": word}],
+    "voice": ..., "engine": ...} or None to fall back to the browser's voice. One mark per word of the
+    text as written, positioned in the text as written, so the page can highlight each word as it is said.
     """
-    c = _polly_client()
-    if not c or not text:
+    if not text or not text.strip():
         return None
     try:
-        # Two independent calls (the audio, and the word timings). Run side
-        # by side: one after the other they were 1.8 s of a listener's wait.
+        c = _polly_client()
+        if not c:
+            return None
+        tokens = [(m.start(), m.end()) for m in re.finditer(r"\S+", text)]
+        ranges = _chunk_ranges(_sentence_ranges(text, tokens), text, tokens)
+        spoken = [" ".join(speakable(text[a:b]) for a, b in tokens[lo:hi]) for lo, hi in ranges]
         from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(4, len(spoken))) as pool:
+            made = list(pool.map(lambda s: _one_sentence(c, s), spoken))
 
-        def audio_call():
-            return c.synthesize_speech(
-                Text=text, OutputFormat="mp3", VoiceId=POLLY_VOICE,
-                Engine=POLLY_ENGINE)["AudioStream"].read()
-
-        def marks_call():
-            return c.synthesize_speech(
-                Text=text, OutputFormat="json", SpeechMarkTypes=["word"],
-                VoiceId=POLLY_VOICE, Engine=POLLY_ENGINE)["AudioStream"].read()
-
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            f_mp3, f_marks = pool.submit(audio_call), pool.submit(marks_call)
-            mp3, marks_raw = f_mp3.result(), f_marks.result()
-        # Polly returns speech marks as newline-delimited JSON, one
-        # object per mark - not a JSON array.
-        marks = []
-        for line in marks_raw.decode("utf-8").splitlines():
-            line = line.strip()
-            if line:
-                marks.append(json.loads(line))
-
-        return {"audio": base64.b64encode(mp3).decode("ascii"),
+        audio, marks, offset, engines = [], [], 0.0, set()
+        for (lo, hi), (mp3, raw_marks, engine) in zip(ranges, made):
+            engines.add(engine)
+            body = mp3[_id3_size(mp3):]                             # one stream: no tags between sentences
+            duration = mp3_seconds(body) * 1000.0
+            for (a, b), t in zip(tokens[lo:hi], _marks_fitted(raw_marks, hi - lo, duration)):
+                marks.append({"time": int(offset + t), "start": a, "end": b, "value": text[a:b]})
+            audio.append(body)
+            offset += duration
+        return {"audio": base64.b64encode(b"".join(audio)).decode("ascii"),
                 "format": "mp3",
                 "marks": marks,
                 "voice": POLLY_VOICE,
-                "engine": POLLY_ENGINE}
+                "engine": "generative" if engines == {"generative"} else "neural" if engines == {"neural"}
+                else "mixed"}
     except Exception as e:                                     # noqa: BLE001
         LOG.warning("polly unavailable, browser speech will be used: %s", e)
         return None
@@ -306,6 +413,10 @@ def transcribe(audio_bytes, mime="audio/pcm", hint=""):
         else:
             out = _transcribe_sonic(audio_bytes, hint)
         if out is not None:
+            if out.get("text") and echoes_hint(out["text"], hint):
+                LOG.info("transcript %r is the recogniser echoing its own vocabulary hint "
+                         "(noise, not speech); dropped", out["text"])
+                out = dict(out, text="")
             return out                     # heard something, or heard nothing: done
         LOG.info("%s gave no result for this clip; trying the next provider", which)
     return None
@@ -331,10 +442,40 @@ def vocabulary_hint(ctx, listener_id, max_names=24):
     # likely one of those, and Whisper weighs the start of its prompt most.
     offered = resolve.BOOK.labels(listener_id)
     names = resolve.match_names(ctx, listener_id, limit=max_names)
+    try:
+        # Then the teams on today, so "Arsenal" is not heard as "asana" by a listener who
+        # has not followed anything yet. Costs no request: the date list is already cached.
+        names += [n for n in resolve.teams_today_ranked(ctx) if n not in names]
+    except Exception:                                      # noqa: BLE001  a hint is a courtesy
+        pass
+    # A recogniser spells what it hears: give it the plain-letter form of an accented name
+    # too ("Sønderjyske" and "Sonderjyske", "København" and "Kobenhavn").
+    names = names[:40]
+    names += [f for f in (resolve._fold(n) for n in names) if f and f not in {n.lower() for n in names}][:8]
     hint = _BASE_HINT
     if offered:
         hint = "The listener is choosing between: %s. %s" % (", ".join(offered), hint)
     return (hint + " " + ", ".join(names)).strip()
+
+
+def echoes_hint(text, hint):
+    """Is this transcript only the recogniser reading its own vocabulary back?
+
+    Whisper, given a prompt and a clip of noise, tends to print the prompt: a room
+    of background sound became "Hartlepool, Newcastle U21", team names nobody said.
+    A transcript of two or more words made up only of names from the hint, with none
+    of the question words, is that echo. Not applied while the listener has been offered a choice,
+    because then a bare name is exactly the right answer.
+    """
+    if not hint or hint.startswith("The listener is choosing between"):
+        return False
+    words = re.findall(r"[a-z0-9']+", text.lower())
+    if len(words) < 2:
+        return False            # one name is a plausible answer ("Arsenal", to "which team?"); noise prints several
+    tail = hint[len(_BASE_HINT):].lower() if hint.startswith(_BASE_HINT) else hint.lower()
+    base = set(re.findall(r"[a-z0-9']+", _BASE_HINT.lower()))
+    names = set(re.findall(r"[a-z0-9']+", tail)) - base
+    return all(w in names for w in words)
 
 
 def _wav(pcm_bytes):
@@ -494,6 +635,21 @@ def _transcribe_sonic(pcm_bytes, hint=""):
     return {"text": text, "provider": "sonic"}
 
 
+def _spoken_text(doc):
+    """The transcript, without the segments Whisper itself doubted were speech.
+
+    verbose_json carries, per segment, how likely it was silence (`no_speech_prob`)
+    and how unsure the words were (`avg_logprob`). Whisper's own rule of thumb for a
+    hallucinated segment is both at once: probably silence, and low confidence.
+    """
+    segments = doc.get("segments")
+    if not isinstance(segments, list) or not segments:
+        return (doc.get("text") or "").strip()
+    kept = [s.get("text", "") for s in segments
+            if not ((s.get("no_speech_prob") or 0) > 0.6 and (s.get("avg_logprob") or 0) < -1.0)]
+    return " ".join("".join(kept).split())
+
+
 def _transcribe_groq(pcm_bytes, hint=""):
     """Groq-hosted Whisper. Standard library only, like the rest of the server.
 
@@ -508,7 +664,7 @@ def _transcribe_groq(pcm_bytes, hint=""):
     if len(pcm_bytes) < SAMPLE_RATE * 2 // 5:               # under 0.4 s
         return None
     fields = {"model": GROQ_MODEL, "language": STT_LANGUAGE, "temperature": "0",
-              "response_format": "json"}
+              "response_format": "verbose_json"}
     if hint:
         fields["prompt"] = hint[:800]
     body, ctype = _multipart(fields, "file", "clip.wav", "audio/wav", _wav(pcm_bytes))
@@ -520,7 +676,7 @@ def _transcribe_groq(pcm_bytes, hint=""):
                  "User-Agent": "sideline/1.0"})
     try:
         with urllib.request.urlopen(req, timeout=15, context=tls.context()) as r:
-            text = (json.loads(r.read().decode("utf-8")).get("text") or "").strip()
+            text = _spoken_text(json.loads(r.read().decode("utf-8")))
     except urllib.error.HTTPError as e:
         LOG.warning("groq transcription failed: HTTP %s", e.code)
         if e.code in (401, 403):

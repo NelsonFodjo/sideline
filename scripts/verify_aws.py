@@ -119,7 +119,7 @@ def _agent_path():
     def stub(name, args, listener):
         calls.append(name)
         return "Following Harbour FC against Reef United. 2 1, 64 minutes in.", {}, None
-    run(None, "Follow Harbour FC and tell me the score.", "verify-aws", stub)
+    run(None, "Follow the Harbour FC game.", "verify-aws", stub)
     if "follow_match" not in calls:
         raise RuntimeError("Nova answered without calling follow_match; it called %s" % calls)
     return "Nova called %s" % ", ".join(calls)
@@ -164,6 +164,9 @@ def main():
     check("credentials resolve", _credentials)
     check("region set", _region)
 
+    if os.environ.get("AWS_BEARER_TOKEN_BEDROCK") and os.environ.get("AWS_ACCESS_KEY_ID"):
+        print("%s  %-34s %s" % (SKIP, "note", "both a Bedrock API key and access keys are set; AWS tries the API key first, "
+                                "and those expire. If Bedrock says 'Authentication failed', blank AWS_BEARER_TOKEN_BEDROCK."))
     if check("bedrock model access", _model_access):
         if check("bedrock responds", _invoke):
             check("Nova MCP agent tool use", _agent_path)

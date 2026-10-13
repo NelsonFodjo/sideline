@@ -10,10 +10,13 @@ start watching it. See poller.py.
 """
 
 from .. import clock, sports, sync
+from ..status import FINISHED
 from ..mcp.errors import ToolError
 
 
 def run(ctx, args, listener_id):
+    from . import find_matches, not_found
+    tz0 = clock.zone_from(ctx.store.listener(listener_id))
     team = (args.get("team") or "").strip()
     fixture_id = args.get("fixture_id")
 
@@ -21,24 +24,18 @@ def run(ctx, args, listener_id):
     if fixture_id:
         fx = ctx.provider.fixture(fixture_id)
     else:
-        candidates = ctx.provider.fixtures_today()
-        matches = [f for f in candidates
-                   if team.lower() in (f.get("home") or "").lower()
-                   or team.lower() in (f.get("away") or "").lower()]
+        matches = find_matches(ctx, team, args.get("opponent"), tz=tz0) if team else []
         if len(matches) == 1:
             fx = matches[0]
         elif len(matches) > 1:
             # Ambiguity is the listener's to resolve, not ours to guess.
             raise ToolError(
                 "I can see more than one %s match today. Which one - %s?" % (
-                    team, ", or ".join("%s against %s" % (m["home"], m["away"])
-                                       for m in matches[:3])),
+                    team, ", or ".join(clock.say_fixture(m, tz0) for m in matches[:3])),
                 {"reason": "ambiguous", "candidates": matches[:3]})
 
     if not fx:
-        raise ToolError(
-            "I can't find a %s match on right now." % (team or "that"),
-            {"reason": "no_match", "team": team})
+        raise not_found(ctx, team, args.get("opponent"), tz0)
 
     rec = ctx.store.listener(listener_id)
 
@@ -78,15 +75,16 @@ def run(ctx, args, listener_id):
 
     minute = fx.get("minute") or 0
     sp = sports.for_fixture(fx)
-    if fx.get("status") in ("finished", "FT"):
+    tz = clock.zone_from(rec)
+    if fx.get("status") in FINISHED:
         spoken = "That %s has finished. %s." % (sp.game, sp.say_score(fx))
     elif minute <= 0:
         spoken = ("Following %s against %s. Not started yet. %s"
-                  % (fx["home"], fx["away"], clock.say_kickoff(fx, sp.start_word))).strip()
+                  % (fx["home"], fx["away"], clock.say_kickoff(fx, sp.start_word, tz_minutes=tz))).strip()
     else:
         spoken = "Following %s against %s. %s" % (
             fx["home"], fx["away"], sp.say_match_state(fx))
-    if not rec.get("offset_calibrated") and fx.get("status") not in ("finished", "FT"):
+    if not rec.get("offset_calibrated") and fx.get("status") not in FINISHED:
         # Say it once, here, so the listener knows the anchor exists.
         # Repeating it on every answer would be nagging.
         spoken += (" Tell me when you hear %s and I'll make sure I never "

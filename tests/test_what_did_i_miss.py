@@ -125,6 +125,22 @@ def main():
     print("ok  first-ever ask returns the whole match so far:",
           s4["event_count"], "events")
 
+    # With a language model on, an empty gap is still just a fact: "nothing since you last asked", never
+    # "the language model said: no events were supplied" (found on a real finished match).
+    from sideline.language import bedrock
+    real = bedrock.available
+    quiet = make_ctx(start_minute=40)
+    REGISTRY["follow_match"](quiet, {"team": "Arsenal"}, "q")
+    REGISTRY["what_did_i_miss"](quiet, {}, "q")                  # hears everything so far (templates)
+    bedrock.available = lambda: True
+    try:
+        spoken, s, _ = REGISTRY["what_did_i_miss"](quiet, {}, "q")
+        assert spoken.startswith("Nothing since you last asked."), spoken
+        assert s["generated_by"] == "template" and s["event_count"] == 0
+    finally:
+        bedrock.available = real
+    print("ok  an empty gap with the language model on is 'nothing since you last asked', not an error")
+
     print("\nwhat_did_i_miss: all good")
 
 

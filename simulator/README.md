@@ -4,13 +4,24 @@ A hands-free voice client for the Sideline MCP server. One button, once, because
 microphone without a gesture. After that nothing is clicked and nothing is typed.
 
 ```bash
-make run          # terminal 1: the server (needs SIDELINE_FOOTBALL_KEY; see the README)
+make run          # terminal 1: the server (needs SPORTMONKS_TOKEN; see the README)
 make sim          # opens http://127.0.0.1:8765/, served by the running server
 ```
 
-Press **Start listening**, then talk. It answers out loud and goes straight back to listening. Cut in whenever you
+Press **Go live**, then talk. It answers out loud and goes straight back to listening. Cut in whenever you
 like: it stops and listens. The page is served by the server it talks to, so it is same-origin and the Origin
 allow-list stays strict; opened from disk (`file://`) it could not initialize.
+
+**What stays on screen:** the teams and score show only while the answer carries match data; an answer with none (no
+tool, nothing found, the feed refused) takes them away. A minute after the last word the answer text and the
+teams and score all leave, and the page waits for a new question. The footer, after the model name, says "space to pause".
+
+**Cutting in:** talk over it and it stops, but only for a word: about 360 ms of speech-like sound. A cough or a
+door only turns the voice down for a moment, and it comes back. **After a minute of quiet only the eye remains**: the
+text, the teams and score and the status line all fade, and anything you say or ask brings them back.
+
+**Pause:** press the space bar to stop the voice and the microphone, and press it again to carry on (Pause and
+Escape do the same). An answer already on its way is kept and spoken when you resume.
 
 It shows live data only. There is no recorded match, no preview mode and no offline fallback: if the feed or Nova
 cannot answer, it says so.

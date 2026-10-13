@@ -6,7 +6,7 @@ feed; basketball is here to prove the seam is real.
 ## What is sport-independent
 
 The product itself: the event log, `last_told_at` and `told_event_ids`,
-the spoiler guard, the grounding rule, the nine tools and their routing
+the spoiler guard, the grounding rule, the tools and their routing
 descriptions. None of it names a sport.
 
 ## What is the sport's call: `SportProfile`
@@ -57,6 +57,6 @@ minutes in its provider and says it its own way in `when()`.
 | Football behaviour is unchanged by the profile refactor | **Verified**: every pre-existing suite passes unmodified |
 | The store, poller, tools, spoiler guard and prompts run on a second sport | **Verified** by `tests/test_sports.py`, and over HTTP with both sports on one server |
 | The basketball data is real | **No.** `tests/fixtures/basketball-harbour-reef.json` is **invented**: made-up teams and players, abridged events, a score that is only what those events add up to. It exists to exercise the seam |
-| There is a live basketball (or any non-football) data provider | **No.** Only football has a real provider (API-Football) |
+| There is a live basketball (or any non-football) data provider | **No.** Only football has a real provider (Sportmonks, whose free plan also lists cricket; none is built) |
 | Time-free or period-based sports (tennis, cricket) fit | **Not tried.** Elapsed minutes may be a poor fit; this is the next thing to test |
 | A non-football fan would find the phrasing natural | **Not tested** with anyone |

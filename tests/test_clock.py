@@ -52,11 +52,44 @@ def main():
         print("ok  durations are said as people say them, and rounded to the hour past a day")
 
         # ------------------------------------------------ the kickoff sentence
-        local = KICKOFF.astimezone().strftime("%H:%M")
+        local = "7:45 AM UTC"          # no zone known: UTC, and it says so
         at(-datetime.timedelta(hours=2, minutes=15))
         assert clock.until_kickoff(FX) == datetime.timedelta(hours=2, minutes=15)
-        assert clock.say_kickoff(FX) == "Kick-off is in 2 hours 15 minutes, at %s." % local
-        assert clock.say_kickoff(FX, "tip-off") == "Tip-off is in 2 hours 15 minutes, at %s." % local
+        assert clock.say_kickoff(FX) == "Kick-off is today at %s, in about 2 hours." % local
+        assert clock.say_kickoff(FX, "tip-off") == "Tip-off is today at %s, in about 2 hours." % local
+        # the listener's own clock, when the page told us its offset (Mauritius, +04:00)
+        assert clock.say_kickoff(FX, tz_minutes=240) == "Kick-off is today at 11:45 AM, in about 2 hours."
+        assert clock.say_kickoff(FX, tz_minutes=-300) == "Kick-off is today at 2:45 AM, in about 2 hours."
+        far = {"kickoff": "2026-10-14T18:00:00+00:00"}
+        assert clock.say_kickoff(far, at=KICKOFF, tz_minutes=240) == \
+            "Kick-off is tomorrow at 10 PM, in about 34 hours."
+        assert clock.say_kickoff({"kickoff": "2026-10-13T18:00:00+00:00"}, at=KICKOFF.replace(hour=6, minute=44),
+                                 tz_minutes=240) == "Kick-off is today at 10 PM, in about 11 hours."
+        assert clock.say_time_of_day(KICKOFF.replace(hour=0, minute=0), 0) == "12 AM"
+        assert clock.say_time_of_day(KICKOFF.replace(hour=12, minute=5), 0) == "12:05 PM"
+        assert clock.say_time_of_day(KICKOFF) == "7:45 AM UTC", "no known zone: UTC, said so"
+        # The zone is named the way people name it.
+        for name, said in (("Indian/Mauritius", "Mauritius time"), ("Asia/Kolkata", "India time"),
+                           ("America/New_York", "US Eastern time"), ("America/Los_Angeles", "US Pacific time"),
+                           ("America/Indiana/Indianapolis", "US Eastern time"), ("Europe/London", "UK time"),
+                           ("Africa/Lagos", "Lagos time"), ("America/Argentina/Buenos_Aires", "Buenos Aires time"),
+                           ("Etc/UTC", "UTC")):
+            assert clock.zone_label(name) == said, (name, clock.zone_label(name))
+        assert clock.zone_label(None) == "" and clock.zone_label("") == ""
+        mu = clock.Zone(240, "Indian/Mauritius")
+        assert mu == 240 and int(mu) == 240, "a Zone is an int too"
+        assert clock.say_time_of_day(KICKOFF, mu) == "11:45 AM Mauritius time"
+        assert clock.say_time_of_day(KICKOFF, mu, with_zone=False) == "11:45 AM"
+        assert clock.say_time_of_day(KICKOFF, clock.Zone(-240, "America/New_York")) == "3:45 AM US Eastern time"
+        assert clock.say_time_of_day(KICKOFF, clock.Zone(240)) == "11:45 AM", "an offset with no name: no label"
+        assert clock.zone_phrase(mu) == "Mauritius time" and clock.zone_phrase(None) == "UTC" and clock.zone_phrase(clock.Zone(240)) == ""
+        assert clock.zone_from({"tz_offset_minutes": 330, "tz_name": "Asia/Kolkata"}).name == "Asia/Kolkata"
+        assert clock.zone_from({}) is None
+        at(-datetime.timedelta(hours=2, minutes=15))
+        assert clock.say_kickoff(FX, tz_minutes=mu) == "Kick-off is today at 11:45 AM Mauritius time, in about 2 hours."
+        assert clock.say_zone(330) == "UTC plus 5:30" and clock.say_zone(-570) == "UTC minus 9:30" and clock.say_zone(None) == "UTC"
+        assert clock.say_roughly(datetime.timedelta(minutes=89)) == "89 minutes"
+        assert clock.say_roughly(datetime.timedelta(days=3)) == "about 3 days"
         at(datetime.timedelta(seconds=5))
         assert clock.say_kickoff(FX) == "Kick-off is about to happen."
         at(datetime.timedelta(minutes=10))
@@ -64,7 +97,7 @@ def main():
         assert clock.until_kickoff(FX) < datetime.timedelta(0)
         assert clock.say_kickoff({"home": "A", "away": "B"}) == ""
         assert clock.say_kickoff({"kickoff": "nonsense"}) == ""
-        print("ok  'Kick-off is in 2 hours 15 minutes, at %s.' and its past and unknown forms" % local)
+        print("ok  'Kick-off is today at 10 PM, in about 11 hours.' in the listener's own zone, no label; UTC, said so, when unknown, UTC when unknown; past and unknown forms")
 
         at(-datetime.timedelta(minutes=135))
         snap = clock.snapshot(FX)
@@ -76,12 +109,12 @@ def main():
         # ----------------------------- where a listener hears it: the tools
         fb = sports.get("football")
         assert fb.not_started(FX) == ("Newcastle Jets against Gamba Osaka, not started yet. "
-                                      "Kick-off is in 2 hours 15 minutes, at %s." % local)
+                                      "Kick-off is today at %s, in about 2 hours." % local)
         no_time = {"home": "A", "away": "B"}
         assert fb.not_started(no_time) == "A against B, not started yet.", "no kickoff: no stray space"
         bb = sports.get("basketball")
         assert bb.not_started(dict(FX, home="Hawks", away="Rockets")).startswith(
-            "Hawks against Rockets, waiting for tip-off. Tip-off is in 2 hours 15 minutes")
+            "Hawks against Rockets, waiting for tip-off. Tip-off is today at")
         print("ok  the football and basketball 'not started' lines carry the start time")
 
         ctx = make_ctx(start_minute=0)
@@ -89,9 +122,9 @@ def main():
         ctx.provider.fixture = lambda fid: dict(provider_fixture(fid), kickoff=FX["kickoff"], minute=0,
                                                 status="NS", score={"home": 0, "away": 0})
         spoken, structured, _ = REGISTRY["follow_match"](ctx, {"team": "Arsenal"}, "ann")
-        assert "Not started yet. Kick-off is in 2 hours 15 minutes" in spoken, spoken
+        assert "Not started yet. Kick-off is today at 7:45 AM UTC, in about 2 hours" in spoken, spoken
         spoken, structured, _ = REGISTRY["get_match_state"](ctx, {}, "ann")
-        assert "Kick-off is in 2 hours 15 minutes" in spoken, spoken
+        assert "Kick-off is today at 7:45 AM UTC, in about 2 hours" in spoken, spoken
         assert structured["clock"]["minutes_to_kickoff"] == 135, structured["clock"]
         print("ok  follow_match and get_match_state tell a listener when it starts:", spoken[:80])
 

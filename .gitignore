@@ -13,3 +13,6 @@ venv/
 
 # private notes, not for the repo
 VIDEO_GUIDE.md
+
+# runtime logs (sideline/audit.py)
+logs/

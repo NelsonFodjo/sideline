@@ -2,27 +2,25 @@
 """Check the live football feed, and show what a listener would hear from it.
 
     python3 scripts/verify_data.py                 # key accepted, quota, today's fixtures
-    python3 scripts/verify_data.py --tools         # also run all nine tools on a real match
+    python3 scripts/verify_data.py --tools         # also run the core tools on a real match
     python3 scripts/verify_data.py --tools 1641084 # ...on a specific fixture id
 
-Reads SIDELINE_FOOTBALL_KEY. The first form costs two or three requests; --tools
+Reads SPORTMONKS_TOKEN. The first form costs two or three requests; --tools
 costs roughly ten more (the provider caches for 12 s). It prefers a match that
 is live now, then one that has finished. Exits 1 if the key does not work.
 """
 
-import json
 import os
 import sys
-import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import sideline  # noqa: E402,F401  (loads .env, environment wins)
-from sideline import language, tls  # noqa: E402
+from sideline import language  # noqa: E402
 from sideline.app import Context  # noqa: E402
 from sideline.config import CONFIG  # noqa: E402
 from sideline.mcp.errors import ToolError  # noqa: E402
-from sideline.providers.apifootball import (BASE, ApiFootballProvider,  # noqa: E402
-                                            ProviderUnavailable)
+from sideline import providers  # noqa: E402
+from sideline.providers import ProviderUnavailable  # noqa: E402
 from sideline.state import MemoryStore  # noqa: E402
 from sideline.tools import REGISTRY  # noqa: E402
 
@@ -30,23 +28,19 @@ LIVE = ("1H", "2H", "HT", "ET", "P", "LIVE", "BT")
 
 
 def check_key():
-    req = urllib.request.Request(BASE + "/status", headers={"x-apisports-key": CONFIG.football_key})
+    """The token, the leagues the plan covers, and how many calls are left this hour."""
+    provider = providers.build(CONFIG.sportmonks_token)
     try:
-        with urllib.request.urlopen(req, timeout=8, context=tls.context()) as r:
-            doc = json.loads(r.read().decode("utf-8"))
-    except Exception as e:                                     # noqa: BLE001
-        print(" FAIL  could not reach %s: %s" % (BASE, e))
+        doc = provider._get("leagues", include="country")
+    except ProviderUnavailable as e:
+        print(" FAIL  the feed refused the token: %s" % e)
         return None
-    problem = ApiFootballProvider._problem(doc)
-    if problem:
-        print(" FAIL  the feed refused the key: %s" % problem)
-        return None
-    r = doc.get("response") or {}
-    reqs = r.get("requests") or {}
-    print("  ok   key accepted  plan=%s  requests today %s of %s" % (
-        (r.get("subscription") or {}).get("plan", "?"), reqs.get("current", "?"),
-        reqs.get("limit_day", "?")))
-    return ApiFootballProvider(CONFIG.football_key)
+    leagues = ["%s (%s)" % (i.get("name"), (i.get("country") or {}).get("name", "?"))
+               for i in doc.get("data") or []]
+    limit = doc.get("rate_limit") or {}
+    print("  ok   token accepted  calls left this hour: %s  leagues: %s" % (
+        limit.get("remaining", "?"), ", ".join(leagues) or "none"))
+    return provider
 
 
 def pick(fixtures, wanted):
@@ -63,7 +57,7 @@ def run_tools(provider, fixture_id):
     ctx = Context(provider, MemoryStore(), language)
     who = "verify-data"
     steps = [("follow_match", {"fixture_id": fixture_id}),
-             ("get_match_state", {}), ("get_lineups", {}), ("what_did_i_miss", {}),
+             ("get_match_state", {}), ("get_fixtures", {}), ("get_match_preview", {}), ("get_lineups", {}), ("what_did_i_miss", {}),
              ("get_event_detail", {"kind": "score"}), ("get_officials", {}),
              ("get_player_context", {"player": "he"}), ("get_head_to_head", {}),
              ("sync_broadcast_delay", {"check": True})]
@@ -80,8 +74,8 @@ def run_tools(provider, fixture_id):
 
 
 def main():
-    if not CONFIG.football_key:
-        print(" FAIL  no key: set SIDELINE_FOOTBALL_KEY (see .env.example)")
+    if not CONFIG.sportmonks_token:
+        print(" FAIL  no token: set SPORTMONKS_TOKEN (see .env.example)")
         return 1
     provider = check_key()
     if provider is None:

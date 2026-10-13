@@ -30,8 +30,8 @@ def main():
         print("  %s  %-*s  %s" % (mark, width, name, shown))
 
     print("\nWhat starts, given the above")
-    print("  feed      %s" % ("API-Football" if os.environ.get("SIDELINE_FOOTBALL_KEY")
-                              else "NOTHING: SIDELINE_FOOTBALL_KEY is not set, the server will not start"))
+    print("  feed      %s" % ("Sportmonks" if os.environ.get("SPORTMONKS_TOKEN")
+                              else "NOTHING: SPORTMONKS_TOKEN is not set, the server will not start"))
     print("  bedrock   %s" % ("on" if config.bedrock_enabled() else "off (no AWS credentials, or forced off)"))
     print("  state     %s" % {"auto": "DynamoDB if the table answers, else memory",
                               "dynamo": "DynamoDB (forced)", "memory": "memory"}.get(

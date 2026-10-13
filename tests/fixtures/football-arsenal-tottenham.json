@@ -8,7 +8,10 @@
     "away_id": 47,
     "venue": "Emirates Stadium",
     "kickoff": "2026-10-04T16:30:00+00:00",
-    "competition": "Premier League"
+    "competition": "Premier League",
+    "city": "Invented City",
+    "country": "Inventland",
+    "round": "Regular Season - 8"
   },
   "events": [
     {
@@ -222,5 +225,145 @@
       },
       "date": "2024-04-28"
     }
-  ]
+  ],
+  "competitions": [
+    {
+      "id": 1,
+      "name": "Premier League",
+      "country": "Inventland"
+    },
+    {
+      "id": 2,
+      "name": "Invented Cup",
+      "country": "Inventland"
+    }
+  ],
+  "standings": {
+    "Premier League": [
+      {
+        "position": 1,
+        "team": "Arsenal",
+        "played": 8,
+        "points": 20
+      },
+      {
+        "position": 2,
+        "team": "Tottenham",
+        "played": 8,
+        "points": 18
+      },
+      {
+        "position": 3,
+        "team": "Chelsea",
+        "played": 8,
+        "points": 15
+      },
+      {
+        "position": 4,
+        "team": "Villa",
+        "played": 8,
+        "points": 14
+      },
+      {
+        "position": 5,
+        "team": "Brighton",
+        "played": 8,
+        "points": 12
+      },
+      {
+        "position": 6,
+        "team": "Everton",
+        "played": 8,
+        "points": 1
+      }
+    ]
+  },
+  "top_scorers": {
+    "Premier League": [
+      {
+        "player": "Bukayo Saka",
+        "team": "Arsenal",
+        "goals": 7
+      },
+      {
+        "player": "Son Heung-min",
+        "team": "Tottenham",
+        "goals": 6
+      },
+      {
+        "player": "A Third",
+        "team": "Chelsea",
+        "goals": 1
+      }
+    ]
+  },
+  "stats": {
+    "Arsenal": {
+      "possession": 62,
+      "shots": 12,
+      "shots_on_target": 6,
+      "corners": 5,
+      "fouls": 9
+    },
+    "Tottenham": {
+      "possession": 38,
+      "shots": 5,
+      "shots_on_target": 2,
+      "corners": 2,
+      "fouls": 11
+    }
+  },
+  "injuries": [
+    {
+      "player": "Gabriel Jesus",
+      "team": "Arsenal",
+      "reason": "Knee injury"
+    },
+    {
+      "player": "Cristian Romero",
+      "team": "Tottenham",
+      "reason": "Suspended"
+    }
+  ],
+  "form": {
+    "home": "WWDLW",
+    "away": "LDWWW"
+  },
+  "player_stats": {
+    "saka": {
+      "name": "Bukayo Saka",
+      "team": "Arsenal",
+      "goals": 7,
+      "assists": 4,
+      "appearances": 9
+    }
+  },
+  "search": {
+    "team": [
+      {
+        "kind": "team",
+        "name": "Arsenal",
+        "country": "Inventland"
+      },
+      {
+        "kind": "team",
+        "name": "Arsenal W",
+        "country": "Inventland"
+      }
+    ],
+    "player": [
+      {
+        "kind": "player",
+        "name": "Bukayo Saka",
+        "country": "Inventland"
+      }
+    ],
+    "competition": [
+      {
+        "kind": "competition",
+        "name": "Premier League",
+        "country": "Inventland"
+      }
+    ]
+  }
 }

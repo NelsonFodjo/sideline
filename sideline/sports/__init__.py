@@ -156,7 +156,7 @@ class SportProfile(object):
 
     def not_started(self, fixture):
         base = "%s against %s, not started yet." % (fixture["home"], fixture["away"])
-        return (base + " " + clock.say_kickoff(fixture, self.start_word)).strip()
+        return (base + " " + clock.say_kickoff(fixture, self.start_word, tz_minutes=fixture.get("tz_offset_minutes"))).strip()
 
     def spoken_anchor(self, anchor):
         return self.anchor_spoken.get(anchor, anchor)

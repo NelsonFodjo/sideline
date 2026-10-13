@@ -4,12 +4,14 @@ import logging
 import sys
 import threading
 
-from . import language
+from . import audit, language
 from .config import CONFIG
+from .mcp import registry
 from .mcp import server as mcp_server
 from .mcp.client import McpClient
 from .poller import Poller
 from .providers import build as build_provider
+from .providers.sportmonks import HOURLY_CALLS
 from .state import build as build_store
 from .tools import REGISTRY
 
@@ -53,22 +55,28 @@ def build(provider=None):
         level=getattr(logging, CONFIG.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)-5s %(name)s  %(message)s")
 
-    if provider is None:
-        if not CONFIG.football_key:
-            raise ConfigError(
-                "SIDELINE_FOOTBALL_KEY is not set.\n"
-                "  Sideline reads a live football feed (API-Football) and has no recorded\n"
-                "  or demo data. Get a free key at https://dashboard.api-football.com, then:\n"
-                "      cp .env.example .env     # and put the key in SIDELINE_FOOTBALL_KEY\n"
-                "  See the README, 'Run it'.")
-        provider = build_provider(CONFIG.football_key)
+    folder = audit.setup(CONFIG.log_dir, CONFIG.log_keep_days)
+    if folder:
+        logging.getLogger("sideline").info("logs: %s (a new file each day, kept %d days)", folder, CONFIG.log_keep_days)
 
+    if provider is None:
+        if not CONFIG.sportmonks_token:
+            raise ConfigError(
+                "SPORTMONKS_TOKEN is not set.\n"
+                "  Sideline reads a live football feed (Sportmonks) and has no recorded\n"
+                "  or demo data. Get a free token at https://www.sportmonks.com, then:\n"
+                "      cp .env.example .env     # and put the token in SPORTMONKS_TOKEN\n"
+                "  See the README, 'Run it'.")
+        provider = build_provider(CONFIG.sportmonks_token)
+
+    # Offer only the tools this feed can answer: a model is never shown a tool that would fail.
+    registry.limit_to(getattr(provider, "capabilities", None))
     store = build_store(CONFIG.state, table_name=CONFIG.table, region=CONFIG.region)
     ctx = Context(provider, store, language)
 
     run_tool = tool_runner(ctx)
 
-    def run_agent(question, listener_id):
+    def run_agent(question, listener_id, tz_offset_minutes=None, interrupted=None, tz_name=None):
         from . import resolve
         from .language.agent import run as run_agent_turn
 
@@ -81,7 +89,15 @@ def build(provider=None):
         # snapped to the closest option, and a misheard name from this match is
         # repaired, before the model ever sees it.
         understood = resolve.understand(ctx, listener_id, question)
-        result = run_agent_turn(ctx, understood["agent_text"], listener_id, run_agent_tool)
+        if tz_offset_minutes is not None:
+            # Times are said in the listener's own clock, as the page reports it.
+            rec = ctx.store.listener(listener_id)
+            if rec.get("tz_offset_minutes") != tz_offset_minutes or rec.get("tz_name") != tz_name:
+                rec["tz_offset_minutes"] = tz_offset_minutes
+                rec["tz_name"] = tz_name
+                ctx.store.save_listener(rec)
+        result = run_agent_turn(ctx, understood["agent_text"], listener_id, run_agent_tool,
+                                interrupted=interrupted)
         resolve.learn(ctx, listener_id, result)
         if understood["changed"]:
             result["understood"] = understood["text"]
@@ -107,6 +123,13 @@ def main():
     log = logging.getLogger("sideline")
     from .voice import capabilities
     caps = capabilities()
+    per_hour = 3600 // max(1, CONFIG.poll_seconds)
+    log.info("poll: every %ds while a match is in play, so one uses %d of the plan's %d calls an hour "
+             "(a match not yet started is checked every 5 minutes, a finished one once)",
+             CONFIG.poll_seconds, per_hour, HOURLY_CALLS)
+    if per_hour * 2 > HOURLY_CALLS:
+        log.warning("poll: over half the hourly limit goes on one match; the rest is for questions "
+                    "(searches, previews, standings). Raise SIDELINE_POLL_SECONDS if the feed starts refusing.")
     log.info("provider=%s state=%s bedrock=%s",
              ctx.provider.name,
              type(ctx.store).__name__.replace("Store", "").lower(),

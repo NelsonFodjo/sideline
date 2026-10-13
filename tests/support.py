@@ -5,7 +5,7 @@ and deterministically: it plays a small JSON fixture back on a clock the test
 controls (`jump_to`). The fixtures in tests/fixtures/ are INVENTED (made-up
 teams, players and events), clearly labelled as such, and exist only to be
 stable and small. The product itself has no recorded data and no demo mode: it
-reads the live feed (sideline/providers/apifootball.py).
+reads the live feed (sideline/providers/sportmonks.py).
 """
 
 import json
@@ -96,6 +96,38 @@ class ReplayProvider(Provider):
         o.update(self._sport(doc).official_counts(
             [e for e in doc["events"] if e["minute"] <= now]))
         return o
+
+    capabilities = frozenset(__import__("sideline.providers.base", fromlist=["CAPABILITIES"]).CAPABILITIES)
+
+    def search(self, query, kind="team"):
+        pool = self._first_doc().get("search", {}).get(kind, [])
+        want = query.lower()
+        return [h for h in pool if want[:3] in h["name"].lower()]
+
+    def competitions(self, country=None):
+        return [c for c in self._first_doc().get("competitions", [])
+                if not country or country.lower() in c["country"].lower()]
+
+    def standings(self, competition):
+        return self._first_doc().get("standings", {}).get(competition)
+
+    def top_scorers(self, competition):
+        return self._first_doc().get("top_scorers", {}).get(competition)
+
+    def match_stats(self, fixture_id):
+        return self._doc(fixture_id).get("stats")
+
+    def player_stats(self, player, team=None):
+        return self._first_doc().get("player_stats", {}).get(player.lower().split()[-1])
+
+    def injuries(self, fixture_id):
+        return list(self._doc(fixture_id).get("injuries", []))
+
+    def form(self, fixture_id):
+        return self._doc(fixture_id).get("form")
+
+    def _first_doc(self):
+        return next(iter(self._docs.values()))
 
     def head_to_head(self, fixture_id, limit=5):
         return self._doc(fixture_id).get("head_to_head", [])[:limit]

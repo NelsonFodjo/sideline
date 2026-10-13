@@ -50,6 +50,13 @@ or Model access, and complete any first-use step shown. The default id is `amazo
 **Check it:** `make aws-check` runs a real call ("bedrock responds") and lists models you can use if the id is
 wrong. Set `SIDELINE_BEDROCK_MODEL` to change it.
 
+## If Bedrock says "Authentication failed"
+
+A Bedrock **API key** (`AWS_BEARER_TOKEN_BEDROCK`) is tried before your access keys, and the short-term ones expire. With
+both set, an expired API key breaks every Bedrock call even though the access keys are fine. Blank
+`AWS_BEARER_TOKEN_BEDROCK` (your access keys also cover Polly and DynamoDB, which an API key never does).
+Likewise `AWS_PROFILE` is a *name* from `~/.aws/config`, not an account number: leave it blank unless you use a profile.
+
 ## Step 4: permissions
 
 If you use your own admin credentials, skip this. For a scoped IAM user, this is what the code calls, no more:

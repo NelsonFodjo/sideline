@@ -1,60 +1,78 @@
 # Match data
 
-Sideline reads one live feed, [API-Football](https://www.api-football.com) (api-sports.io), and ships **no recorded or
-demo data**. This page records what was observed about that feed, and how to write another provider.
+Sideline reads one live feed, [Sportmonks](https://www.sportmonks.com), and ships **no recorded or demo data**. This
+page records what was observed about that feed, what each tool needs from it, and how to write another provider. Why
+Sportmonks and not the feed the project started on: [FRICTION_LOG.md](FRICTION_LOG.md) FL-14.
 
 ## What is and is not established
 
-Observed on 2026-10-13 on a **Free plan** with the key the project was built with.
+Observed on 2026-10-13 on the **Free plan**, with the token the project was built with.
 
 | Claim | Status |
 |---|---|
-| The provider parses the vendor's response shape, and errors surface rather than reading as "no match" | **Verified**: against canned responses (`tests/test_apifootball.py`) **and on the live service**: 292 fixtures listed, a live match and a finished one read through all nine tools. `make verify-data ARGS=--tools` |
-| The free plan allows 100 requests a day | **Observed**: `/status` reported `limit_day: 100`. The refresh rate of live data is **unmeasured** |
-| The free plan refuses some parameters | **Observed**: head-to-head with `last=` is refused, so the provider no longer sends it |
-| Referee and line-ups are available | **Depends on the match**: a live women's international had neither. The tools say so rather than guess |
-| Basketball has a live feed | **Same vendor, same key**: the basketball API listed 71 games, but is believed to give scores and status, not play-by-play, so it could not produce "X hit a three". **Not built, not verified** |
+| The provider turns Sportmonks' v3 shapes into ours | **Verified on a real, finished match** (AGF against Sønderjyske Fodbold, Superliga, 2026-10-12): the fixture, three goals with assists and running score, ten substitutions (`player_name` came on, `related_player_name` went off), a yellow card, two VAR notes, both line-ups with formations and shirt numbers, the referee, statistics, head to head. `make verify-data ARGS="--tools <fixture id>"` |
+| Standings, top scorers, competitions, search, injuries, form, a player's season | **Verified on the same plan**: real tables and scorers for the Superliga, five absences with reasons, recent results as W/D/L, a player's appearances and goals |
+| It works during a match in play | **Not yet seen**: the plan's four leagues had no match in play when it was checked. The live path (a ticking period gives the minute, events arrive as they happen) is read from the documentation and pinned by tests with invented data |
+| The free plan | **Observed**: four leagues (Superliga and Superliga Play-offs in Denmark, Premiership and Premiership Play-Offs in Scotland), **180 calls an hour per kind of data** (`rate_limit.remaining` 179 after one call), football and cricket plans. Sportmonks' pricing page does not state these: they come from the dashboard and the `leagues` endpoint |
+| Statistics on the free plan | **Observed**: possession, corners, goals, assists and cards; **no shots or fouls**, so the stats tool says only what exists |
+| Win estimates | **Not available**: an add-on. A match preview does not say who is favoured |
+| A day with no match | **Observed**: HTTP 200 with a `message` ("you don't have access to it via your current subscription"), the same as a quiet day. The provider returns an empty list |
+| Basketball or other sports | **Not built.** The tools are sport-neutral and the `SportProfile` seam is tested on an invented basketball game; the free plan also lists cricket, which is not built either |
 | The feed's data arrives before a streamed broadcast shows the event | Plausible, **not measured**. `sync_broadcast_delay` exists for it |
-| Any other feed's free tier is delayed or capped | **Unverified**: none was examined |
 
-`make verify-data` reads your own plan's quota from the API's `/status` endpoint rather than from this page.
+## What each tool needs from the feed
+
+A provider lists what it can supply in `capabilities`, and a tool whose need is missing is not offered
+(`registry.TOOL_REQUIRES`). Sportmonks' free plan supplies all of these.
+
+| Capability | Tools it unlocks |
+|---|---|
+| fixtures, events, lineups, officials, h2h | `follow_match`, `get_match_state`, `get_fixtures`, `get_schedule`, `get_my_matches`, `get_match_preview`, `what_did_i_miss`, `get_event_detail`, `get_lineups`, `get_player_context`, `get_officials`, `get_head_to_head` |
+| stats | `get_match_stats` |
+| injuries | `get_injuries` (a fixture's `sidelined` list, dropping ended ones) |
+| form | `get_team_form` (a team's fixtures between two dates, the last five finished) |
+| standings, top_scorers | `get_standings`, `get_top_scorers` (the competition's current season, found from `leagues`) |
+| player_stats | `get_player_stats` (the latest season in the player's statistics) |
+| search, competitions | `search`, `get_competitions` |
 
 ## Running against it
 
 ```bash
-cp .env.example .env              # put the key in SIDELINE_FOOTBALL_KEY
-make verify-data                  # the key, your daily quota, today's fixtures
-make verify-data ARGS=--tools     # every tool, against a live match if there is one
+cp .env.example .env              # put the token in SPORTMONKS_TOKEN
+make verify-data                  # the token, the plan's leagues, calls left this hour, today's fixtures
+make verify-data ARGS="--tools 19713909"   # every core tool, on a given fixture
 make run
 ```
 
-- **Quota.** One followed match costs about one request per poll (the fixture response embeds its events and
-  line-ups), so at the default 60 s it spends a free day in about an hour and a half. Use a paid plan for more.
-  The provider caches for 12 seconds, so several tools in one breath share a request.
-- **Errors are surfaced.** API-Football reports a bad key or an exhausted quota as HTTP 200 with an `errors`
-  field; the provider raises `ProviderUnavailable` rather than reading it as "no such match", and the tool
-  answers "I can't get that from the match data right now".
-- **Real data found bugs that canned responses hid**, all fixed and pinned by tests: the vendor's "Normal Goal"
-  filler was read aloud; an own goal read as an ordinary goal; head-to-head crashed on the free plan and listed
-  the live match as a past meeting; a long-absence catch-up named three goals of five and marked all five as
-  told (two were lost); a provider outage reached the listener as a protocol error; and a player lookup said "I
-  can't find him" when line-ups simply were not published yet.
-- **TLS on macOS.** The python.org Python ships without a CA bundle until "Install Certificates.command" is run,
-  so every HTTPS call fails with `CERTIFICATE_VERIFY_FAILED`. `sideline/tls.py` finds a real bundle and always
-  verifies; it never disables verification.
-- **Rules.** The hackathon requires authorisation to use any third-party API or data under its terms. The
-  vendor's terms were not read by the authors (its site blocked automated reading); check yours.
+- **Days.** The feed lists a UTC day; a listener's day is their own. Tools read the UTC dates the listener's day touches and keep the matches inside it, so a 1 AM kick-off in Mauritius is tomorrow's, not today's.
+- **Quota.** One followed match costs about one call per poll (the fixture response embeds its events and line-ups),
+  so a match in play at the default 30 s uses two thirds of an hour's 180. A match not yet started is checked every 5 minutes, and a finished one is not polled again. A day's list is cached five minutes, a fixture twelve
+  seconds, so several tools in one breath share a call. The provider logs a warning when fewer than 20 calls remain.
+- **Errors are surfaced.** A refused request raises `ProviderUnavailable` carrying the vendor's own message and, for a
+  rate limit, how long to wait; the tool then answers "The match data feed said: <that>. Try again shortly." and the
+  voice agent says exactly that, without rewording.
+- **A demo needs a match in one of the four leagues.** The free plan cannot see others, so Sideline cannot find them.
+- **Real data found details that docs and tests did not**, all handled: a day with nothing returns 200 and an empty
+  list; the free plan has no shots statistics; the `type` of an event is only a name when `events.type` is included.
+- **TLS on macOS.** The python.org Python ships without a CA bundle until "Install Certificates.command" is run, so
+  every HTTPS call fails with `CERTIFICATE_VERIFY_FAILED`. `sideline/tls.py` finds a real bundle and always verifies;
+  it never disables verification.
+- **Rules.** The hackathon requires authorisation to use any third-party API or data under its terms. Sportmonks'
+  free-plan terms are not on its pricing page and were not read by the authors; check yours.
 
 ## Tests do not use the feed
 
 `tests/support.py` holds a test double that plays back small **invented** fixtures (`tests/fixtures/`: made-up
-teams, players and events, labelled as such) on a clock the test controls. They exist so the suite runs offline
-and deterministically. Nothing in `sideline/` ships data files, and a test enforces that.
+teams, players and events, labelled as such) on a clock the test controls. `tests/test_sportmonks.py` pins the
+provider against invented responses in Sportmonks' shape. They exist so the suite runs offline and deterministically.
+Nothing in `sideline/` ships data files, and a test enforces that.
 
 ## Writing another provider
 
-Subclass `providers/base.Provider`. Six methods. The normalising rules are in that file and exist because every
-vendor gets these wrong in a different way:
+Subclass `providers/base.Provider`. The core reads are `fixture`, `fixtures_on`, `events`, `lineups` and
+`officials`; the rest (`search`, `competitions`, `standings`, `top_scorers`, `match_stats`, `player_stats`,
+`injuries`, `form`, `head_to_head`) are optional, and each one implemented is a capability that unlocks its tool. The
+normalising rules are in that file and exist because every vendor gets these wrong in a different way:
 
 - **Minute is an integer.** `45+2` becomes minute 45 with `stoppage: 2`. A listener wants "just before half
   time", not "forty five plus two".
@@ -64,3 +82,4 @@ vendor gets these wrong in a different way:
   all mean "the score changed".
 - **A fixture says which sport it is** with a `sport` key (absent means football), and emits that sport's event
   kinds: see [SPORTS.md](SPORTS.md).
+- **A refusal is an error, never "no such match".** Raise `ProviderUnavailable` with the vendor's own words.

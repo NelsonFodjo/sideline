@@ -30,12 +30,14 @@ Zero third-party dependencies. See docs/ARCHITECTURE.md for why.
 import json
 import logging
 import os
+import re
 import secrets
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+from .. import audit
 from ..providers.base import ProviderUnavailable
 from .errors import (InvalidParams, InvalidRequest, MethodNotFound, ParseError,
                      RpcError, ToolError)
@@ -49,6 +51,10 @@ SERVER_INFO = {"name": "sideline", "version": "1.0.0",
                "title": "Sideline - live football for listeners"}
 
 SESSION_TTL_SECONDS = 60 * 60 * 6
+
+# A spoken question is seconds of audio and a sentence of text; anything far past that is not one.
+VOICE_MAX_AUDIO_BYTES = 12 * 1024 * 1024
+VOICE_MAX_TEXT_BYTES = 16 * 1024
 
 # Set per request from the X-Sideline-Agent header (see mcp/client.py): the voice
 # agent asks tools for facts, not for model-written paragraphs.
@@ -166,9 +172,12 @@ class Dispatcher:
             # The data feed refused or is down (bad key, quota, plan, network).
             # A listener cannot act on a protocol error; they can on this.
             LOG.warning("tool %s: data feed unavailable: %s", name, e)
+            audit.record("tool", tool=name, args=args, ok=False, reason="provider_unavailable", problem=str(e),
+                         ms=round((time.time() - started) * 1000), listener=listener_id,
+                         via="agent" if getattr(_REQUEST, "agent", False) else "client")
             return {
                 "content": [{"type": "text", "text":
-                             "I can't get that from the match data right now."}],
+                             "The match data feed said: %s. Try again shortly." % e}],
                 "structuredContent": {"reason": "provider_unavailable",
                                       "problem": str(e)},
                 "isError": True,
@@ -176,6 +185,9 @@ class Dispatcher:
         except ToolError as e:
             # Not a protocol failure. Hand the model something it can say.
             LOG.info("tool %s declined: %s", name, e.spoken)
+            audit.record("tool", tool=name, args=args, ok=False, reason=(e.detail or {}).get("reason"),
+                         spoken=e.spoken, ms=round((time.time() - started) * 1000), listener=listener_id,
+                         via="agent" if getattr(_REQUEST, "agent", False) else "client")
             return {
                 "content": [{"type": "text", "text": e.spoken}],
                 "structuredContent": e.detail,
@@ -183,6 +195,8 @@ class Dispatcher:
             }
         took = (time.time() - started) * 1000
         LOG.info("tool %s ok in %.0fms", name, took)
+        audit.record("tool", tool=name, args=args, ok=True, ms=round(took), listener=listener_id,
+                     spoken=result[0], via="agent" if getattr(_REQUEST, "agent", False) else "client")
 
         # Every tool returns (spoken_text, structured, ui_payload).
         spoken, structured, ui = result
@@ -218,7 +232,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("MCP-Protocol-Version", PROTOCOL_VERSION)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin")
+        if origin and self._origin_ok():
+            self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id, MCP-Protocol-Version")
         for k, v in (headers or {}).items():
             self.send_header(k, v)
@@ -272,6 +288,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "protocol": PROTOCOL_VERSION,
                                     "tools": len(public_tools())})
         if self.path == "/voice/capabilities":
+            if not self._origin_ok():
+                return self._send(403, {"error": "origin not allowed"})
             # Simulator support, not part of the MCP surface. The browser
             # asks once at load whether to post audio here or fall back
             # to its own engine. See sideline/voice.py.
@@ -280,7 +298,7 @@ class Handler(BaseHTTPRequestHandler):
             # developer's console and CLI check, never for a listener's
             # screen, so they are not sent to the page at all.
             public = {k: v for k, v in capabilities().items() if not k.endswith("_hint")}
-            return self._send(200, public, {"Access-Control-Allow-Origin": "*"})
+            return self._send(200, public)
         if self.path.rstrip("/") != "/mcp":
             return self._send(404, {"error": "not found"})
         if not self._origin_ok():
@@ -319,22 +337,31 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(204)
 
     def do_OPTIONS(self):
-        # The simulator is opened as a file:// page, so every request to
-        # it is cross-origin. Only the voice endpoints are opened up;
-        # /mcp keeps its Origin allow-list.
+        # CORS preflight. Only an allowed origin gets the headers; the simulator is
+        # same-origin and never needs one.
+        if not self._origin_ok():
+            return self._send(403, {"error": "origin not allowed"})
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", self.headers.get("Origin") or "null")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id, MCP-Protocol-Version, X-Sideline-Listener")
         self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
 
     def _voice(self):
-        """/voice/stt and /voice/tts. Simulator only."""
+        """/voice/stt and /voice/tts. Simulator only, same-origin like /mcp: a page on another
+        origin must not be able to spend this server's speech credits."""
         from .. import voice
-        length = int(self.headers.get("Content-Length") or 0)
+        if not self._origin_ok():
+            return self._send(403, {"error": "origin not allowed"})
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self._send(400, {"error": "bad Content-Length"})
+        if length > (VOICE_MAX_AUDIO_BYTES if self.path == "/voice/stt" else VOICE_MAX_TEXT_BYTES):
+            self.close_connection = True      # the body is left unread, so it must not be taken for a request
+            return self._send(413, {"error": "request is too large"})
         raw = self.rfile.read(length) if length else b""
-        cors = {"Access-Control-Allow-Origin": "*"}
 
         if self.path == "/voice/stt":
             mime = self.headers.get("X-Audio-Type") or "audio/webm"
@@ -344,21 +371,22 @@ class Handler(BaseHTTPRequestHandler):
                 hint = hinter(self.server.resolve_listener(self.headers))
             out = voice.transcribe(raw, mime, hint)
             if not out:
-                return self._send(503, {"error": "no speech provider configured"}, cors)
+                return self._send(503, {"error": "no speech provider configured"})
             LOG.info("stt (%s): %s", out["provider"], out["text"][:60])
-            return self._send(200, out, cors)
+            audit.record("stt", provider=out["provider"], heard=out["text"], bytes=len(raw))
+            return self._send(200, out)
 
         if self.path == "/voice/tts":
             try:
                 text = json.loads(raw.decode("utf-8")).get("text", "")
-            except (ValueError, UnicodeDecodeError):
-                return self._send(400, {"error": "bad body"}, cors)
+            except (ValueError, UnicodeDecodeError, AttributeError):
+                return self._send(400, {"error": "bad body"})
             out = voice.synthesize(text)
             if not out:
-                return self._send(503, {"error": "no voice provider configured"}, cors)
-            return self._send(200, out, cors)
+                return self._send(503, {"error": "no voice provider configured"})
+            return self._send(200, out)
 
-        return self._send(404, {"error": "not found"}, cors)
+        return self._send(404, {"error": "not found"})
 
     def do_POST(self):
         if self.path.startswith("/voice/"):
@@ -421,6 +449,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(503, {"error": "Nova agent is not configured"})
         length = int(self.headers.get("Content-Length") or 0)
         if length > 16_384:
+            self.close_connection = True
             return self._send(413, {"error": "request is too large"})
         try:
             raw = self.rfile.read(length) if length else b""
@@ -432,15 +461,28 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, {
                 "error": "text must be a non-empty string of at most 1000 characters"
             })
+        tz = payload.get("tz_offset_minutes")
+        tz = tz if isinstance(tz, int) and not isinstance(tz, bool) and -840 <= tz <= 840 else None
+        name = payload.get("tz_name")
+        name = name if isinstance(name, str) and re.fullmatch(r"[A-Za-z_]+(/[A-Za-z_+\-0-9]+){0,2}", name) else None
+        cut = payload.get("interrupted")
+        cut = " ".join(cut.split())[:300] if isinstance(cut, str) and cut.strip() else None
+        asked_at = time.time()
         try:
-            result = self.server.agent_runner(question.strip(), listener_id)
+            result = self.server.agent_runner(question.strip(), listener_id, tz, cut, name)
         except Exception as e:                           # noqa: BLE001
             from ..language.agent import AgentUnavailable
+            audit.record("agent", question=question.strip(), ok=False, error=str(e) or type(e).__name__,
+                         ms=round((time.time() - asked_at) * 1000), listener=listener_id)
             if isinstance(e, AgentUnavailable):
                 LOG.warning("Nova agent unavailable: %s", e)
                 return self._send(503, {"error": "Nova agent unavailable"})
             LOG.exception("Nova agent request failed")
             return self._send(500, {"error": "Nova agent request failed"})
+        audit.record("agent", question=question.strip(), ok=True, answer=result.get("text"),
+                     tools=[t.get("name") for t in result.get("tool_results") or []],
+                     generated_by=result.get("generated_by"), understood=result.get("understood"),
+                     ms=round((time.time() - asked_at) * 1000), listener=listener_id)
         return self._send(200, result)
 
     def _one(self, msg, listener_id):

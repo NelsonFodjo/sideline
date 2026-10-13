@@ -4,6 +4,7 @@ The phrasing here is what templates.py used to hold directly; it moved
 unchanged so existing behaviour and tests are the same.
 """
 
+from ..status import FINISHED
 from . import SportProfile, register
 
 
@@ -73,7 +74,7 @@ class Football(SportProfile):
         score = self.say_score(fixture)
         status = fixture.get("status")
         minute = fixture.get("minute") or 0
-        if status in ("finished", "FT"):
+        if status in FINISHED:
             return "Full time. %s." % score
         if status in ("HT",):
             return "Half time. %s." % score
