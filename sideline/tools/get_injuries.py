@@ -5,7 +5,7 @@ from . import feed, resolve_fixture
 
 def run(ctx, args, listener_id):
     team = (args.get("team") or "").strip()
-    fx = resolve_fixture(ctx, {"fixture_id": args.get("fixture_id")} if args.get("fixture_id") else {}, listener_id)
+    fx = resolve_fixture(ctx, args, listener_id, prefers="coming")
     out = feed(ctx, "injuries", fx["fixture_id"])
     if team:
         out = [o for o in out if team.lower() in (o.get("team") or "").lower()]

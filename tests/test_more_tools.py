@@ -1,4 +1,4 @@
-"""The thirteen tools beyond the core eleven: discovery, tables, statistics, people, favourites.
+"""The sixteen tools beyond the core eleven: discovery, tables, statistics, people, favourites.
 
 Run against the invented fixture through the test double. Pinned here: what each says (numbers said as
 words, times in the listener's clock), that a missing thing is said and never guessed, that favourites are
@@ -85,7 +85,11 @@ def main():
         spoken, _, _ = run(ctx, "get_injuries")
         assert spoken == "Out for Arsenal: Gabriel Jesus (knee injury). Out for Tottenham: Cristian Romero (suspended).", spoken
         assert run(ctx, "get_injuries", team="Tottenham")[0] == "Out for Tottenham: Cristian Romero (suspended)."
-        assert run(ctx, "get_injuries", team="Chelsea")[0] == "No one is reported out for Chelsea."
+        try:                                  # a team that is not in this match, nor playing, is not guessed at
+            run(ctx, "get_injuries", team="Chelsea")
+            raise AssertionError("Chelsea is not playing")
+        except ToolError as e:
+            assert "Chelsea" in e.spoken, e.spoken
         spoken, _, _ = run(ctx, "get_team_form")
         assert spoken == ("Arsenal recently: won, won, drew, lost, won. Tottenham recently: lost, drew, won, won, won."), spoken
         spoken, _, _ = run(ctx, "get_player_stats", player="Saka")
@@ -126,7 +130,7 @@ def main():
         # ---------------------------------------------------------- what can you do
         spoken, s, _ = run(ctx, "get_capabilities")
         assert "league tables" in spoken and "remembering your teams" in spoken and "football" in s["sports"]
-        assert "get_standings" in s["tools"] and len(s["tools"]) == 24
+        assert "get_standings" in s["tools"] and len(s["tools"]) == 27
         print("ok  capabilities are read from the tools actually offered")
 
         # ---------------------------------------------------------- tools follow the feed
@@ -139,7 +143,7 @@ def main():
             core = {t["name"] for t in registry.public_tools(core_only=True)}
             assert core <= set(registry.CORE_TOOLS) and "get_match_stats" not in core and len(core) <= 11
             registry.limit_to(None)
-            assert len(registry.public_tools()) == 24 and len(registry.public_tools(core_only=True)) == 11
+            assert len(registry.public_tools()) == 27 and len(registry.public_tools(core_only=True)) == 11
         finally:
             registry.limit_to(None)
         os.environ["SIDELINE_AGENT_TOOLS"] = "core"
@@ -147,7 +151,7 @@ def main():
             assert len(agent._bedrock_tools()) == 11, "the voice agent can be held to the core eleven"
         finally:
             os.environ.pop("SIDELINE_AGENT_TOOLS", None)
-        assert len(agent._bedrock_tools()) == 24
+        assert len(agent._bedrock_tools()) == 27
         print("ok  a feed without a capability does not offer its tools; SIDELINE_AGENT_TOOLS=core holds the agent to eleven")
 
         # ---------------------------------------------------------- a feed without it

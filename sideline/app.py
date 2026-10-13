@@ -59,6 +59,7 @@ def build(provider=None):
     if folder:
         logging.getLogger("sideline").info("logs: %s (a new file each day, kept %d days)", folder, CONFIG.log_keep_days)
 
+    test_provider = provider is not None
     if provider is None:
         if not CONFIG.sportmonks_token:
             raise ConfigError(
@@ -71,7 +72,9 @@ def build(provider=None):
 
     # Offer only the tools this feed can answer: a model is never shown a tool that would fail.
     registry.limit_to(getattr(provider, "capabilities", None))
-    store = build_store(CONFIG.state, table_name=CONFIG.table, region=CONFIG.region)
+    # A server built with a test provider (invented data) must never write to a real table: that is how a followed
+    # match the feed has never heard of once ended up in someone's DynamoDB. Memory only, whatever SIDELINE_STATE says.
+    store = build_store("memory" if test_provider else CONFIG.state, table_name=CONFIG.table, region=CONFIG.region)
     ctx = Context(provider, store, language)
 
     run_tool = tool_runner(ctx)

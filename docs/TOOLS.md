@@ -183,7 +183,15 @@ that off the network. The estimate is the vendor's, labelled as an estimate, and
 
 Does not advance `last_told_at`: a preview is not news of what happened.
 
-### The other thirteen: discovery, tables, numbers, people, you
+### Pointing any tool at any match
+
+Every match tool (`get_match_state`, `get_lineups`, `get_officials`, `get_match_stats`, `get_injuries`, `get_event_detail`,
+`get_player_context`, `get_head_to_head`, `get_match_preview`, `get_match_report`) accepts `team`, `opponent`, `when`
+(`last`, `next`, `yesterday`, `today`, `tomorrow`) and `date` as well as `fixture_id`, so a match that is not the followed one,
+a played one included, can be named. Which match is meant, and when to list the options instead of guessing, is
+[FINDER.md](FINDER.md).
+
+### The other sixteen: discovery, tables, numbers, people, you
 
 Each is one intent, each names its neighbour in its description so routing never has to guess, and each is read-only
 except the two that remember. All of them say what is missing instead of guessing it.
@@ -192,7 +200,9 @@ except the two that remember. All of them say what is missing instead of guessin
 |---|---|---|
 | Discover | `search`, `get_competitions` | A heard name is checked against what exists; a free feed's few leagues are listed. |
 | | `get_standings`, `get_top_scorers` | Positions are said as words (first, second...). With no competition named, the followed match's is used; with neither, it asks which. |
-| | `get_schedule` | A team's matches from yesterday to tomorrow, with times; the window is all a free feed sees, and an empty answer says so. Owns "what time is X playing"; `get_match_preview` owns "tell me about the match". |
+| | `get_schedule` | A team's next matches with times (`which: next`) or its last results with scores (`which: last`), as far as the feed can see (six weeks ahead, three months back on the free plan). Owns "what time is X playing"; `get_match_preview` owns "tell me about the match". |
+| Teams, with no match | `get_squad`, `get_team_stats`, `get_team_form` | Players by position with the manager and captain (a position gives the names); the season so far; the last results as won/drew/lost (pass `team`). None needs a match to be followed. |
+| Played matches | `get_match_report` | The result and goals first, then cards, substitutions or VAR by name (`part`). Any match that has been played: the events come from the feed once and are kept. Returned as written. |
 | The match | `get_match_stats`, `get_team_form`, `get_injuries` | The numbers, the last results as won/drew/lost, who is out and why. |
 | People | `get_player_stats` | A player's season; `get_player_context` stays for what he just did. |
 | You | `set_favourites`, `get_my_matches` | Only names the listener gave are stored. "Are my teams on" then needs no name. Nothing is pushed: Alexa+ cannot be spoken first. |

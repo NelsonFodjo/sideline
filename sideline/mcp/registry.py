@@ -60,7 +60,7 @@ _fixture = {"type": "integer", "minimum": 1,
 tool(
     "follow_match",
     "Follow a match",
-    "Start following a match so later questions need no context. Say: 'follow the Arsenal game', 'I'm watching Arsenal Spurs', 'keep me updated on City', 'switch to Chelsea'. Only when they ask to follow. Not the score (get_match_state); not 'I support X' (set_favourites).",
+    "Start following a match so later questions need no context. Say: 'follow the Arsenal game', 'I'm watching Arsenal against Spurs', 'keep me updated on City', 'switch to Chelsea'. Only when they ask to follow. Not the score (get_match_state); not 'I support X' (set_favourites).",
     _obj({"team": _team,
           "opponent": {"type": "string", "maxLength": 60,
                        "description": "The other team, if the listener named it."},
@@ -75,7 +75,7 @@ tool(
 tool(
     "get_match_state",
     "Score and clock",
-    "The score and the clock, right now. Say: 'what's the score', 'how long left', 'who's winning', 'has it finished'. Not what happened (what_did_i_miss).",
+    "The score and the clock, right now. Say: 'what's the score', 'how long left', 'who's winning', 'has it finished'. Not what happened (what_did_i_miss); not 'I'm watching X' or 'follow X' (follow_match).",
     _obj({"fixture_id": _fixture}),
     output_hint="score, minute, period, whether the match has finished",
     ui="mcp-apps://scoreboard",
@@ -96,6 +96,16 @@ tool(
 )
 
 tool(
+    "get_match_report",
+    "What happened in a match",
+    "What happened in a match that was played or is on: result, goals, assists, cards, substitutions, VAR. No follow needed. Say: 'what happened in the Celtic game', 'who scored', 'any cards', 'who came on', 'how did it finish'. Set `part` when they ask for one thing. Not who played (get_lineups); not what you missed (what_did_i_miss).",
+    _obj({"fixture_id": _fixture,
+          "part": {"type": "string", "enum": ["all", "goals", "cards", "substitutions", "var"],
+                   "description": "goals for 'who scored', cards for 'any cards' or 'sent off', substitutions for 'who came on', var for VAR. Omit only for the whole story."}}),
+    output_hint="the result and goals, or one part in full: goals, cards, substitutions or VAR decisions",
+)
+
+tool(
     "get_match_preview",
     "Describe the match",
     "A rundown of one match: ground, kick-off time, weather, formations. Say: 'tell me about the match', 'where is it being played', 'what's the weather', 'when does it start'. Pass `team` if they name one. Not when a team plays (get_schedule).",
@@ -111,7 +121,7 @@ tool(
 tool(
     "get_lineups",
     "Line-ups and formation",
-    "The players: starting eleven, formation, bench. Say: 'who's playing' (the players), 'what's the line-up', 'who's on the bench', 'what formation'. Not which matches are on (get_fixtures).",
+    "The players in a match, played or not: starting eleven, formation, bench. Say: 'who's playing', 'who played in the Celtic Rangers game', 'what's the line-up', 'who's on the bench', 'what formation'. Not which matches are on (get_fixtures); not a whole squad (get_squad).",
     _obj({"fixture_id": _fixture,
           "team": {"type": "string", "maxLength": 60,
                    "description": "Limit to one side. Omit for both."}}),
@@ -178,7 +188,7 @@ tool(
 tool(
     "get_officials",
     "Referee and officials",
-    "The referee and the cards shown. Say: 'who's refereeing', 'who's the ref', 'how many yellows', 'anyone sent off'. Not who is injured (get_injuries).",
+    "The referee, and the yellows and reds so far in the match being followed. Say: 'who's refereeing', 'who's the ref', 'how many yellows', 'anyone sent off'. Not who is injured (get_injuries). Cards in a match already played are get_match_report.",
     _obj({"fixture_id": _fixture}),
     output_hint="referee, assistants, VAR official, cards shown so far",
 )
@@ -244,19 +254,39 @@ tool(
 tool(
     "get_top_scorers",
     "The top scorers",
-    "Who has scored most in a competition. Say: 'who's the top scorer', 'golden boot race'. Not one player's tally (get_player_stats); not this match's goals (what_did_i_miss).",
+    "Who has scored most in a competition. Say: 'who's the top scorer', 'golden boot race'. Not the league table or who is top of it (get_standings); not one player's tally (get_player_stats).",
     _obj({"competition": _competition}),
     output_hint="the leading scorers with their teams and goals",
 )
 
 tool(
     "get_schedule",
-    "When a team plays",
-    "When a team plays, yesterday to tomorrow. Say: 'when does Arsenal play', 'what time is Arsenal playing', 'when do Arsenal play Lille', 'is Spurs on today' (any one named team). Always pass `team`. Not the whole day's list (get_fixtures).",
+    "When a team plays, and how it did",
+    "A team's next matches, or its last results, no match needed. Say: 'when does Arsenal play', 'what time is Arsenal playing', 'when do Arsenal play Lille', 'is Spurs on today', 'next fixtures' (which next); 'last results', 'recent games', 'did they win' (which last). Always pass `team`. Not the whole day (get_fixtures).",
     _obj({"team": _team,
+          "which": {"type": "string", "enum": ["next", "last"],
+                    "description": "next (the default): the coming matches. last: the latest results with scores."},
           "opponent": {"type": "string", "maxLength": 60,
                        "description": "The other team, if they named it."}}, ["team"]),
-    output_hint="each of the team's matches in the window, with its time",
+    output_hint="the team's next matches with their times, or its last results with scores",
+)
+
+tool(
+    "get_squad",
+    "A team's players",
+    "A team's players, with no match needed. Say: 'who is in the Celtic squad', 'who's their goalkeeper', 'who's the manager', 'who's the captain', 'list their defenders'. Always pass `team`; add `position` for names. Not who starts this match (get_lineups); not one player (get_player_stats).",
+    _obj({"team": _team,
+          "position": {"type": "string", "enum": ["goalkeeper", "defender", "midfielder", "attacker"],
+                       "description": "Only if they asked for one position, to hear the names."}}, ["team"]),
+    output_hint="how many players by position with the manager and captain, or the names in one position",
+)
+
+tool(
+    "get_team_stats",
+    "A team's season",
+    "A team's season so far, with no match needed: games, wins, draws, defeats, goals, clean sheets, possession. Say: 'how are Arsenal doing this season', 'Arsenal's stats', 'how many goals have they scored'. Always pass `team`. Not this match (get_match_stats); not the table (get_standings).",
+    _obj({"team": _team}, ["team"]),
+    output_hint="games, results, goals for and against, clean sheets and possession this season",
 )
 
 tool(
@@ -272,7 +302,7 @@ tool(
 tool(
     "get_player_stats",
     "A player's season so far",
-    "A player's season totals. Say: 'has he scored this season', 'how many goals has Saka got', 'how many appearances'. Not what he did today (get_player_context).",
+    "A player's season totals. Say: 'has he scored this season', 'how many goals has Saka got', 'how many appearances'. Not his shirt number or who he is, or what he did today (get_player_context).",
     _obj({"player": {"type": "string", "minLength": 2, "maxLength": 60,
                      "description": "The player as the listener said it."},
           "team": {"type": "string", "maxLength": 60, "description": "Their team, if said."}}, ["player"]),
@@ -291,8 +321,9 @@ tool(
 tool(
     "get_team_form",
     "A team's recent form",
-    "How the two sides have been doing lately. Say: 'what's their form', 'how have they been playing', 'recent results'. Not their past meetings (get_head_to_head).",
-    _obj({"fixture_id": _fixture}),
+    "How a team has been doing lately, as won, drawn, lost: pass `team`, or omit it for the two sides in the match. Say: 'what's their form', 'how have they been playing'. Not scores or dates of results (get_schedule which last); not past meetings (get_head_to_head).",
+    _obj({"fixture_id": _fixture,
+          "team": {"type": "string", "maxLength": 60, "description": "A team whose form is wanted, with no match needed."}}),
     output_hint="each side's last results as won, drawn or lost",
 )
 
@@ -310,7 +341,7 @@ tool(
 tool(
     "get_my_matches",
     "Matches for my teams",
-    "Which of the listener's remembered teams are playing. Say: 'are my teams playing', 'what's on for me'. Not a team they name now (get_schedule).",
+    "Which of the listener's remembered teams are playing. Say: 'are my teams playing', 'what's on for me'. Not a team they name now (get_schedule); not 'keep me updated on X' (follow_match).",
     _obj({"when": {"type": "string", "enum": ["yesterday", "today", "tomorrow"],
                    "description": "Which day. Omit for today."}}),
     output_hint="each favourite team's match in the window, with its time",
@@ -335,6 +366,21 @@ tool(
     output_hint="the things this feed supports, in words",
 )
 
+# Any match tool can be pointed at a match that is not the followed one, one already played included: the listener names a
+# team (and the other side, a day or a date) and sideline/finder.py works out which match they mean, or lists the options.
+_REF = {"team": {"type": "string", "maxLength": 60,
+                 "description": "A team, to pick its match when that is not the one being followed."},
+        "opponent": {"type": "string", "maxLength": 60, "description": "The other team, if they named it."},
+        "when": {"type": "string", "enum": ["last", "next", "yesterday", "today", "tomorrow"],
+                 "description": "Which of that team's matches: the last one played, the next, or a day."},
+        "date": {"type": "string", "maxLength": 10, "description": "A day as YYYY-MM-DD, if they gave one."}}
+MATCH_TOOLS = ("get_match_state", "get_lineups", "get_officials", "get_match_stats", "get_injuries", "get_event_detail",
+               "get_player_context", "get_head_to_head", "get_match_preview", "get_match_report")
+for _spec in TOOLS:
+    if _spec["name"] in MATCH_TOOLS:
+        for _k, _v in _REF.items():
+            _spec["inputSchema"]["properties"].setdefault(_k, _v)
+
 # What a tool needs from the feed behind it. A tool whose need is missing is not listed.
 TOOL_REQUIRES = {
     "follow_match": "fixtures", "get_match_state": "fixtures", "get_match_preview": "fixtures",
@@ -344,6 +390,7 @@ TOOL_REQUIRES = {
     "get_head_to_head": "h2h", "get_match_stats": "stats", "get_injuries": "injuries",
     "get_team_form": "form", "get_standings": "standings", "get_top_scorers": "top_scorers",
     "get_player_stats": "player_stats", "search": "search", "get_competitions": "competitions",
+    "get_squad": "squad", "get_team_stats": "team_stats", "get_match_report": "events",
 }
 
 # The core eleven: the small set a voice agent can be held to, and the ones the spoiler guard and catch-up are built on.

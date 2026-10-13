@@ -29,6 +29,9 @@ Severity: **critical** blocks shipping · **important** costs real time ·
 | FL-12 | Store listener state in DynamoDB with boto3 | `put_item` rejects Python floats (`Float types are not supported`), and reads return `Decimal`, which JSON cannot encode; a local fake accepts both, so nothing failed until a real table was used (every event was silently not logged) | important | Convert on write and read; `tests/test_dynamo.py` pins it | Show the Decimal rule next to the first `put_item` example, and make the error name the attribute |
 | FL-13 | Transcribe a spoken question with a speech-capable model on Bedrock (Mistral Voxtral via Converse) | It accepts audio but is a chat model: it answered a spoken question with an invented score instead of transcribing it (2 of 4 phrases correct on Small) | nice-to-have | Used Nova 2 Sonic and Groq instead | Add a transcription mode to Converse for audio models, or say clearly that they are chat-only |
 | FL-14 | Build and test against a free football feed for a day | The first feed's free plan allowed 100 requests a day and 10 a minute, with only yesterday to tomorrow visible; the day's quota was spent before the build was done, so every question returned the feed's error | important | Replaced it with Sportmonks, whose free plan is limited per hour, not per day | State the per-minute and date-window limits beside the daily number, return remaining quota on every response, and offer a hackathon-sized free tier |
+| FL-15 | Replace a third-party speech recogniser with a model on Bedrock, and keep the accuracy | Voxtral rejected a system message next to audio, answered the question instead of transcribing when the instruction came first, and the small model worked while the mini one did not; it took a controlled comparison to find all that | important |
+| FL-16 | Run Nova Sonic from the Python SDK on a new Python | The SDK's CRT component failed to import with `awscrt` 0.26.1 on Python 3.14 and reported "awscrt is not installed" while it was; upgrading to 0.37 fixed it, after one whole comparison run was wasted | important |
+| FL-17 | Test a voice agent against a real DynamoDB table | Our own routing and verify runs wrote 108 items into the app's real table (85 invented listeners, three fixtures that the live feed has never heard of, stale follower markers), and the browser's listener was left following a match from the feed we had dropped, so every match question answered "can't find that match any more" | important |
 
 ---
 
@@ -241,8 +244,11 @@ and have the error name the offending attribute.
 **Actual** It accepts audio but answered the question: it invented a score instead of transcribing (2 of 4 phrases
 correct on Small). For a blind listener an invented score is worse than silence.
 
-**Severity** nice-to-have **Workaround** Nova 2 Sonic and Groq. **Suggestion** A transcription mode for audio models
+**Severity** nice-to-have **Workaround** Nova 2 Sonic, at the time. **Suggestion** A transcription mode for audio models
 on Converse, or a note that they are chat-only.
+
+**Update, same day.** The rejection was premature: it was how the model was asked. See FL-15, where Voxtral Small, asked
+correctly, matched the third-party benchmark.
 
 ### FL-14 — The first free football feed ran out in a day, so we replaced it
 
@@ -271,6 +277,80 @@ real finished match first (README, docs/DATA_PROVIDERS.md).
 **Suggestion** Put the per-minute limit and the date window on the plan page next to the daily number; return the
 remaining quota in every response (Sportmonks does, in `rate_limit`); and offer a small hackathon-sized free tier,
 because a daily cap that a day of development spends is a cap on building.
+
+### FL-15 — A speech model on Bedrock can match a third-party recogniser, if you ask it the right way
+
+**Evidence** Sideline build, 2026-10-13; the same 48 clips and scoring in [SPEECH.md](SPEECH.md), `make compare-stt`.
+
+**Task** Take the listener's audio off a third-party service (Groq's hosted Whisper, which had won a first
+comparison) and run speech in on Amazon Bedrock only, without losing accuracy; for a product whose listeners may be
+blind, where their voice goes matters. **Steps** Listed the account's Bedrock models (124, none of them Groq or Whisper;
+Amazon Transcribe returned `SubscriptionRequiredException`), found Mistral Voxtral (audio in, text out, through Converse)
+and a newer Nova Sonic, built Voxtral as a provider, and ran every contender on the same clips, clean and with noise.
+**Expected** A speech model to transcribe. **Actual**, in order:
+
+1. Our earlier try had been rejected (FL-13): it answered "What's the score?" with an invented score.
+2. A `system` message next to audio is refused: `Found system messages at indexes [0] and audio chunks in messages at
+   indexes [1]. This is not allowed prior to the tokenizer version 13.` The instruction has to go in the user turn.
+3. With the instruction *before* the audio the model answers what it hears; the mini model once wrote "Alright, so I'm
+   going to ask you a question" repeatedly over a clip of "Follow Arsenal." With the **audio first**, the small model
+   transcribed all three test phrases.
+4. The vocabulary list we sent (as every other recogniser takes) made it worse: with team names in the prompt it printed the
+   names for "The first one." and, in one wording, answered "What's the score?" with "The score is Arsenal 1...". Twelve
+   clips: 0 failures without the names, up to 2 with them. So we send none.
+5. Full run, 48 clips, no vocabulary: Voxtral Small 0.0% word error clean, 1.4% noisy, 47 of 48 exact, every name right
+   (48 of 48), 0.8 s a clip; the third-party benchmark 0.4% and 3.7%, 43 of 48, 44 of 48 names, 1.4 s. With names in the
+   prompt (the first run) Voxtral was 1.3% and 2.6% at 1.2 s. **Voxtral Mini** was unusable: 24.6% and 39.1% error with the
+   names and 21 failed clips without, because it answered questions and printed the names. Nova Sonic took 3.4 to 4.2 s a clip
+   (8% to 8.5% word error), on Nova 2 and the newer 2.5 alike.
+
+**Severity** important: a rejected approach looked final, and nothing in the Converse documentation we found says an
+audio block should come before the instruction or that a system message is refused with audio.
+
+**What we did.** Made Voxtral Small the first choice and Nova Sonic the fallback, put a guard on its reply (more words
+than the clip could hold is not a transcript, so the clip falls back), and **removed the third-party service from the
+product**: its key, its request code, its tests. Eliminations followed the rule "one error, or being slow, is enough": Voxtral
+Mini on errors, Nova 2 and 2.5 Sonic on speed. The numbers are from synthetic speech and are a comparison, not an
+accuracy a listener will see (SPEECH.md lists the limits). The Nova 2.5 figures are a six-clip sample: the full runs for
+Sonic did not complete (see FL-16).
+
+**Suggestion** Document, on the Voxtral Bedrock page, how to transcribe with it through Converse (audio block first, no
+system message, an instruction that forbids answering), or add a transcription-only mode; and publish a speech-to-text
+accuracy figure next to the model list, so that a builder choosing an AWS-only path can see that one exists.
+
+### FL-16 — The Nova Sonic SDK said "awscrt is not installed" when it was
+
+**Evidence** Sideline build, 2026-10-13, Python 3.14.8, `aws-sdk-bedrock-runtime` with `smithy-http` 0.6.0.
+
+**Task** Run Nova Sonic speech in from a script. **Steps** `pip3 install awscrt`, then called Sonic. **Expected** A
+transcript. **Actual** `MissingDependencyError: Attempted to use awscrt component, but awscrt is not installed.` on every
+clip, although `import awscrt` worked and `pip list` showed `awscrt 0.26.1`. The SDK guards its CRT import in a
+`try/except ImportError` and sets `HAS_CRT = False`, so any import failure inside it becomes that message. Upgrading to
+`awscrt` 0.37.0 made `HAS_CRT` true. The comparison script had run its whole length (96 failed calls) before the
+cause was clear, because each clip's failure was only a log line.
+
+**Severity** important: the message names the wrong problem, and the failure hides in a log. **Workaround** Upgrade
+`awscrt`; check `from smithy_http.aio import crt; crt.HAS_CRT`. **Suggestion** Report the underlying import error, and
+state the compatible `awscrt` range for each SDK release (our `requirements.txt` said `>=0.26`, which was not enough on
+Python 3.14).
+
+### FL-17 — Tests that touch a real table leave the product answering about matches that do not exist
+
+**Evidence** Sideline build, 2026-10-14, a read of the table before any change: 109 items, of which 108 were ours.
+
+**Task** Ask a real question in the simulator ("Who are the members of the team squad?"). **Expected** A squad, or a plain
+"which team?". **Actual** "I can't find that match any more." **Why** The first routing run (2026-10-13) used the invented
+test provider with `SIDELINE_STATE=auto`, and `auto` means DynamoDB when it answers. So 85 test listeners
+(`route-*`, `verify-agent*`), their follower markers and three fixture rows (one invented, two left from the feed we had
+dropped) were written to the table the app uses, and the browser's own listener was following an id the live feed does not
+know. Every match tool then failed the same way, and the poller kept asking the feed about those ids at 30 s, which spends
+the hourly limit for nothing. **Severity** important: it looked like the product could not answer, and it spent quota.
+
+**What we did.** Deleted the 108 items (only ours, after listing them, and kept the real listener's own data, clearing only
+the stale followed match); made a followed match the feed does not know get forgotten, with a plain sentence, the first time
+it is seen; made the poller give up on a fixture the feed does not know after three misses; and made a server built with a
+test provider use memory state only, whatever `SIDELINE_STATE` says, with a test. **Suggestion** for anyone building the same:
+"auto" backends are convenient and dangerous in tests; make the safe choice the one that needs no configuration.
 
 ---
 

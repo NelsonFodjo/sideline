@@ -7,6 +7,11 @@ happening right now, built for the Alexa+ track of the *Build, Ship, Shape: Amaz
 Football is the first sport it speaks, and other sports plug in through one interface. It reads a live feed, keeps what each listener has already heard, and speaks through Amazon
 Bedrock and Polly.
 
+> **The web page in this repository is a simulated Alexa+.** Alexa+ is the voice assistant that would talk to this
+> server, and its add-on tooling is partner-only, so participants cannot connect the real one. The simulator plays that
+> part honestly: it listens, chooses tools, calls them over MCP exactly as an external client would, and speaks the answer.
+> It is a stand-in for Alexa+, not Alexa+, and it is how you run and judge everything below.
+
 ---
 
 ## The problem
@@ -87,29 +92,30 @@ they just *heard* ("that's half time") and we hold everything back to match thei
 ## How it works
 
 ```
-   Alexa+  (the intended client)                 the simulator (what runs today)
+   Alexa+  (the real client: partner-only)        the simulated Alexa+ (what runs today)
         \                                          a web page + the voice agent
          \                                         /
           MCP over Streamable HTTP, spec 2025-11-25
                           |
-                   Sideline MCP server          24 tools · event log · last_told_at · sport profile
+                   Sideline MCP server          27 tools · event log · last_told_at · sport profile
               /          |            \                   \
         Bedrock      DynamoDB      poller         live football feed
    (Nova Micro:      (listener     (a thread,     (Sportmonks)
     the wording,      state)        followed
     the agent)                      matches only)
-   Polly (voice)   Nova Sonic / Groq (speech in)
+   Polly (voice)   Voxtral / Nova Sonic (speech in)
 ```
 
 In the intended deployment the client is Alexa+: it would do the listening, tool routing and speaking.
 **That path is not reachable by hackathon participants** (the Alexa+ add-on tooling is partner-only), so
-Sideline is demonstrated through its own MCP client: a web page, plus a voice agent whose every tool call is
-made over the MCP endpoint, exactly as an external client's would be.
+Sideline is demonstrated through a **simulated Alexa+**: a web page, plus a voice agent whose every tool call is
+made over the MCP endpoint, exactly as an external client's would be. When it greets you it says so.
 
 | AWS service | What it does here |
 |---|---|
 | **Bedrock, Nova Micro** | writes the spoken catch-up; in the simulator, the agent that chooses which tool to call |
-| **Bedrock, Nova 2 Sonic** | speech in: hears the listener (the fallback when no Groq key is set) |
+| **Bedrock, Mistral Voxtral** | speech in: hears the listener. Level with or ahead of the third-party recogniser we started with (1.4% word error in noise, every name right, 0.8 s), which was then removed |
+| **Bedrock, Nova 2 Sonic** | speech in, the fallback when Voxtral fails |
 | **Polly** (generative voice, neural fallback) | speech out in Polly's most natural voice, an answer in one flowing piece, with word timings so the screen highlights each word as it is spoken |
 | **DynamoDB** | listener state and the event log, so what a listener has heard survives a restart |
 
@@ -127,7 +133,7 @@ and its voice runs on AWS.
 | Written and spoken answers, and the voice agent | AWS credentials with Bedrock access (Nova Micro) |
 | The voice | Polly access too. A Bedrock API key alone is not enough |
 | Durable state | DynamoDB access and the table (`make create-table`) |
-| The most accurate speech in | optional: a free Groq key (your audio then leaves AWS, see [docs/SPEECH.md](docs/SPEECH.md)) |
+| Speech in | the same AWS credentials: Voxtral and Nova Sonic run on Bedrock, so the listener's audio never leaves your account (see [docs/SPEECH.md](docs/SPEECH.md)) |
 
 Python 3.8 or newer. The server itself uses only the standard library.
 
@@ -178,7 +184,10 @@ match in play at the default 30 s poll uses two thirds of them; a match not yet 
 | `get_competitions` | "What leagues can you cover?" | A free feed covers a few: this is how a listener finds out. |
 | `get_standings` | "Where is Arsenal in the league?" | The table, or one team's place and points. |
 | `get_top_scorers` | "Who's the top scorer?" | The leaders in a competition. |
-| `get_schedule` | "What time is Arsenal playing?" | A team's matches from yesterday to tomorrow, each with its time. |
+| `get_schedule` | "When do Celtic play next?" / "What were their last results?" | A team's next matches with times, or its last results with scores, as far as the feed can see. No match needed. |
+| `get_match_report` | "What happened in the last Celtic match?" | The result, goals, cards, substitutions and VAR of any match that has been played, with no follow needed. |
+| `get_squad` | "Who is in the Celtic squad?" | A team's players by position, its manager and captain. |
+| `get_team_stats` | "How are Celtic doing this season?" | A team's games, results, goals, clean sheets and possession. |
 | `get_match_stats` | "Who has more possession?" | The numbers: possession, shots, corners, fouls. |
 | `get_player_stats` | "Has he scored this season?" | A player's season so far. |
 | `get_injuries` | "Who's injured?" | Who is out of the match, and why. |
@@ -188,9 +197,9 @@ match in play at the default 30 s poll uses two thirds of them; a match not yet 
 | `set_preferences` | "Keep it short." / "Speak French." | How much to say, and in which language. |
 | `get_capabilities` | "What can you do?" | Read from the tools actually offered, so it is true for this feed. |
 
-**Twenty-four tools, each one intent.** A feed declares what it can supply (events, line-ups, standings, statistics...),
+**Twenty-seven tools, each one intent.** A feed declares what it can supply (events, line-ups, standings, statistics...),
 and a tool whose need is missing is not offered, so a model is never shown one that would fail; Sportmonks' free plan
-supplies all twenty-four. Football is the sport the demo and the tests run on; the tools are sport-neutral and the
+supplies all twenty-seven. Football is the sport the demo and the tests run on; the tools are sport-neutral and the
 sport's words live in its `SportProfile`. Because a small model routes worse the more tools it sees,
 `SIDELINE_AGENT_TOOLS=core` holds the voice agent to the core eleven.
 
@@ -210,13 +219,13 @@ the result observed; every row says how to repeat it.
 
 | | Status |
 |---|---|
-| MCP server, twenty-four tools, spoiler guard, sport seam | **Verified**: `make test` (offline, no keys) |
+| MCP server, twenty-seven tools, spoiler guard, sport seam | **Verified**: `make test` (offline, no keys) |
 | Live football feed (Sportmonks free plan) | **Verified** against a real, finished match (AGF against Sønderjyske, 2026-10-12): fixture, goals with assists, substitutions (on and off), cards, VAR notes, line-ups with formations, referee, statistics, head to head, standings, top scorers, injuries, recent form and a player's season all read correctly, and an unbroken read-through of the core tools. **Not yet seen during a live match**: the plan's four leagues had no match in play when it was checked. `make verify-data ARGS="--tools <fixture id>"` |
 | Bedrock (Nova Micro): wording and tool use | **Verified**: a call takes about 1.5 to 2.1 s. `make aws-check` |
 | The voice agent's tool calls go over MCP | **Verified**: with real Nova, through the MCP endpoint. `tests/test_mcp_client.py` |
 | Polly speech out with word timings | **Verified**: `make aws-check` |
 | DynamoDB state | **Verified** on a real table: the listener's marker survives a restart and re-polls add no duplicates (two bugs found and fixed) |
-| Speech in: Groq against Nova Sonic | **Measured**, on synthetic speech (48 clips, clean and noisy): Groq 3.7% word error in noise at 1.1 s, Sonic 8.5% at 4.2 s. `make compare-stt` |
+| Speech in: AWS models against a third-party benchmark | **Measured**, on synthetic speech (48 clips, clean and noisy): Voxtral Small 1.4% word error in noise, 47 of 48 clips exact, every name right, 0.8 s; the benchmark (Groq Whisper, since removed) 3.7%, 43 of 48 and 44 of 48 names; Nova 2 Sonic 8.5% at 4.2 s; Voxtral Mini unusable. `make compare-stt`; the story is in docs/SPEECH.md |
 | Resolving mispronounced answers; ignoring keyboard noise | **Unit-tested**, and the former run against real Nova, on typed approximations and synthetic frames |
 | A real microphone session | **Verified**: spoken questions, hands-free, with a real microphone |
 | Use by a blind person | **Verified**: a blind person used it and it worked. The design is built on how a broadcast presents information, and this first session confirms it holds with a real listener |
@@ -236,8 +245,8 @@ the result observed; every row says how to repeat it.
   statistics have possession, corners and cards but no shots, and it offers no win estimate. When the feed refuses,
   the listener hears its own error, word for word, and "try again shortly"; some matches have no line-ups or referee
   yet, and the tools say so rather than guess.
-- **Speech in has a privacy cost.** Groq is a third party, and the live captions use the browser's own
-  recognition, which sends audio to the browser vendor. Both are switchable: [docs/SPEECH.md](docs/SPEECH.md).
+- **Live captions are the one place audio leaves AWS.** Speech in runs on Bedrock, but the live captions use the browser's own
+  recognition, which sends audio to the browser vendor. Switchable: [docs/SPEECH.md](docs/SPEECH.md).
 
 ## Hackathon submission
 
@@ -250,6 +259,7 @@ DynamoDB). How each requirement is met, the third-party material, and the dates:
 | | |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it fits together, and why |
+| [docs/FINDER.md](docs/FINDER.md) | How Sideline works out which match you mean, played or to come, and lists the options when it is unsure |
 | [docs/TOOLS.md](docs/TOOLS.md) | The contracts, and why each description is worded as it is |
 | [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | Every environment variable |
 | [docs/AWS_SETUP.md](docs/AWS_SETUP.md) | The AWS side, step by step, and what each service needs |

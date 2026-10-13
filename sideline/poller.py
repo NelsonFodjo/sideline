@@ -35,6 +35,7 @@ OVERLAP_MINUTES = 3
 # The fast interval (SIDELINE_POLL_SECONDS) is for a match in play. A match that has not started
 # cannot change, so it is looked at only now and then, and kept to the fast rate from shortly
 # before the kick-off. A match that is over is read once (below).
+MISSES_BEFORE_GIVING_UP = 3          # a followed id the feed does not know costs a call each cycle, for nothing
 WAITING_SECONDS = 300
 LEAD_SECONDS = 600
 
@@ -57,6 +58,11 @@ def poll_once(ctx):
         try:
             fx = ctx.provider.fixture(fid)
             if not fx:
+                misses = ctx.__dict__.setdefault("missing_fixtures", {})
+                misses[fid] = misses.get(fid, 0) + 1
+                if misses[fid] >= MISSES_BEFORE_GIVING_UP:
+                    done.add(fid)
+                    LOG.warning("fixture %s is not known to the feed; no longer polled", fid)
                 continue
             ctx.store.save_fixture({"fixture_id": fid, **fx})
             known = ctx.store.events(fid)

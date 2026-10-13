@@ -16,8 +16,8 @@ sim:              ## open the voice simulator (served by the running server)
 test:             ## full suite, offline
 	@for t in $(sort $(wildcard tests/test_*.py)); do \
 		echo "=== $$t"; \
-		env SIDELINE_LOG_DIR=off SIDELINE_BEDROCK=off SIDELINE_STATE=memory SPORTMONKS_TOKEN= GROQ_API_KEY= \
-		    AWS_ACCESS_KEY_ID= AWS_SECRET_ACCESS_KEY= AWS_PROFILE= AWS_BEARER_TOKEN_BEDROCK= \
+		env SIDELINE_LOG_DIR=off SIDELINE_BEDROCK=off SIDELINE_STATE=memory SPORTMONKS_TOKEN= \
+		    AWS_ACCESS_KEY_ID= AWS_SECRET_ACCESS_KEY= \
 		    $(PY) $$t || exit 1; \
 	done
 	@echo "\nall suites passed"
@@ -49,7 +49,7 @@ create-table:     ## create the DynamoDB table
 stt-check:        ## speech-in accuracy on football phrases (needs a provider, and AWS for Polly)
 	$(PY) scripts/verify_stt.py
 
-compare-stt:      ## Nova Sonic against Groq Whisper, clean and noisy (needs both)
+compare-stt:      ## the AWS speech-in models head to head, clean and noisy (Voxtral, Nova Sonic)
 	$(PY) scripts/compare_stt.py
 
 clean:

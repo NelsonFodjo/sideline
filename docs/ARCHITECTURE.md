@@ -7,7 +7,7 @@
 In the intended deployment the client is Alexa+: it does speech recognition, chooses which tool a sentence maps
 to, writes the wording the listener hears, speaks it and renders anything on screen, and we expose tools and
 hold state. **That deployment is not reachable by hackathon participants** (the add-on tooling is partner-only;
-see [HACKATHON.md](HACKATHON.md)). So today the client is our own web page, `simulator/index.html`, plus a voice
+see [HACKATHON.md](HACKATHON.md)). So today the client is a **simulated Alexa+**: our own web page, `simulator/index.html`, plus a voice
 agent behind it, and both speak real MCP to the server, as the hackathon FAQ describes. Any MCP client works
 the same way.
 
@@ -18,7 +18,7 @@ experiences as "it keeps telling me the score when I asked what happened."
 ## The layers
 
 ```
-   MCP client: the simulator (a web page + a voice agent), or any MCP client
+   MCP client: the simulated Alexa+ (a web page + a voice agent), or any MCP client
                               |
               MCP / Streamable HTTP / 2025-11-25
                               |
@@ -47,7 +47,7 @@ What has actually been verified, on which dates, is in the README's table.
 The listener says **"what did I miss?"**
 
 1. The client captures the listener's speech. In the simulator the browser records it and the server
-   transcribes it (Groq or Nova Sonic, see [SPEECH.md](SPEECH.md)).
+   transcribes it (Voxtral, or Nova Sonic as the fallback, both on Bedrock: see [SPEECH.md](SPEECH.md)).
 2. `sideline/resolve.py` checks whether it answers a choice we just offered, and repairs misheard names.
 3. Nova is given the tool definitions and selects `what_did_i_miss`.
 4. The agent's MCP client calls `tools/call` on our own `/mcp`. The server validates the arguments and runs the tool.
@@ -78,6 +78,19 @@ Two decisions inside it worth knowing:
 - **It only polls fixtures somebody is following.** Polling every live match in the world is a good way to
   exhaust a request budget by lunchtime. A match that is over is read once more and then left alone, and a match
   nobody follows any more is dropped from the list, so a finished game does not keep spending the hourly limit.
+
+## The simulator's own endpoints
+
+`/voice/stt`, `/voice/tts`, `/voice/capabilities` and `/agent/chat` are the simulated Alexa+'s support and are not part of the MCP
+surface. They spend AWS credits, so they are same-origin only, like `/mcp`: another web page cannot call them (403, and no
+cross-origin headers are sent), and an upload over 12 MB of audio or 16 KB of text is refused unread with the connection
+closed. The page is served by the server it talks to, so nothing has to be opened up. Pinned by `tests/test_simulator.py`.
+
+## Which match you mean
+
+Tools take what a person says, not an id. `sideline/finder.py` works out which match, played or to come, from a team, an
+opponent, a day or a date: it gathers candidates, scores them, and either uses a clear winner or lists the options for the
+listener to pick from. [FINDER.md](FINDER.md) has the algorithm and its limits.
 
 ## One product, many sports
 

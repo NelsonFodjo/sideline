@@ -33,7 +33,7 @@ import json
 import logging
 import os
 
-from .. import config, sports
+from .. import audit, config, sports
 from . import templates
 from .prompts import CATCHUP_SYSTEM, MILESTONE_SYSTEM, TRANSLATE_SYSTEM
 
@@ -117,13 +117,17 @@ def _converse(system, user_text, max_tokens=MAX_TOKENS):
                              "temperature": 0.2,   # reporting, not writing
                              "topP": 0.9},
         )
-        pieces = []
+        pieces, usage = [], {}
         for event in resp.get("stream"):
             delta = event.get("contentBlockDelta", {}).get("delta", {})
             if delta.get("text"):
                 pieces.append(delta["text"])
+            if "metadata" in event:
+                usage = event["metadata"].get("usage") or {}
         out = "".join(pieces).strip()
         LOG.info("bedrock %s answered in %dms", MODEL_ID, (time.time() - t0) * 1000)
+        audit.record("tokens", source="text", model=MODEL_ID, input=int(usage.get("inputTokens") or 0),
+                     output=int(usage.get("outputTokens") or 0))
         return out
     except Exception as e:                                     # noqa: BLE001
         LOG.error("bedrock request failed: %s", e)

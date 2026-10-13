@@ -108,8 +108,8 @@ def main():
         try:
             REGISTRY["get_match_preview"](ctx, {"team": "Arsenal"}, "ann")
         except ToolError as e:
-            assert e.spoken == ("I can see more than one Arsenal match. Which one - Arsenal against Lille, today at 11 PM, "
-                                "or Arsenal against Everton, today at 7 PM?"), e.spoken
+            assert e.spoken == ("I can see more than one Arsenal match. Which one: 1, Arsenal against Everton, today at 7 PM, "
+                                "or 2, Arsenal against Lille, today at 11 PM?"), e.spoken
         print("ok  'did you mean', 'but I can see' and 'which one' carry each match's time")
 
         # Names as people say them: nicknames, and accents that a voice never says.

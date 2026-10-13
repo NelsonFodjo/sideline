@@ -57,6 +57,8 @@ def main():
     original_available, original_client = bedrock.available, bedrock.client
     bedrock.available = lambda: True
     bedrock.client = lambda: model
+    real_direct = agent.DIRECT_MAX_CHARS
+    agent.DIRECT_MAX_CHARS = 0              # these tests are about the model path; the direct path has its own below
     try:
         result = agent.run(
             ctx, "Follow Arsenal, please.", "agent-listener",
@@ -74,6 +76,22 @@ def main():
         assert model.calls[0]["toolConfig"]["toolChoice"] == {"any": {}}, "a match question must start with a tool"
         assert "toolChoice" not in model.calls[1]["toolConfig"], "after a tool, the model chooses freely"
         print("ok  Nova receives MCP schemas, calls a registered tool, and uses its result")
+
+        # A short answer a tool has already written for the ear is said as it is: no second model call.
+        agent.DIRECT_MAX_CHARS = real_direct
+        before = len(model.calls)
+        model.calls[:] = []
+        direct = agent.run(ctx, "Follow Arsenal, please.", "direct-listener",
+                           lambda name, args, listener: REGISTRY[name](ctx, args, listener))
+        assert direct["generated_by"] == "tool" and len(model.calls) == 1, (direct["generated_by"], len(model.calls))
+        assert direct["text"] == direct["tool_results"][0]["spoken"]
+        assert agent._direct_answer([{"name": "what_did_i_miss", "structured": {}, "spoken": "x"}], [1], ctx, "u") is None
+        assert agent._direct_answer([{"name": "get_lineups", "structured": {}, "spoken": "x" * 300}], [1], ctx, "u") is None
+        assert agent._direct_answer([{"name": "get_match_report", "structured": {"verbatim": True}, "spoken": "x" * 300}], [1], ctx, "u")
+        assert agent._direct_answer([{"name": "a", "structured": {}, "spoken": "x"}] * 2, [1, 2], ctx, "u") is None
+        agent.DIRECT_MAX_CHARS = 0
+        model.calls[:] = [None] * before
+        print("ok  one short, finished answer from one tool is said as it is, saving a model round trip")
 
         followup = agent.run(
             ctx, "What about that match?", "agent-listener",
@@ -206,6 +224,14 @@ def main():
     assert strip({"fixture_id": 8}, "Arsenal against Lille (fixture_id 7)") == {}, "a different id is invented"
     assert strip({"team": "Arsenal"}, "x") == {"team": "Arsenal"} and strip(None, "x") is None
     print("ok  an id the listener did not give is dropped; the handoff's own id is kept")
+    fill = agent._fill_arguments
+    assert fill("get_match_report", {"team": "Celtic"}, "Who came on as a substitute?") == {"team": "Celtic", "part": "substitutions"}
+    assert fill("get_match_report", {}, "Any cards?")["part"] == "cards" and fill("get_match_report", {}, "who scored")["part"] == "goals"
+    assert fill("get_match_report", {}, "was there a VAR check")["part"] == "var"
+    assert fill("get_match_report", {}, "What happened in the game?") == {}, "no part said, none set: the whole story"
+    assert fill("get_match_report", {"part": "goals"}, "any cards") == {"part": "goals"}, "what the model passed is kept"
+    assert fill("get_squad", {"team": "x"}, "any cards") == {"team": "x"}
+    print("ok  an argument the model leaves out but the question gives away is filled in, never overriding the model")
     bedrock.available, bedrock.client = original_available, original_client
 
     # A small model invents weather when asked for it; weather is only said if a tool gave it.

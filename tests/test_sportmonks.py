@@ -176,10 +176,14 @@ def main():
     from sideline.mcp import registry
     try:
         registry.limit_to(SportmonksProvider.capabilities)
-        assert len(registry.public_tools()) == 24, "this feed supplies what every tool needs"
+        assert len(registry.public_tools()) == 27, "this feed supplies what every tool needs"
     finally:
         registry.limit_to(None)
-    print("ok  competitions, tables, scorers, search and stats read in the documented shape (24 tools listed)")
+    mk = lambda note: SportmonksProvider("x")._norm_event(1, {"type": {"developer_name": "YELLOWCARD"}, "minute": 41,
+                                                              "player_name": "J. Hodge", "participant_id": 1, "addition": note}, {1: "Motherwell"})
+    assert [mk(n)["reason"] for n in ("1st Yellowcard", "Yellowcard", "Foul", "Time wasting")] == ["", "", "foul", "time wasting"]
+    print("ok  a card's label ('1st Yellowcard') is not read out as its reason; a real reason is")
+    print("ok  competitions, tables, scorers, search and stats read in the documented shape (27 tools listed)")
 
     # --- injuries, form and a player's season (the shapes seen on a real match; the values invented)
     ROUTES.clear()

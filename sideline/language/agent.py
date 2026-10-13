@@ -1,5 +1,6 @@
 """Bedrock tool-use loop that lets Nova operate Sideline's MCP tools."""
 
+import datetime
 import json
 import logging
 import os
@@ -8,6 +9,7 @@ import threading
 import time
 from collections import OrderedDict
 
+from .. import audit
 from ..mcp.errors import InvalidParams, ToolError
 from ..mcp.registry import public_tools
 from ..mcp.schema import validate
@@ -31,8 +33,13 @@ SYSTEM = (
     "the match and the listener's state. Call follow_match when they ask to "
     "follow or switch matches. Do not invent match facts: rely only on tool "
     "results. Ask a brief clarification if a tool reports ambiguity or the "
-    "listener's request is unclear. When a message names a match with "
-    "(fixture_id N), call follow_match with that fixture_id. For greetings or general conversation, "
+    "listener's request is unclear. A question about a team (its squad, manager, season, next games, last results) or a player needs no match: pass the "
+    "team or player by name to get_squad, get_team_stats, get_schedule or get_player_stats. The match tools also work on "
+    "a match that has already been played: pass the team, and the opponent, when (last, next, yesterday) or a date. A match "
+    "is followed only when the listener asks to follow it. Never say a match cannot be found for a question about a team. "
+    "When a tool lists matches to choose from, the list is read to the listener, who picks: never choose for them. When a "
+    "message names a match with (fixture_id N): if they were choosing which match to follow, call follow_match with it; "
+    "otherwise answer the question they asked before choosing, about that match, passing fixture_id N to the tool. For greetings or general conversation, "
     "respond naturally without claiming live match knowledge. Your response "
     "is spoken aloud: output only the answer to the listener, in at most two "
     "short sentences (up to five when the tool gave a match preview, which you "
@@ -44,7 +51,10 @@ SYSTEM = (
     "Say only what the listener asked for: do not volunteer a match they did not "
     "mention. When a tool says it cannot find a match, say that in one plain sentence "
     "and stop: never suggest a typo, never blame the listener, never ask them to confirm "
-    "an id. For 'when is X playing' or 'what time is X against Y', call "
+    "an id. For 'say that again', 'repeat that' or 'what was that', call "
+    "get_event_detail (never get_capabilities). For 'I'm watching X', 'keep me updated on X' or 'switch to X', call follow_match. For 'who's top of the league' or 'the table', call get_standings. For 'last results', 'recent games' or 'did they win', call get_schedule "
+    "with which=last; for goals, cards or substitutions in a match that was played, call get_match_report; when the "
+    "listener names no match, leave the match out of the tool call: the server knows which one they were just asking about. For 'when is X playing' or 'what time is X against Y', call "
     "get_schedule with the team and the opponent. If the listener names a team, pass it to the tool every time, even if they are following a different match, and never say they are following a team they did not follow. Do not include analysis, reasoning, a preamble, "
     "step-by-step explanation, or narration of actions/tool calls. Never say "
     "what you are thinking or about to do, and never refer to the listener as "
@@ -109,6 +119,7 @@ class Focus:
 
     def __init__(self):
         self._by = {}
+        self._pending = {}
         self._lock = threading.Lock()
 
     @staticmethod
@@ -148,6 +159,17 @@ class Focus:
             while len(self._by) > MAX_CONVERSATIONS:
                 self._by.pop(next(iter(self._by)))
 
+    def set_pending(self, listener_id, question):
+        """A list of matches was just read out for this question: the pick that follows is its answer."""
+        with self._lock:
+            self._pending[listener_id] = (time.monotonic(), question)
+
+    def take_pending(self, listener_id):
+        """The question awaiting a pick, once: any turn uses it up, so it can never answer a later, unrelated one."""
+        with self._lock:
+            kept = self._pending.pop(listener_id, None)
+        return kept[1] if kept and time.monotonic() - kept[0] <= FOCUS_TTL_SECONDS else None
+
     def line(self, listener_id):
         """One instruction for the model, or "" when there is nothing recent."""
         with self._lock:
@@ -167,6 +189,34 @@ class Focus:
 
 
 FOCUSES = Focus()
+
+# A short answer a tool has already written for the ear is returned as it is: asking the model to say it again in
+# its own words costs a whole round trip (about a second and a half) and can only make it less exact. Longer answers
+# (a full line-up) still go through the model, which shortens them for the ear, unless the tool marks its answer verbatim.
+DIRECT_MAX_CHARS = 240
+VERBATIM_MAX_CHARS = 900
+NEEDS_MODEL = ("what_did_i_miss",)        # in agent mode it returns event facts to be phrased, not a finished answer
+
+
+def _direct_answer(tool_results, requests, ctx, listener_id):
+    """The text to say as it is, when one tool answered one question and its answer is already speech; else None."""
+    if len(tool_results) != 1 or len(requests) != 1:
+        return None
+    record = tool_results[0]
+    structured = record.get("structured")
+    if record.get("declined") or structured is None or record.get("name") in NEEDS_MODEL:
+        return None
+    if _preference(ctx, listener_id).find("brief") >= 0:
+        return None
+    text = (record.get("spoken") or "").strip()
+    limit = VERBATIM_MAX_CHARS if (structured or {}).get("verbatim") else DIRECT_MAX_CHARS
+    return text if text and len(text) <= limit else None
+
+
+def _usage(usage):
+    """Bedrock's own token counts for one call (Converse returns them), as plain integers."""
+    usage = usage if isinstance(usage, dict) else {}
+    return {"input": int(usage.get("inputTokens") or 0), "output": int(usage.get("outputTokens") or 0)}
 
 
 def _listener_answer(text):
@@ -224,6 +274,17 @@ def _denies_live(text):
     return bool(_DENIES_LIVE.search(text))
 
 
+def _today(ctx, listener_id):
+    """Today's date in the listener's own zone, so a date the model writes has the right year."""
+    try:
+        from .. import clock
+        tz = clock.zone_from(ctx.store.listener(listener_id))
+        day = (clock.now() + datetime.timedelta(minutes=int(tz or 0)))
+        return " Today is %s." % day.strftime("%A %d %B %Y")
+    except Exception:                                      # noqa: BLE001  a courtesy, never a failure
+        return ""
+
+
 def _preference(ctx, listener_id):
     """The listener's own wish for how much to say (set_preferences), as one more instruction."""
     try:
@@ -232,6 +293,28 @@ def _preference(ctx, listener_id):
         return ""
     return {"brief": " The listener asked for brief answers: one short sentence.",
             "full": " The listener asked for more detail: up to five short sentences."}.get(detail, "")
+
+
+_PARTS = (("substitutions", re.compile(r"\b(came on|come on|substitut\w*|subs?|replaced|brought on|came off|went off)\b", re.I)),
+          ("cards", re.compile(r"\b(cards?|booked|bookings?|yellows?|reds?|sent off|dismissed|red card)\b", re.I)),
+          ("var", re.compile(r"\b(var|video review|overturned|disallowed)\b", re.I)),
+          ("goals", re.compile(r"\b(scored|scorers?|goals?|assists?|assisted|who got)\b", re.I)))
+
+
+def _fill_arguments(name, args, question):
+    """Arguments a small model leaves out although the question gives them away.
+
+    Optional arguments are the first thing it drops: asked "who came on?" it called get_match_report with no `part`
+    and the whole report was read out again. Where the words of the question say it, it is set here, never overriding
+    what the model did pass.
+    """
+    if not isinstance(args, dict):
+        return args
+    if name == "get_match_report" and not args.get("part"):
+        for part, pattern in _PARTS:
+            if pattern.search(question):
+                return dict(args, part=part)
+    return args
 
 
 def _without_invented_id(args, question):
@@ -269,7 +352,12 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None):
         raise AgentUnavailable("Bedrock is disabled or boto3 is unavailable")
 
     messages = CONVERSATIONS.get(listener_id)
+    pending = FOCUSES.take_pending(listener_id)
     asked = question
+    if pending and "(fixture_id" in question and not _FOLLOW_INTENT.search(pending):
+        # They picked one of the matches that was listed: it answers the question that was asked, not a new one.
+        asked = ("%s [They have just chosen a match for their earlier question: \"%s\". Answer that question about this "
+                 "match, passing the fixture_id to the tool.]" % (question, pending))
     if interrupted:
         # They talked over the last answer: what they say next belongs to it.
         asked = ("[The listener cut in while you were saying: \"%s\". What follows "
@@ -289,7 +377,7 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None):
         try:
             response = bedrock.client().converse(
                 modelId=bedrock.MODEL_ID,
-                system=[{"text": SYSTEM + _preference(ctx, listener_id) + FOCUSES.line(listener_id)}],
+                system=[{"text": SYSTEM + _today(ctx, listener_id) + _preference(ctx, listener_id) + FOCUSES.line(listener_id)}],
                 messages=messages,
                 toolConfig=choice,
                 inferenceConfig={"maxTokens": MAX_TOKENS,
@@ -300,6 +388,7 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None):
             LOG.warning("Nova agent request failed: %s", exc)
             raise AgentUnavailable("Bedrock Converse request failed") from exc
 
+        audit.record("tokens", source="agent", model=bedrock.MODEL_ID, **_usage(response.get("usage")))
         message = response.get("output", {}).get("message")
         if not isinstance(message, dict):
             raise AgentUnavailable("Bedrock returned no assistant message")
@@ -340,7 +429,7 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None):
         for request in requests[:remaining]:
             name = request.get("name")
             call_id = request.get("toolUseId")
-            args = _without_invented_id(request.get("input"), question)
+            args = _fill_arguments(request.get("name"), _without_invented_id(request.get("input"), question), question)
             if name == "follow_match" and not _asked_to_follow(question):
                 # A model that guesses must not move the listener to another match.
                 message = "The listener did not ask to follow a match, so none was followed."
@@ -360,11 +449,18 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None):
             if len(tool_results) >= MAX_TOOL_CALLS:
                 break
         for record in tool_results:
+            if record.get("declined") and (record.get("detail") or {}).get("fork"):
+                FOCUSES.set_pending(listener_id, question)
             if record.get("declined"):
                 # The tool said no, and said why. The listener hears that, word for word,
                 # not a model's apology for it ("I can't provide real-time updates").
                 return {"text": record["spoken"], "generated_by": "tool",
                         "tool_results": tool_results}
+        direct = _direct_answer(tool_results, requests, ctx, listener_id)
+        if direct:
+            CONVERSATIONS.remember(listener_id, question, direct)
+            FOCUSES.remember(listener_id, tool_results)
+            return {"text": direct, "generated_by": "tool", "tool_results": tool_results}
         messages.append({"role": "user", "content": results})
         if len(tool_results) >= MAX_TOOL_CALLS:
             break

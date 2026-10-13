@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Head to head: Nova Sonic against Groq Whisper on the same clips.
+"""Head to head on the same clips: the speech-to-text models on Amazon Bedrock (Mistral Voxtral small and
+mini, Nova 2 Sonic, Nova 2.5 Sonic). Groq's hosted Whisper was the benchmark they were measured against, and
+was removed from the product when Voxtral matched it: the numbers are in docs/SPEECH.md and docs/FRICTION_LOG.md.
 
     python3 scripts/compare_stt.py
 
-Needs AWS credentials (Polly speaks the clips; Sonic listens), the Bedrock
-streaming SDK (pip3 install aws-sdk-bedrock-runtime awscrt, Python 3.12+) and
-GROQ_API_KEY. Eight football phrases, three voices, each clean and with room
-noise added (about 10 dB signal to noise). Both providers get the production
-configuration: the match vocabulary as a hint.
+Needs AWS credentials (Polly speaks the clips; the AWS models listen) and, for Sonic, the Bedrock
+streaming SDK (pip3 install aws-sdk-bedrock-runtime awscrt, Python 3.12+). `python3 scripts/compare_stt.py
+voxtral` runs only the named contenders. Eight football phrases, three voices, each clean and with room
+noise added (about 10 dB signal to noise). Every contender gets its production configuration: Sonic gets the match
+vocabulary as a hint, Voxtral gets none (a chat model prints and answers from a list of names).
 
 Scoring is forgiving about things the product does not care about (case,
 punctuation, "half time" against "halftime") and strict about the words that
@@ -31,7 +33,6 @@ from verify_stt import NAMES, PHRASES, VOICES, speak  # noqa: E402
 
 NAME_TOKENS = ["odegaard", "alderweireld", "saka", "bellerin", "hector", "martin",
                "bukayo", "toby"]
-GROQ_GAP = 3.3          # seconds between Groq calls: its free tier is 20 a minute
 
 
 def norm(s):
@@ -75,15 +76,28 @@ def with_noise(pcm, snr_db=10.0, seed=7):
 
 
 def main():
-    if not voice.GROQ_KEY:
-        print("set GROQ_API_KEY to compare")
-        return 1
-    if not voice.HAVE_SONIC:
-        print("Nova Sonic needs: pip3 install aws-sdk-bedrock-runtime awscrt (Python 3.12+)")
+    if not voice._have_aws_credentials():
+        print("set AWS credentials to compare")
         return 1
     hint = voice._BASE_HINT + " " + NAMES
-    providers = [("sonic", lambda pcm: voice._transcribe_sonic(pcm, hint)),
-                 ("groq", lambda pcm: voice._transcribe_groq(pcm, hint))]
+    def sonic(model):
+        def run(pcm):
+            real, voice.SONIC_MODEL = voice.SONIC_MODEL, model
+            try:
+                return voice._transcribe_sonic(pcm, hint)
+            finally:
+                voice.SONIC_MODEL = real
+        return run
+
+    contenders = [("voxtral", lambda pcm: voice._transcribe_voxtral(pcm, hint)),
+                  ("vox-mini", lambda pcm: voice._transcribe_voxtral(pcm, hint, "mistral.voxtral-mini-3b-2507")),
+                  ("sonic2", sonic("amazon.nova-2-sonic-v1:0")),
+                  ("sonic2.5", sonic("amazon.nova-2-5-sonic"))]
+    if not voice.HAVE_SONIC:
+        contenders = [c for c in contenders if not c[0].startswith("sonic")]
+        print("(Nova Sonic skipped: pip3 install aws-sdk-bedrock-runtime awscrt, Python 3.12+)")
+    wanted = sys.argv[1:]
+    providers = [c for c in contenders if not wanted or c[0] in wanted]
     stats = dict((p, {"clean": [], "noisy": [], "t": [], "fail": 0,
                       "names": [0, 0]}) for p, _ in providers)
     misses = []
@@ -98,8 +112,6 @@ def main():
                     t0 = time.time()
                     out = fn(pcm)
                     dt = time.time() - t0
-                    if name == "groq":
-                        time.sleep(max(0.0, GROQ_GAP - dt))
                     heard = out["text"] if out else ""
                     s = stats[name]
                     if not out:
@@ -116,12 +128,12 @@ def main():
                 print("\r%d clips" % n, end="")
                 sys.stdout.flush()
     print("\n")
-    print("%-7s %-10s %-10s %-12s %-16s %-9s %s" % (
+    print("%-9s %-10s %-10s %-12s %-16s %-9s %s" % (
         "", "WER clean", "WER noisy", "exact (all)", "names right", "avg time", "failed"))
     for name, _ in providers:
         s = stats[name]
         allw = s["clean"] + s["noisy"]
-        print("%-7s %-10s %-10s %-12s %-16s %-9s %d" % (
+        print("%-9s %-10s %-10s %-12s %-16s %-9s %d" % (
             name,
             "%.1f%%" % (100 * sum(s["clean"]) / len(s["clean"])),
             "%.1f%%" % (100 * sum(s["noisy"]) / len(s["noisy"])),
@@ -133,7 +145,7 @@ def main():
         print("  [%s, %s] %s" % (cond, vid, text))
         for name, w, heard in row:
             if w > 0:
-                print("      %-5s %3.0f%%  %r" % (name, w * 100, heard))
+                print("      %-9s %3.0f%%  %r" % (name, w * 100, heard))
     return 0
 
 

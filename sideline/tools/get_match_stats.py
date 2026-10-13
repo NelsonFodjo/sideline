@@ -16,7 +16,7 @@ def _line(label, unit, home, away, a, b):
 
 
 def run(ctx, args, listener_id):
-    fx = resolve_fixture(ctx, args, listener_id)
+    fx = resolve_fixture(ctx, args, listener_id, prefers="played")
     stats = feed(ctx, "match_stats", fx["fixture_id"])
     if not stats:
         raise ToolError("There are no statistics for this match yet.",

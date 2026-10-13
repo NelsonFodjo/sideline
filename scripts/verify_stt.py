@@ -2,7 +2,7 @@
 """Measure speech-to-text on football phrases, with and without the match vocabulary.
 
     python3 scripts/verify_stt.py            # whichever provider is configured
-    SIDELINE_STT=groq python3 scripts/verify_stt.py
+    SIDELINE_STT=voxtral python3 scripts/verify_stt.py
 
 Polly speaks each phrase in several voices (needs AWS credentials), the
 configured speech-to-text provider transcribes it, and we print what it heard
@@ -64,9 +64,9 @@ def speak(text, voice_id):
 def main():
     which = voice.capabilities()["stt"]
     if not which:
-        print("no speech-to-text provider configured: set GROQ_API_KEY, or install aws-sdk-bedrock-runtime for Nova Sonic")
+        print("no speech-to-text provider configured: set AWS credentials (Voxtral on Bedrock)")
         return 1
-    model = {"groq": voice.GROQ_MODEL, "sonic": voice.SONIC_MODEL}.get(which)
+    model = {"voxtral": voice.VOXTRAL_MODEL, "sonic": voice.SONIC_MODEL}.get(which)
     print("provider: %s%s\n" % (which, " (%s)" % model if model else ""))
     totals = {"plain": [], "hint": []}
     for text in PHRASES:
@@ -74,7 +74,7 @@ def main():
             pcm = speak(text, vid)
             row = []
             for label, hint in (("plain", ""), ("hint", voice._BASE_HINT + " " + NAMES)):
-                if which not in ("groq", "sonic") and label == "hint":
+                if which not in ("voxtral", "sonic") and label == "hint":
                     continue
                 out = voice.transcribe(pcm, "audio/pcm", hint)
                 if out is None and not totals["plain"] and not totals["hint"]:

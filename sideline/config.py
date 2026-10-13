@@ -30,8 +30,6 @@ VARIABLES = [
     ("AWS_REGION", False, "us-east-1", "Region for Bedrock, DynamoDB and Polly"),
     ("AWS_ACCESS_KEY_ID", True, "", "AWS credentials (with the secret below)"),
     ("AWS_SECRET_ACCESS_KEY", True, "", "AWS credentials (with the key id above)"),
-    ("AWS_PROFILE", False, "", "A named AWS profile, instead of keys"),
-    ("AWS_BEARER_TOKEN_BEDROCK", True, "", "A Bedrock API key (Bedrock only, not Polly or DynamoDB)"),
     ("SIDELINE_BEDROCK", False, "auto", "auto (on when AWS credentials are present), on, or off"),
     ("SIDELINE_BEDROCK_MODEL", False, "amazon.nova-micro-v1:0", "Bedrock model or inference-profile id"),
     ("SIDELINE_STATE", False, "auto", "auto (DynamoDB if it answers, else memory), memory, or dynamo"),
@@ -39,8 +37,7 @@ VARIABLES = [
     # Voice, for the simulator
     ("SIDELINE_POLLY_VOICE", False, "Amy", "Polly voice (speech out)"),
     ("SIDELINE_POLLY_ENGINE", False, "generative", "Polly engine: generative (most natural, falls back to neural) or neural"),
-    ("SIDELINE_STT", False, "auto", "Speech in: auto, groq, sonic, or off"),
-    ("GROQ_API_KEY", True, "", "Turns on Groq Whisper for speech in. Audio then leaves AWS"),
+    ("SIDELINE_STT", False, "auto", "Speech in: auto (Voxtral, then Nova Sonic, on Bedrock), voxtral, sonic, or off"),
     ("SIDELINE_WEATHER", False, "on", "on adds the weather at the ground to a match preview (city and country go to Open-Meteo); off does not"),
     ("SIDELINE_AGENT_TOOLS", False, "all", "Tools offered to the voice agent: all, or core (the core eleven, which route more reliably on a small model)"),
     ("SIDELINE_LIVE_CAPTION", False, "browser", "browser types interim words while you speak (audio also reaches the browser vendor); off does not"),
@@ -53,14 +50,11 @@ _OFF = ("0", "false", "no", "off")
 def aws_credentials(env=None):
     """Is there a way to authenticate to AWS in this environment?
 
-    Static keys, a named profile, or a Bedrock API key. Anything else (an
-    instance role, say) is not detected here: set SIDELINE_BEDROCK=on and
-    SIDELINE_STATE=dynamo explicitly.
+    The access key pair. Anything else (an instance role, say) is not detected
+    here: set SIDELINE_BEDROCK=on and SIDELINE_STATE=dynamo explicitly.
     """
     env = os.environ if env is None else env
-    if env.get("AWS_ACCESS_KEY_ID") and env.get("AWS_SECRET_ACCESS_KEY"):
-        return True
-    return bool(env.get("AWS_PROFILE") or env.get("AWS_BEARER_TOKEN_BEDROCK"))
+    return bool(env.get("AWS_ACCESS_KEY_ID") and env.get("AWS_SECRET_ACCESS_KEY"))
 
 
 def bedrock_enabled(env=None):

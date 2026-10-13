@@ -13,6 +13,7 @@ _SAY = {
     "stats": "match statistics", "injuries": "injuries and suspensions", "form": "recent form",
     "standings": "league tables", "top_scorers": "top scorers", "player_stats": "a player's season",
     "search": "looking up a team or player", "competitions": "which competitions I cover",
+    "squad": "a team's squad, manager and captain", "team_stats": "a team's season",
 }
 
 

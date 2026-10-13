@@ -155,3 +155,37 @@ the bidirectional stream. No `bedrock:*`.
 Not measured. A catch-up sends a few hundred tokens of event JSON and asks for at most 160 back, and a listener is
 expected to ask a handful of times per match; those are expectations, not observations. Set a budget alarm before
 turning it on and read your actual usage after the first run.
+
+## Token usage
+
+Every model call writes a `tokens` line to the day's call log (`logs/calls-<date>.jsonl`) with the input and output
+counts exactly as Bedrock reports them (the Converse response's `usage`), and `make log-report` totals them by source
+(`agent` for the voice agent, `text` for catch-ups). Measured on the real service with all 27 tools offered: about
+5,000 input tokens and 15 to 20 output tokens for a one-tool question. Nearly all of the input is the tool list, which
+is the price of offering 27 tools; `SIDELINE_AGENT_TOOLS=core` offers 11 and cuts it roughly in half.
+
+## Why replies are fast, and four things that keep the small model honest
+
+Measured on the real service, on questions about a real team (2026-10-14): a follow-up answered in 0.8 to 1.0 s and a
+first question in 3 to 5 s (the first includes cold connections and the feed).
+
+- **Short, finished answers are not rephrased.** Nearly every tool already writes its answer for the ear. Asking the model
+  to say it again in its own words costs a whole round trip (about a second and a half) and can only make it less exact. So
+  when one tool answered one question and its text is 240 characters or fewer, it is returned as written
+  (`generated_by: tool`). Longer answers (a full line-up) still go through the model, which shortens them for the ear, unless
+  the tool marks its answer `verbatim` (`get_match_report`, whose goals a rewrite would drop, up to 900 characters). Tools
+  whose agent-mode output is facts to be phrased (`what_did_i_miss`) always go through the model, and so does a listener who
+  asked for brief answers.
+- **The model is told today's date**, in the listener's own zone. Left to guess, it wrote last year ("20 September" became
+  2025) and the match was "not found". The finder also moves a date written with the wrong year to the year nearest to now.
+- **Arguments the question gives away are filled in.** A small model drops optional arguments first: asked "who came on?" it
+  called `get_match_report` with no `part`, and the whole report was read out again. Where the words of the question say
+  it (came on, cards, scored, VAR), `part` is set in code, never overriding what the model passed.
+- **The match they were just asking about is remembered** for ten minutes (`rec["discussed"]`), so "who came on?" after
+  "what happened in the last Celtic match?" needs no match named. A match is never picked that they did not ask about, and
+  a list of matches read out for a choice remembers the question, so the pick answers it ([FINDER.md](FINDER.md)).
+
+Routing is held at 71 of 71 on `make route-check` with all 27 tools offered, by descriptions that each name their neighbour
+("not the table (get_standings)"). It took three passes: a longer prompt and more tools made follow, preview and standings
+phrasings slip, and each was fixed at the description that attracted it, not by adding rules. A shortlist of tools offered
+to the model was tried first and rejected on its recall: [FINDER.md](FINDER.md), "Tried and rejected".

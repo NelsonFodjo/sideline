@@ -44,7 +44,7 @@ the hackathon FAQ says they are partner-only.
 quick. Discovering that none of the tooling is reachable took the FAQ.
 
 **Would we build with it again?** Yes. The tool rules are the best part of the docs and shaped how we split
-Sideline into single-purpose tools (twenty-four now). We would build on it as soon as the toolkit is open to everyone, and we
+Sideline into single-purpose tools (twenty-seven now). We would build on it as soon as the toolkit is open to everyone, and we
 would be glad to test it. Until then we can only build to the documented requirements.
 
 ## 2. Model Context Protocol, spec 2025-11-25, Streamable HTTP
@@ -100,10 +100,7 @@ add any.
 **What needs work** A small model will sometimes write a wrong scoreline or refuse, so we check every answer
 against the real score and retry once. A built-in way to constrain output to given facts would make that guard
 unnecessary. The access flow could say more plainly which models are ready to use on a new account.
-**Also tried (2026-10-13), speech models on Bedrock.** Mistral Voxtral accepts
-audio through Converse, but as a chat model it answered a spoken question with
-an invented score instead of transcribing it (2 of 4 phrases correct on Small).
-A dedicated transcription mode for these models would make them usable.
+**Speech models on Bedrock.** Mistral Voxtral accepts audio through Converse and is now our speech-in model: see 5a.
 
 **Onboarding** Short. Most of the time went on working out the credential difference above; after that it was one call.
 **Would we build with it again?** Yes. It is the part Alexa+ cannot do for us: turning a stretch of match events
@@ -150,8 +147,8 @@ Transcribe streaming returned `SubscriptionRequiredException`: "The AWS
 Access Key Id needs a subscription for the service", even though Polly
 worked from the same credentials, so it is an account state and not an IAM
 gap (see FL-08). App Runner returned the same error on the same account.
-Rather than wait on a support case, speech in now uses Nova Sonic and Groq
-(5b below). Our own `make aws-check` had been reporting "speech in: ok" from a
+Rather than wait on a support case, speech in runs on Bedrock models instead
+(5a and 5b below). Our own `make aws-check` had been reporting "speech in: ok" from a
 capability check alone; it now makes a real round trip through the provider in use.
 
 **Polly: what worked well** The neural voice is clear at speed, which matters to a listener who relies on it, and
@@ -164,16 +161,45 @@ the word-level speech marks let the page highlight each word as it is spoken. Bo
 past `SubscriptionRequiredException` (FL-08) and had to move on. We would try again if the error said what the
 account needed.
 
-### 5b. Amazon Bedrock, Nova 2 Sonic (speech in)
+### 5a. Amazon Bedrock, Mistral Voxtral Small (speech in, first choice)
 
-**Used for** Hearing the listener: audio streamed in, transcript read back
-([sideline/voice.py](../sideline/voice.py)). It is the in-account fallback when
-no Groq key is set. Full numbers and method: [SPEECH.md](SPEECH.md).
+**Used for** Hearing the listener: the clip is sent through Converse as an audio block and the words come back
+([sideline/voice.py](../sideline/voice.py)). It is the first speech-in model, so the listener's audio never leaves the AWS
+account. Full numbers and method: [SPEECH.md](SPEECH.md); the story is FL-15 in [FRICTION_LOG.md](FRICTION_LOG.md).
+
+**What worked well** On 48 Polly-spoken clips, clean and noisy, it measured 0.0% word error clean and 1.4% in noise, 47 of 48
+exact, every name right (48 of 48) and 0.8 s a clip: level with or ahead of the third-party recogniser we had started with
+(0.4%, 3.7%, 43 of 48, 44 of 48 names, 1.4 s), which was then removed. It needs only boto3. **What needs work** It is a chat model, so it has to be asked
+the right way: the audio must come **before** the instruction (the other way round it answers what it hears), a system
+message is refused next to audio, and the small model is reliable where the mini one is not (24.6% and 39.1% error; it
+answered questions). We guard against a model that talks instead of transcribing by dropping a reply with more words than
+the clip could hold. It also does worse when given a vocabulary: a list of team names made it print the list or answer from it,
+so we send none. The remaining risk is a short, wrong reply, which the length guard cannot see: none appeared in 48 clips.
+
+**Onboarding** Our first try (2026-10-13, morning) failed and we rejected it: it answered "What's the score?" with an
+invented score. Working out why took a controlled comparison, and the documentation we found did not say how to ask.
+**Would we build with it again?** Yes, with the guard, and with a dedicated transcription mode we would not need it. Being
+level with a specialised recogniser inside the account is the reason we dropped the third party entirely.
+
+### 5c. Amazon Bedrock, Titan Text Embeddings v2 (tried, not used)
+
+**Tried for** choosing which of 27 tools to show the model: embed the question and each tool's documented phrasings, offer the
+nearest few. It runs on the account with no extra setup (`amazon.titan-embed-text-v2:0`, 256 dimensions, normalised). On 47
+questions written to avoid the words in the tool descriptions it put the right tool in the top 8 for 42 of 47, about 0.5 s a
+question warm; combined with word matching, 44 of 47. Too many misses to use as a filter and too slow to add to every turn, so
+it is **not in the product** ([FINDER.md](FINDER.md), "Tried and rejected"). The result is worth stating because it is
+tempting: embeddings found "who has the armband" for the squad tool but missed "anyone hurt for Celtic" for injuries. **Would
+we use it again?** For a much larger tool list, or as a suggestion to the model, not as a hard filter.
+
+### 5b. Amazon Bedrock, Nova 2 Sonic (speech in, fallback)
+
+**Used for** Hearing the listener when Voxtral cannot ([sideline/voice.py](../sideline/voice.py)): audio streamed in,
+transcript read back. Full numbers and method: [SPEECH.md](SPEECH.md).
 
 **Status: verified with real calls, 2026-10-13.** From the Polly-spoken test
 set, 17 of 24 clips exact on a first run; in the later head-to-head 8.5% word
-error in noise and 4.2 s per clip, behind Groq's 3.7% and 1.1 s on the same
-clips. Names it got right included Ødegaard and Bellerín; it misheard
+error in noise and 4.2 s per clip, behind Voxtral's 2.6% and 1.2 s on the same
+clips. The newer Nova 2.5 Sonic gave 3.4 s and 8% on a six-clip sample: a little quicker, no more accurate. Names it got right included Ødegaard and Bellerín; it misheard
 Alderweireld and, in noise, Saka.
 
 **What worked well** It transcribes: the user's words come back as text events
@@ -198,19 +224,24 @@ rest of Bedrock.
 
 **Onboarding** A first transcript took a few attempts, mostly the points above, and then it was dependable.
 
-**Would we build with it again?** Yes, as the in-account option. It is accurate on names and needs no extra
-vendor. Groq is faster, so Groq leads when a key is set and Nova Sonic is the fallback. A plain transcription mode
-would make Sonic the obvious default.
-
-**Also tried:** Mistral Voxtral through Converse. It accepts audio but is a chat
-model: it answered a spoken question with an invented score instead of
-transcribing it. A transcription mode for these models would make them usable.
+**Would we build with it again?** Yes, as the in-account fallback: it is accurate on names and needs no extra vendor. It
+is about three times slower than Voxtral (we stream 2 s of silence so it knows the clip has ended), so it is second. A plain
+transcription mode, with no silence to wait for, would make it the obvious default. The SDK also said "awscrt is not
+installed" when it was, on a new Python (FL-16).
 
 ## 6. Sportmonks (live football data): hands-on findings
 
 **Used for** Today's fixtures, live events, line-ups, the referee, head to head, tables, statistics and a player's
 season ([sideline/providers/sportmonks.py](../sideline/providers/sportmonks.py)). Run against the live service on
 2026-10-13 on the **Free plan** (four leagues, 180 calls an hour), on a real finished match.
+
+**Added after a conversation with a real listener's questions (2026-10-14).** Three more reads, all on the free plan, all
+checked live on a real team: a team's fixtures over any window (`fixtures/between/{from}/{to}/{teamId}`: 8 results in the last
+120 days and 5 matches in the next 30 for Celtic), a team's season statistics (126 statistic rows, the latest season has games,
+wins, goals, clean sheets, possession) and a squad with shirt numbers, positions, captain and, through `coaches.coach`, the
+manager. Two details that cost time: `sidelined.sideline` is an include on a fixture but not on a team (HTTP 404, "The
+requested include 'sideline' does not exist on Sidelined"), and the squad endpoint gives player ids until you ask for
+`player.position`. The rate limit is per kind of entity, so a squad lookup does not use the fixture budget.
 
 **What worked well** One request returns a fixture with its events, line-ups, formations, state and score through
 `include`, so a followed match costs one call per poll. The per-hour limit comes back in every response

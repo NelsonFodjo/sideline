@@ -32,6 +32,10 @@ and the Nova Sonic SDK are optional and the product degrades without them.
 use small, labelled-invented fixtures in `tests/fixtures/`, and nothing in `sideline/`
 may ship data files.
 
+**Test data never touches a real table.** A server built with a test provider uses memory state only, whatever
+`SIDELINE_STATE` says (`app.build`), and `tests/test_finder.py` pins it. Invented fixtures once ended up in the app's own
+DynamoDB table and made every match question fail (FL-17).
+
 **No environment variable without a reader, and no reader without documentation.**
 `sideline/config.py` `VARIABLES` is the registry; `tests/test_environment.py`
 fails if the code, that list, `.env.example` and `docs/ENVIRONMENT.md` disagree.

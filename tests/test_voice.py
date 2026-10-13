@@ -1,14 +1,11 @@
-"""Speech in: which provider is used, and what is sent to Groq's Whisper.
+"""Speech in: which AWS model is used (Voxtral, then Nova Sonic), what is sent to it, and what happens when it fails.
 
-No network and no keys: urllib is patched. Real recognition accuracy is not
-tested here (and cannot be without a key); `make stt-check` does a round trip
-with a real provider.
+No network and no credentials: the Bedrock clients are doubles. Real recognition accuracy is not tested here;
+`make stt-check` and `make compare-stt` do that against the real service.
 """
 
 import io
 import json
-import urllib.error
-import urllib.request
 import wave
 
 from conftest import make_ctx
@@ -17,7 +14,6 @@ from sideline import voice
 from sideline.state.store import Event
 from sideline.tools import REGISTRY
 
-SENT = {}
 RATE = 16000
 
 
@@ -61,24 +57,25 @@ def pcm_of(samples):
     return struct.pack("<%dh" % len(samples), *[max(-32768, min(32767, x)) for x in samples])
 
 
-class Resp(io.BytesIO):
-    def __enter__(self):
-        return self
+class FakeVoxtral:
+    """A Bedrock runtime client that answers Converse the way Voxtral does, and records the request."""
 
-    def __exit__(self, *a):
-        return False
+    def __init__(self, text=" Who is refereeing? ", error=None):
+        self.text, self.error, self.requests = text, error, []
+
+    def converse(self, **kw):
+        self.requests.append(kw)
+        if self.error:
+            raise self.error
+        return {"output": {"message": {"role": "assistant", "content": [{"text": self.text}]}},
+                "usage": {"inputTokens": 40, "outputTokens": 6}}
 
 
-def ok_urlopen(req, timeout=None, context=None):
-    SENT.update(url=req.full_url, headers={k.lower(): v for k, v in req.header_items()},
-                body=req.data, context=context)
-    return Resp(json.dumps({"text": " Who is refereeing? "}).encode())
-
-
-def set_env(stt="auto", groq="", aws=False, have_sonic=False):
-    voice.STT_PROVIDER, voice.GROQ_KEY = stt, groq
+def set_env(stt="auto", aws=False, have_sonic=False):
+    voice.STT_PROVIDER = stt
     voice._have_aws_credentials = lambda: aws
     voice.HAVE_SONIC = have_sonic
+    voice.HAVE_BOTO3 = True
     voice._DISABLED.clear()
 
 
@@ -86,42 +83,37 @@ def main():
     pcm = pcm_of(speech_like(1.5))
 
     # ------------------------------------------------------ choosing
-    # Measured: Groq beat Nova Sonic on accuracy and speed, so with a key it
-    # leads; Sonic is next, then the browser.
-    set_env(groq="k", aws=True, have_sonic=True)
-    assert voice.stt_order() == ["groq", "sonic"]
-    assert voice.capabilities()["stt"] == "groq"
-    set_env(groq="", aws=True, have_sonic=True)
-    assert voice.stt_order() == ["sonic"], "no key: nothing leaves AWS"
-    set_env(groq="", aws=True, have_sonic=False)
+    # Measured (docs/SPEECH.md): Voxtral matched the third-party benchmark and Sonic was too slow to lead,
+    # so Voxtral leads, Sonic is the fallback, then the browser. Everything stays inside AWS.
+    set_env(aws=True, have_sonic=True)
+    assert voice.stt_order() == ["voxtral", "sonic"]
+    assert voice.capabilities()["stt"] == "voxtral"
+    set_env(aws=True, have_sonic=False)
+    assert voice.stt_order() == ["voxtral"], "no streaming SDK: Voxtral still works (it needs only boto3)"
+    set_env(aws=False, have_sonic=True)
     caps = voice.capabilities()
-    assert voice.stt_order() == [] and "aws-sdk-bedrock-runtime" in caps["stt_hint"], caps
-    set_env(groq="k")
-    assert voice.stt_order() == ["groq"]
-    set_env(groq="", aws=False, have_sonic=True)
-    caps = voice.capabilities()
-    assert caps["stt"] is None and "GROQ_API_KEY" in caps["stt_hint"]
-    set_env(stt="off", groq="k", aws=True, have_sonic=True)
+    assert caps["stt"] is None and "AWS credentials" in caps["stt_hint"], caps
+    set_env(stt="off", aws=True, have_sonic=True)
     assert voice.stt_order() == []
-    print("ok  auto order is Groq (with a key), Nova Sonic, then the browser; no key means nothing leaves AWS")
+    print("ok  auto order is Voxtral, then Nova Sonic, then the browser; all on Bedrock")
 
     # naming a provider means that provider, and never a silent swap
-    set_env(stt="sonic", groq="k", aws=True, have_sonic=False)
-    assert voice.stt_order() == [], "sonic forced but not installed: not Groq"
-    set_env(stt="groq", groq="", aws=True, have_sonic=True)
-    assert voice.stt_order() == [], "groq forced but no key: not Sonic"
-    set_env(stt="groq", groq="k", aws=True, have_sonic=True)
-    assert voice.stt_order() == ["groq"]
+    set_env(stt="sonic", aws=True, have_sonic=False)
+    assert voice.stt_order() == [], "sonic forced but not installed: not Voxtral"
+    set_env(stt="voxtral", aws=True, have_sonic=True)
+    assert voice.stt_order() == ["voxtral"]
+    set_env(stt="voxtral", aws=False, have_sonic=True)
+    assert voice.stt_order() == [], "no AWS credentials: nothing to name"
     print("ok  a provider named in SIDELINE_STT is used alone")
 
     # live captions: on by default when recognition is server-side, switchable
-    set_env(groq="k")
+    set_env(aws=True)
     voice.LIVE_CAPTION = "browser"
     assert voice.capabilities()["caption"] == "browser"
     voice.LIVE_CAPTION = "off"
     assert voice.capabilities()["caption"] is None, "off keeps audio with the chosen provider"
     voice.LIVE_CAPTION = "browser"
-    set_env(groq="", aws=False)
+    set_env(aws=False)
     assert voice.capabilities()["caption"] is None, "browser recognition already types live"
     print("ok  live captions follow server recognition, and SIDELINE_LIVE_CAPTION=off disables them")
 
@@ -136,18 +128,57 @@ def main():
              if 8000 < i < 9600 else 0 for i in range(RATE * 2)]
     assert voice.voiced_ms(pcm_of(thump)) < voice.GATE_MIN_VOICED_MS, "a 100 ms thump"
     assert voice.voiced_ms(pcm_of([0] * RATE * 2)) == 0
-    set_env(groq="k", aws=True, have_sonic=True)
-    urllib.request.urlopen = ok_urlopen
-    SENT.clear()
+    set_env(aws=True)
+    fake = FakeVoxtral()
+    voice._voxtral = fake
     out = voice.transcribe(pcm_of(typing), "audio/pcm")
-    assert out == {"text": "", "provider": "gate"} and not SENT, \
-        "a clip of clicks must never reach a provider (Whisper turns it into 'Thank you.')"
+    assert out == {"text": "", "provider": "gate"} and not fake.requests, \
+        "a clip of clicks must never reach a provider (a recogniser turns it into 'Thank you.')"
     out = voice.transcribe(pcm_of(mixed), "audio/pcm")
-    assert out["provider"] == "groq" and SENT, "speech with typing in the background is sent"
+    assert out["provider"] == "voxtral" and fake.requests, "speech with typing in the background is sent"
     print("ok  clicks and thumps are not speech: typing is dropped before any request, speech over typing is kept")
 
-    # ---------------------------------------- the fallback chain, per clip
-    set_env(groq="k", aws=True, have_sonic=True)
+    # ------------------------------------------------------ the request
+    set_env(aws=True)
+    fake = FakeVoxtral()
+    voice._voxtral = fake
+    hint = voice._BASE_HINT + " Arsenal, Saka, Ødegaard"
+    out = voice.transcribe(pcm, "audio/pcm", hint)
+    assert out == {"text": "Who is refereeing?", "provider": "voxtral"}, out
+    req = fake.requests[0]
+    assert req["modelId"] == voice.VOXTRAL_MODEL and "system" not in req, "a system message is refused alongside audio"
+    blocks = req["messages"][0]["content"]
+    assert "audio" in blocks[0] and "text" in blocks[1], "the audio comes BEFORE the instruction"
+    assert "Ødegaard" not in blocks[1]["text"] and "Do not answer" in blocks[1]["text"], \
+        "no vocabulary in the prompt: a chat model echoes a list of names and answers from it"
+    w = wave.open(io.BytesIO(blocks[0]["audio"]["source"]["bytes"]))
+    assert blocks[0]["audio"]["format"] == "wav" and (w.getnchannels(), w.getframerate(), w.getnframes()) == (1, 16000, len(pcm) // 2)
+    assert req["inferenceConfig"]["temperature"] == 0
+    print("ok  PCM goes up as a WAV, audio first, an instruction that forbids answering, no vocabulary and no system message")
+
+    # Noise is never text: a label for a sound is dropped, whichever model wrote it.
+    for label, want in (("[SOUND]", ""), ("[Music]", ""), ("(applause) [inaudible]", ""), ("*cough*", ""),
+                        ("\u266a \u266a", ""), ("Who is [inaudible] refereeing?", "Who is refereeing?"),
+                        ("What's the score? [SOUND]", "What's the score?"), (".", "")):
+        assert voice.only_words(label) == want, (label, voice.only_words(label))
+    voice._voxtral = FakeVoxtral(text="[SOUND]")
+    out = voice.transcribe(pcm_of(mixed), "audio/pcm")
+    assert out == {"text": "", "provider": "voxtral"}, "a clip heard as a sound is 'heard nothing', not a question"
+    print("ok  [SOUND], [Music], (applause), *cough* and the like are dropped: noise is never shown or acted on")
+
+    # too short to hold a word: never sent
+    fake.requests[:] = []
+    assert voice.transcribe(b"\0" * 100, "audio/pcm") == {"text": "", "provider": "gate"}
+    assert not fake.requests
+    print("ok  a clip shorter than 0.4 s is dropped before it costs a request")
+
+    # A model that talks about the clip instead of writing it down is not a transcript.
+    voice._voxtral = FakeVoxtral(text="Alright, so I'm going to ask you a question. " * 8)
+    assert voice._transcribe_voxtral(pcm) is None, "far more words than a 1.5 s clip can hold"
+    print("ok  a reply with more words than the clip holds is dropped, not spoken to the listener")
+
+    # ---------------------------------------- failures and the fallback chain, per clip
+    set_env(aws=True, have_sonic=True)
     long_pcm = pcm_of(speech_like(1.5))
     calls = []
 
@@ -155,25 +186,22 @@ def main():
         calls.append("sonic")
         return "who is refereeing"
 
-    def groq_fails(pcm, hint=""):
-        calls.append("groq")
-        return None
-
-    def groq_hears_nothing(pcm, hint=""):
-        calls.append("groq")
-        return {"text": "", "provider": "groq"}
     voice._sonic_hear = sonic_ok
-    voice._transcribe_groq = groq_fails
+    voice._voxtral = FakeVoxtral(error=RuntimeError("ThrottlingException: slow down"))
     out = voice.transcribe(long_pcm)
-    assert out == {"text": "who is refereeing", "provider": "sonic"} and calls == ["groq", "sonic"]
-    voice._transcribe_groq = groq_hears_nothing
+    assert out == {"text": "who is refereeing", "provider": "sonic"} and calls == ["sonic"]
+    assert voice.stt_order() == ["voxtral", "sonic"], "a throttle is temporary: Voxtral stays in rotation"
+    voice._voxtral = FakeVoxtral(text="  ")
     calls[:] = []
     out = voice.transcribe(long_pcm)
-    assert out == {"text": "", "provider": "groq"} and calls == ["groq"], \
+    assert out == {"text": "", "provider": "voxtral"} and not calls, \
         "silence is an answer, not a failure: do not pay for a second opinion"
-    print("ok  a clip Groq fails goes to Sonic; a clip Groq hears nothing in does not")
+    voice._voxtral = FakeVoxtral(error=RuntimeError("AccessDeniedException: not authorized"))
+    voice.transcribe(long_pcm)
+    assert voice.stt_order() == ["sonic"], "access denied will not fix itself: Voxtral leaves the rotation"
+    print("ok  a clip Voxtral fails goes to Sonic; silence is not a failure; AccessDenied takes it out of rotation")
     import importlib
-    importlib.reload(voice)               # restore the real _transcribe_groq / _sonic_hear
+    importlib.reload(voice)               # restore the real _sonic_hear
 
     # failover: a permission error removes Sonic, a blip does not
     async def denied(pcm, hint=""):
@@ -185,59 +213,20 @@ def main():
     async def hears(pcm, hint=""):
         hears.hint = hint
         return "who is refereeing"
-    set_env(aws=True, have_sonic=True)
+    set_env(stt="sonic", aws=True, have_sonic=True)
     voice._sonic_hear = blip
     assert voice.transcribe(long_pcm) is None and voice.stt_order() == ["sonic"]
     voice._sonic_hear = denied
     assert voice.transcribe(long_pcm) is None and voice.stt_order() == []
-    set_env(aws=True, have_sonic=True)
+    set_env(stt="sonic", aws=True, have_sonic=True)
     voice._sonic_hear = hears
     assert voice.transcribe(long_pcm, hint="Saka") == {"text": "who is refereeing",
                                                        "provider": "sonic"}
     assert hears.hint == "Saka"
-    assert voice.transcribe(b"\0" * 100) == {"text": "", "provider": "gate"}, \
-        "a clip under 0.4 s is never sent"
     print("ok  Sonic: a blip falls back for one clip, AccessDenied takes it out of rotation, the hint is passed")
 
-    # ------------------------------------------------------ the request
-    set_env(groq="secret-key")
-    urllib.request.urlopen = ok_urlopen
-    out = voice.transcribe(pcm, "audio/pcm", hint="Arsenal, Saka, Ødegaard")
-    assert out == {"text": "Who is refereeing?", "provider": "groq"}, out
-    body = SENT["body"].decode("latin-1")
-    assert SENT["headers"]["authorization"] == "Bearer secret-key"
-    assert SENT["headers"]["user-agent"] == "sideline/1.0"
-    for needle in ('name="model"', voice.GROQ_MODEL, 'name="language"', "\r\nen\r\n",
-                   'name="temperature"', "\r\n0\r\n", 'name="prompt"'):
-        assert needle in body, needle
-    assert "Ødegaard".encode("utf-8").decode("latin-1") in body
-    assert SENT["context"] is not None, "TLS must go through sideline.tls"
-    wav_start = SENT["body"].index(b"RIFF")
-    w = wave.open(io.BytesIO(SENT["body"][wav_start:SENT["body"].index(b"\r\n--", wav_start)]))
-    assert (w.getnchannels(), w.getframerate(), w.getnframes()) == (1, 16000, len(pcm) // 2)
-    print("ok  PCM goes up as a WAV with model, language, temperature 0 and the vocabulary prompt")
-
-    # too short to hold a word: never sent
-    SENT.clear()
-    assert voice.transcribe(b"\0" * 100, "audio/pcm") == {"text": "", "provider": "gate"}
-    assert not SENT
-    print("ok  a clip shorter than 0.4 s is dropped before it costs a request")
-
-    # ------------------------------------------------------ failures
-    def failing(code):
-        def f(req, timeout=None, context=None):
-            raise urllib.error.HTTPError(req.full_url, code, "x", {}, io.BytesIO(b""))
-        return f
-    urllib.request.urlopen = failing(429)
-    assert voice.transcribe(pcm) is None
-    assert voice.capabilities()["stt"] == "groq", "a rate limit is temporary"
-    urllib.request.urlopen = failing(401)
-    assert voice.transcribe(pcm) is None
-    assert voice.capabilities()["stt"] is None, "a rejected key will not fix itself"
-    print("ok  429 falls back for that clip only; 401 takes Groq out of rotation")
-
     # ------------------------------------------------------ vocabulary
-    set_env(groq="k")
+    set_env(aws=True)
     ctx = make_ctx(start_minute=0)
     REGISTRY["follow_match"](ctx, {"team": "Arsenal"}, "v")
     fid = ctx.store.listener("v")["following"]
@@ -257,7 +246,7 @@ def main():
     assert "Sønderjyske Fodbold" in hint and "sonderjyske fodbold" in hint and "fc kobenhavn" in hint, hint
     print("ok  the prompt carries the followed match's teams and players, and a stranger gets the basics")
 
-    # Whisper prints its own prompt when it is given noise: team names nobody said.
+    # A recogniser prints its own vocabulary when it is given noise: team names nobody said.
     hint = voice._BASE_HINT + " Hartlepool, Newcastle United U21"
     assert voice.echoes_hint("Hartlepool, Newcastle U21", hint), "the names alone are an echo"
     assert voice.echoes_hint("Newcastle United U21.", hint)
@@ -267,13 +256,7 @@ def main():
     assert not voice.echoes_hint("Hartlepool", hint), "one bare name could be the answer to 'which team?'"
     offered = "The listener is choosing between: Hartlepool, Newcastle United U21. " + hint
     assert not voice.echoes_hint("Hartlepool", offered), "after an offer a bare name IS the answer"
-    # Whisper's own doubt: probably silence and not confident is a hallucinated segment.
-    doc = {"text": "Thanks for watching Hartlepool", "segments": [
-        {"text": " Thanks for watching", "no_speech_prob": 0.9, "avg_logprob": -1.4},
-        {"text": " who is refereeing", "no_speech_prob": 0.05, "avg_logprob": -0.2}]}
-    assert voice._spoken_text(doc) == "who is refereeing", voice._spoken_text(doc)
-    assert voice._spoken_text({"text": " hello there "}) == "hello there", "no segments: the text as is"
-    print("ok  noise that Whisper turns into its own hint, or into a doubted segment, is dropped")
+    print("ok  noise that a recogniser turns into its own vocabulary is dropped")
 
     # ------------------------------------------------------ speech out: natural voice, exact timings
     import base64
@@ -295,6 +278,7 @@ def main():
                      "Newcastle United U21 won 3-0."], spans
     assert voice.speakable("U21") == "under-21" and voice.speakable("U19,") == "under-19," and voice.speakable("Uruguay") == "Uruguay"
     assert voice.speakable("Arsenal") == "Arsenal" and voice.speakable("U2") == "U2"
+    assert voice.speakable("Alexa+,") == "Alexa-plus," and voice.speakable("MCP") == "MCP", "Polly already says MCP letter by letter, a second faster than M-C-P"
     print("ok  sentences split at . ! ? before a capital, not after St. or an initial; U21 is said 'under 21'")
 
     even = voice._marks_fitted([], 4, 2000)

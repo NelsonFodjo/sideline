@@ -1,4 +1,11 @@
-# The simulator
+# The simulated Alexa+
+
+This page **simulates Alexa+**, the voice assistant that would talk to the Sideline MCP server. The real Alexa+ add-on
+tooling is partner-only, so this stands in for it: a hands-free voice client that listens, lets a model choose among the
+server's tools, calls them over MCP (`initialize`, `tools/list`, `tools/call`) as an external client would, and speaks
+the answer. It says what it is when you press Go live: *"Hi, I'm a simulated Alexa+, connected to Sideline: an MCP server
+for live sports, football for now..."*, followed by what sets the server apart (real matches only, it remembers what you last heard, it
+stays behind your TV so it won't spoil a goal, you can talk over it). It is not Alexa+, and does not claim to be.
 
 A hands-free voice client for the Sideline MCP server. One button, once, because browsers will not open a
 microphone without a gesture. After that nothing is clicked and nothing is typed.
@@ -61,7 +68,7 @@ tool-use bridge, not an Alexa+ integration.
 ## Speech in
 
 The browser captures raw 16 kHz mono PCM (not a recording, which sidesteps MediaRecorder's container differences)
-and posts it to the server, which tries Groq Whisper (with a key), then Nova Sonic, and tells the page what it
+and posts it to the server, which tries Voxtral, then Nova Sonic (both on Bedrock), and tells the page what it
 heard. With neither, the browser's own recognition does it. Providers, measurements and the privacy trade-offs:
 [docs/SPEECH.md](../docs/SPEECH.md).
 

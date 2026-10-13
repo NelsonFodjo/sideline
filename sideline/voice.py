@@ -11,17 +11,15 @@ word at the moment the voice reaches it; only the neural voice returns them, so 
 and fitted to the generative audio. An answer is made in one piece, so the voice flows (see "speech out"
 below). Without AWS credentials the page uses the browser's own voice.
 
-SPEECH IN: the providers below, best first, with a per-clip fallback. Measured
-head to head (scripts/compare_stt.py, 48 clips, clean and noisy; docs/SPEECH.md):
-Groq's hosted Whisper beat Nova Sonic on accuracy (3.7% against 8.5% word error
-in noise) and speed (1.1 s against 4.2 s). Sonic stays inside the AWS account.
+SPEECH IN: models on Amazon Bedrock, so audio never leaves the AWS account. Measured head to head on 48
+clips, clean and noisy (scripts/compare_stt.py; docs/SPEECH.md):
 
-    1. Groq Whisper   only with GROQ_API_KEY: a third party, so audio leaves AWS
-    2. Nova Sonic     Bedrock, needs the streaming SDK (Python 3.12+)
+    1. Voxtral small  Mistral's speech model on Bedrock, through Converse: about 0.8 s, and every name right
+    2. Nova Sonic     Amazon's, needs the streaming SDK (Python 3.12+): about 3.5 s, so only a fallback
     3. the browser's own recognition, the least accurate, used when neither works
 
-A clip one provider fails goes to the next, so a rate limit never leaves a
-listener unheard. Naming a provider (SIDELINE_STT=sonic) uses it alone.
+A clip one provider fails goes to the next, so a throttle never leaves a listener unheard. Naming a provider
+(SIDELINE_STT=sonic) uses it alone.
 
 /voice/stt and /voice/tts are simulator support, not part of the MCP surface.
 Nothing in sideline/tools/ knows they exist.
@@ -67,16 +65,13 @@ POLLY_VOICE = os.environ.get("SIDELINE_POLLY_VOICE", "Amy")
 POLLY_ENGINE = os.environ.get("SIDELINE_POLLY_ENGINE", "generative").strip().lower()   # generative|neural
 
 # --- speech in
-STT_PROVIDER = os.environ.get("SIDELINE_STT", "auto")          # auto|groq|sonic|off
-GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = "whisper-large-v3-turbo"
-GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+STT_PROVIDER = os.environ.get("SIDELINE_STT", "auto")          # auto|voxtral|sonic|off
 SONIC_MODEL = "amazon.nova-2-sonic-v1:0"
-STT_LANGUAGE = "en"                    # Whisper takes ISO 639-1, not a locale
+VOXTRAL_MODEL = "mistral.voxtral-small-24b-2507"     # speech in, text out, through Bedrock Converse
 SAMPLE_RATE = 16000
 
 # Words typed on screen while the listener is still speaking. Server-side
-# recognition (Groq, Nova Sonic) only returns text once the clip ends, so for
+# recognition (Voxtral, Nova Sonic) only returns text once the clip ends, so for
 # live typing the page also runs the browser's own recognition on the side,
 # purely to show interim words, and replaces them with the server's more
 # accurate transcript. The cost: that audio also reaches the browser vendor
@@ -123,14 +118,14 @@ def _have_aws_credentials():
 def stt_order():
     """Providers that can be used right now, best first.
 
-    A named provider (SIDELINE_STT=groq) is used alone, never silently
+    A named provider (SIDELINE_STT=sonic) is used alone, never silently
     swapped for another, so a choice about where audio goes is respected.
     """
     aws = _have_aws_credentials()
-    ok = {"groq": bool(GROQ_KEY), "sonic": aws and HAVE_SONIC}
+    ok = {"voxtral": aws and HAVE_BOTO3, "sonic": aws and HAVE_SONIC}
     if STT_PROVIDER == "off":
         return []
-    names = ["groq", "sonic"] if STT_PROVIDER == "auto" else [STT_PROVIDER]
+    names = ["voxtral", "sonic"] if STT_PROVIDER == "auto" else [STT_PROVIDER]
     return [n for n in names if ok.get(n) and n not in _DISABLED]
 
 
@@ -161,12 +156,8 @@ def capabilities():
     if not stt:
         if STT_PROVIDER == "off":
             out["stt_hint"] = "speech-to-text disabled"
-        elif aws and not HAVE_SONIC and not GROQ_KEY:
-            out["stt_hint"] = ("pip3 install aws-sdk-bedrock-runtime awscrt (Python 3.12+) "
-                               "for Nova Sonic, or set GROQ_API_KEY")
-        elif not aws and not GROQ_KEY:
-            out["stt_hint"] = ("set AWS credentials (Nova Sonic) or GROQ_API_KEY "
-                               "for better recognition than the browser")
+        elif not aws:
+            out["stt_hint"] = "set AWS credentials (Bedrock) for better recognition than the browser"
         else:
             out["stt_hint"] = "no speech-to-text provider available"
     if not tts:
@@ -231,6 +222,9 @@ def mp3_seconds(b):
 
 def speakable(token):
     """One written token as it should be said. One for one, so word positions never shift."""
+    m = re.fullmatch(r"Alexa\+([,.;:!?]*)", token)
+    if m:                                                   # "Alexa+" is said "Alexa plus"
+        return "Alexa-plus%s" % m.group(1)
     m = re.fullmatch(r"([Uu])(\d{2})([,.;:!?]*)", token)
     if m:                                                   # "U21" is "under twenty-one", not "you twenty-one"
         return "under-%s%s" % (m.group(2), m.group(3))
@@ -354,7 +348,7 @@ def synthesize(text):
 # *sustained*. Words are tens of milliseconds to hundreds of milliseconds of
 # continuous sound; a key click is under 30 ms and a thump under 100. So count
 # only stretches of loud 20 ms frames that last, and require enough of them.
-# Whisper left to itself turns a clip of clicks into "Thank you.", and every
+# A recogniser left to itself turns a clip of clicks into "Thank you.", and every
 # clip that reaches a provider costs a request, so this runs first.
 GATE_FRAME_MS = 20
 GATE_MIN_RUN = 4            # 80 ms of continuous sound before it counts as voiced
@@ -393,13 +387,26 @@ def voiced_ms(pcm_bytes):
     return total * GATE_FRAME_MS
 
 
+_NON_SPEECH = re.compile(r"\[[^\]]*\]|\([^)]*\)|\{[^}]*\}|<[^>]*>|\*[^*]*\*|[\u266a\u266b]+")
+
+
+def only_words(text):
+    """The words in a transcript, without descriptions of noise.
+
+    Recognisers write non-speech in brackets ("[SOUND]", "[Music]", "[inaudible]", "(applause)", "*cough*"). That
+    describes a sound; nobody said it, and it must never reach the screen or the agent. "" when no words remain.
+    """
+    text = " ".join(_NON_SPEECH.sub(" ", text or "").split())
+    return text if re.search(r"[A-Za-z0-9\u00C0-\u024F]", text) else ""
+
+
 def transcribe(audio_bytes, mime="audio/pcm", hint=""):
     """Audio in, text out. Returns {"text": ..., "provider": ...} or None.
 
     The browser sends raw 16 kHz mono PCM, which sidesteps MediaRecorder's
     container differences between browsers entirely (WebM in Chrome, MP4 in
-    Safari). Nova Sonic streams it as is; Groq takes it wrapped as WAV. `hint` is vocabulary for the recogniser (see
-    `vocabulary_hint`); only Whisper uses it.
+    Safari). Voxtral takes it wrapped as WAV; Nova Sonic streams it as is. `hint` is vocabulary for the
+    recogniser (see `vocabulary_hint`).
     """
     if voiced_ms(audio_bytes) < GATE_MIN_VOICED_MS:
         # Clicks, a thump, or a room: nothing to transcribe, and nothing worth
@@ -408,11 +415,12 @@ def transcribe(audio_bytes, mime="audio/pcm", hint=""):
                  len(audio_bytes))
         return {"text": "", "provider": "gate"}
     for which in stt_order():
-        if which == "groq":
-            out = _transcribe_groq(audio_bytes, hint)
+        if which == "voxtral":
+            out = _transcribe_voxtral(audio_bytes, hint)
         else:
             out = _transcribe_sonic(audio_bytes, hint)
         if out is not None:
+            out = dict(out, text=only_words(out.get("text")))
             if out.get("text") and echoes_hint(out["text"], hint):
                 LOG.info("transcript %r is the recogniser echoing its own vocabulary hint "
                          "(noise, not speech); dropped", out["text"])
@@ -433,13 +441,13 @@ _BASE_HINT = ("Questions about a live football or basketball match. "
 def vocabulary_hint(ctx, listener_id, max_names=24):
     """Teams and players from the match this listener follows.
 
-    Whisper's `prompt` biases it towards these spellings, which is the
+    The vocabulary biases the recogniser towards these spellings, which is the
     difference between "Ødegaard" and "oh the guard". Names come from our own
     event log and stored fixture, so this costs no feed requests.
     """
     from . import resolve
     # What the listener was just offered goes first: their next words are most
-    # likely one of those, and Whisper weighs the start of its prompt most.
+    # likely one of those, and the start of a prompt weighs most.
     offered = resolve.BOOK.labels(listener_id)
     names = resolve.match_names(ctx, listener_id, limit=max_names)
     try:
@@ -461,7 +469,7 @@ def vocabulary_hint(ctx, listener_id, max_names=24):
 def echoes_hint(text, hint):
     """Is this transcript only the recogniser reading its own vocabulary back?
 
-    Whisper, given a prompt and a clip of noise, tends to print the prompt: a room
+    A recogniser, given a vocabulary and a clip of noise, tends to print the vocabulary: a room
     of background sound became "Hartlepool, Newcastle U21", team names nobody said.
     A transcript of two or more words made up only of names from the hint, with none
     of the question words, is that echo. Not applied while the listener has been offered a choice,
@@ -489,21 +497,6 @@ def _wav(pcm_bytes):
         w.setframerate(SAMPLE_RATE)
         w.writeframes(pcm_bytes)
     return buf.getvalue()
-
-
-def _multipart(fields, file_field, filename, content_type, data):
-    import uuid
-    boundary = "sideline" + uuid.uuid4().hex
-    parts = []
-    for k, v in fields.items():
-        parts.append(("--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n"
-                      % (boundary, k, v)).encode("utf-8"))
-    parts.append(("--%s\r\nContent-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\n"
-                  "Content-Type: %s\r\n\r\n" % (boundary, file_field, filename,
-                                                  content_type)).encode("utf-8"))
-    parts.append(data)
-    parts.append(("\r\n--%s--\r\n" % boundary).encode("utf-8"))
-    return b"".join(parts), "multipart/form-data; boundary=" + boundary
 
 
 def _sonic_credentials():
@@ -635,54 +628,50 @@ def _transcribe_sonic(pcm_bytes, hint=""):
     return {"text": text, "provider": "sonic"}
 
 
-def _spoken_text(doc):
-    """The transcript, without the segments Whisper itself doubted were speech.
+_voxtral = None
 
-    verbose_json carries, per segment, how likely it was silence (`no_speech_prob`)
-    and how unsure the words were (`avg_logprob`). Whisper's own rule of thumb for a
-    hallucinated segment is both at once: probably silence, and low confidence.
+
+def _transcribe_voxtral(pcm_bytes, hint="", model=None):   # `hint` is accepted and not sent: see below
+    """Mistral's Voxtral on Bedrock as the ears: audio in, the words out, all inside the AWS account.
+
+    Through Converse with an audio block. Two things learned the hard way: the audio goes BEFORE the
+    instruction (the other way round it answers the question it hears, or invents one), and a
+    system message is refused alongside audio. A model that talks about the audio instead of writing
+    it down is caught by length: more words than the clip could hold is not a transcript.
     """
-    segments = doc.get("segments")
-    if not isinstance(segments, list) or not segments:
-        return (doc.get("text") or "").strip()
-    kept = [s.get("text", "") for s in segments
-            if not ((s.get("no_speech_prob") or 0) > 0.6 and (s.get("avg_logprob") or 0) < -1.0)]
-    return " ".join("".join(kept).split())
-
-
-def _transcribe_groq(pcm_bytes, hint=""):
-    """Groq-hosted Whisper. Standard library only, like the rest of the server.
-
-    temperature 0 and a language: Whisper left to itself will guess the
-    language from two seconds of audio and sometimes translate silence into a
-    sentence. A clip too short to hold a word is dropped before it is sent.
-    """
-    import urllib.error
-    import urllib.request
-
-    from . import tls
+    global _voxtral
     if len(pcm_bytes) < SAMPLE_RATE * 2 // 5:               # under 0.4 s
         return None
-    fields = {"model": GROQ_MODEL, "language": STT_LANGUAGE, "temperature": "0",
-              "response_format": "verbose_json"}
-    if hint:
-        fields["prompt"] = hint[:800]
-    body, ctype = _multipart(fields, "file", "clip.wav", "audio/wav", _wav(pcm_bytes))
-    req = urllib.request.Request(
-        GROQ_URL, data=body, method="POST",
-        headers={"Authorization": "Bearer " + GROQ_KEY, "Content-Type": ctype,
-                 # Groq sits behind Cloudflare, which rejects the default
-                 # Python-urllib agent.
-                 "User-Agent": "sideline/1.0"})
+    # No vocabulary goes in the prompt, on purpose. Given a list of team names, this chat model printed the list for
+    # "The first one." and answered questions from it ("The score is Arsenal 1..."): measured on twelve clips, 0
+    # failures without the names and up to 2 with them. Misheard names are repaired afterwards (resolve.py).
+    instruction = ("Transcribe the speech in this audio word for word. Output only the words spoken. "
+                   "Do not answer or comment on it.")
     try:
-        with urllib.request.urlopen(req, timeout=15, context=tls.context()) as r:
-            text = _spoken_text(json.loads(r.read().decode("utf-8")))
-    except urllib.error.HTTPError as e:
-        LOG.warning("groq transcription failed: HTTP %s", e.code)
-        if e.code in (401, 403):
-            _DISABLED.add("groq")          # a bad key will not fix itself
+        if _voxtral is None:
+            _voxtral = boto3.client("bedrock-runtime", region_name=REGION,
+                                    config=BotoConfig(read_timeout=12, connect_timeout=3, retries={"max_attempts": 1}))
+        resp = _voxtral.converse(
+            modelId=model or VOXTRAL_MODEL,
+            messages=[{"role": "user", "content": [{"audio": {"format": "wav", "source": {"bytes": _wav(pcm_bytes)}}},
+                                                   {"text": instruction}]}],
+            inferenceConfig={"maxTokens": 80, "temperature": 0})
+        text = " ".join(b.get("text", "") for b in resp["output"]["message"]["content"]).strip().strip('"').strip()
+        from . import audit
+        usage = resp.get("usage") or {}
+        audit.record("tokens", source="speech", model=model or VOXTRAL_MODEL,
+                     input=int(usage.get("inputTokens") or 0), output=int(usage.get("outputTokens") or 0))
+    except Exception as e:                                     # noqa: BLE001
+        msg = "%s %s" % (type(e).__name__, e)
+        if any(w in msg for w in ("AccessDenied", "UnrecognizedClient", "ResourceNotFound", "not authorized",
+                                  "Authentication failed")):
+            _DISABLED.add("voxtral")
+            LOG.warning("voxtral unavailable, disabled for this run: %s", msg[:200])
+        else:
+            LOG.warning("voxtral transcription failed: %s", msg[:200])
         return None
-    except (urllib.error.URLError, TimeoutError, ValueError) as e:
-        LOG.warning("groq transcription failed: %s", e)
+    seconds = len(pcm_bytes) / float(SAMPLE_RATE * 2)
+    if len(text.split()) > 4 * seconds + 4:                  # talking about the clip, not writing it down
+        LOG.warning("voxtral returned more words than the clip holds; dropped")
         return None
-    return {"text": text, "provider": "groq"}
+    return {"text": text, "provider": "voxtral"}

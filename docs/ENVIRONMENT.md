@@ -16,10 +16,10 @@ secret.
 | To get | You need |
 |---|---|
 | The server to start | `SPORTMONKS_TOKEN` (a free Sportmonks token) |
-| Spoken, written catch-ups, and the voice agent in the simulator | AWS credentials with Bedrock access (the three `AWS_*` rows are alternatives) |
+| Spoken, written catch-ups, and the voice agent in the simulator | AWS credentials with Bedrock access (the access key pair) |
 | Nova's voice (Polly) | AWS credentials with Polly access. A Bedrock API key alone is not enough |
 | Durable listener state | AWS credentials with DynamoDB access, and the table (`make create-table`) |
-| The most accurate speech in | `GROQ_API_KEY` (audio then leaves AWS: see [SPEECH.md](SPEECH.md)) |
+| Speech in (the listener's voice) | the same AWS credentials: Voxtral and Nova Sonic run on Bedrock, so audio never leaves the account (see [SPEECH.md](SPEECH.md)) |
 
 With no football key the server refuses to start and says why: Sideline has no recorded
 or demo data. With no AWS credentials it still starts, but the agent in the simulator
@@ -40,16 +40,13 @@ has nothing to answer with and listener state is kept in memory.
 | `AWS_REGION` | `us-east-1` | Region for Bedrock, DynamoDB and Polly. |
 | `AWS_ACCESS_KEY_ID` | *(none)* | AWS credentials (with the secret below). **Secret.** |
 | `AWS_SECRET_ACCESS_KEY` | *(none)* | AWS credentials (with the key id above). **Secret.** |
-| `AWS_PROFILE` | *(none)* | A named AWS profile, instead of keys. |
-| `AWS_BEARER_TOKEN_BEDROCK` | *(none)* | A Bedrock API key (Bedrock only, not Polly or DynamoDB). **Secret.** |
 | `SIDELINE_BEDROCK` | `auto` | auto (on when AWS credentials are present), on, or off. |
 | `SIDELINE_BEDROCK_MODEL` | `amazon.nova-micro-v1:0` | Bedrock model or inference-profile id. |
 | `SIDELINE_STATE` | `auto` | auto (DynamoDB if it answers, else memory), memory, or dynamo. |
 | `SIDELINE_TABLE` | `sideline` | DynamoDB table name. |
 | `SIDELINE_POLLY_VOICE` | `Amy` | Polly voice (speech out). |
 | `SIDELINE_POLLY_ENGINE` | `generative` | Polly engine: generative (most natural, falls back to neural) or neural. |
-| `SIDELINE_STT` | `auto` | Speech in: auto, groq, sonic, or off. |
-| `GROQ_API_KEY` | *(none)* | Turns on Groq Whisper for speech in. Audio then leaves AWS. **Secret.** |
+| `SIDELINE_STT` | `auto` | Speech in: auto (Voxtral, then Nova Sonic, both on Bedrock), voxtral, sonic, or off. |
 | `SIDELINE_WEATHER` | `on` | on adds the weather at the ground to a match preview (city and country go to Open-Meteo); off does not. |
 | `SIDELINE_AGENT_TOOLS` | `all` | Tools offered to the voice agent: all, or core (the core eleven, which route more reliably on a small model). |
 | `SIDELINE_LIVE_CAPTION` | `browser` | browser types interim words while you speak (audio also reaches the browser vendor); off does not. |

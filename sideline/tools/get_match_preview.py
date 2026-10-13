@@ -59,7 +59,7 @@ def _formations(lineups, fx):
 
 def run(ctx, args, listener_id):
     from . import resolve_fixture
-    fx = resolve_fixture(ctx, args, listener_id)
+    fx = resolve_fixture(ctx, args, listener_id, prefers="coming")
     tz = fx.get("tz_offset_minutes")
     sp = sports.for_fixture(fx)
     status = fx.get("status")

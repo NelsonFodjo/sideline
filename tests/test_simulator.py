@@ -123,6 +123,23 @@ def main():
     assert "webkitSpeechRecognition" in page and "startBrowserRecognition" in page
     assert "server speech recognition unavailable; switching to browser" in page
     assert "Please repeat." in page
+    # The page says what it is: a simulated Alexa+, talking to an MCP server, never Alexa+ itself.
+    assert "simulated Alexa+" in page and "say(INTRO)" in page and "MCP server for live sports" in page
+    intro = page[page.index("var INTRO="):page.index('$("begin").onclick')]
+    assert "I\\u2019m a simulated Alexa+" in intro and "real matches" in intro and "what did I miss" in intro \
+        and "spoil a goal" in intro and "talk over me" in intro, intro
+    assert 'name:"alexa-plus-simulator"' in page
+    # Noise labels from a recogniser ("[SOUND]") never reach the screen or the agent.
+    assert "function justWords" in page and page.count("justWords(") >= 6, "applied to every path that shows or sends text"
+    import shutil
+    import subprocess
+    if shutil.which("node"):
+        fn = page[page.index("function justWords"):page.index("function liveSaid")]
+        cases = [("[SOUND]", ""), ("[Music]", ""), ("(applause)", ""), ("*cough*", ""), ("\u266a", ""), (".", ""),
+                 ("Who is [inaudible] refereeing?", "Who is refereeing?"), ("what's the score", "what's the score")]
+        script = fn + "\nconsole.log(JSON.stringify(%s.map(function(c){return justWords(c[0]);})));" % json.dumps(cases)
+        got = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=20).stdout)
+        assert got == [w for _, w in cases], got
     # The space bar pauses (and resumes); an in-flight answer is kept.
     assert 'e.code==="Space"' in page
     # The zone and "I cut in here" ride along with a question; noise stays off the caption.
@@ -147,7 +164,7 @@ def main():
     with urllib.request.urlopen(BASE + "/voice/capabilities") as r:
         caps = json.loads(r.read())
     assert not any(k.endswith("_hint") for k in caps), caps
-    assert "aws configure" not in page and "GROQ_API_KEY" not in page
+    assert "aws configure" not in page and "AWS_ACCESS_KEY_ID" not in page
     print("ok  no setup hints reach the page: not in the capabilities JSON, not in the page")
 
     def post(origin, payload):
@@ -184,7 +201,7 @@ def main():
         except urllib.error.HTTPError as e:
             return e.code
 
-    # The speech endpoints spend AWS and Groq credits, so another page must not be able to call them.
+    # The speech endpoints spend AWS credits, so another page must not be able to call them.
     assert voice("/voice/tts", "https://evil.example") == 403
     assert voice("/voice/stt", "null") == 403
     assert voice("/voice/tts", BASE) != 403, "the page's own origin is let through"

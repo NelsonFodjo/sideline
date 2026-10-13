@@ -10,6 +10,7 @@ would fail constantly on exactly the names that matter.
 
 from .. import sports
 from ..mcp.errors import ToolError
+from . import events_for
 
 # A sighted viewer resolves "he" by looking at the screen. We have no
 # camera, so we resolve it from recency instead: whoever the match was
@@ -35,7 +36,7 @@ def _resolve_pronoun(ctx, fx):
     """
     now = fx.get("minute") or 0
     best = None
-    for e in reversed(ctx.store.events(fx["fixture_id"])):
+    for e in reversed(events_for(ctx, fx)):
         for kind, window, why in sports.for_fixture(fx).recency:
             if e["kind"] != kind or now - e["minute"] > window:
                 continue
@@ -51,7 +52,7 @@ def _resolve_pronoun(ctx, fx):
 
 def run(ctx, args, listener_id):
     from . import resolve_fixture
-    fx = resolve_fixture(ctx, args, listener_id)
+    fx = resolve_fixture(ctx, args, listener_id, prefers="played")
 
     asked = (args["player"] or "").strip().lower()
     pronoun_used = asked in PRONOUNS
@@ -85,7 +86,7 @@ def run(ctx, args, listener_id):
         # Line-ups are often not published until close to kick-off (and
         # some feeds never have them). The event log still names everyone
         # who has done something, so look there before saying no.
-        for e in ctx.store.events(fx["fixture_id"]):
+        for e in events_for(ctx, fx):
             for field in ("player", "player_off", "assist"):
                 n = _norm(e.get(field))
                 if n and (query == n or query in n or n.endswith(query)):
@@ -100,7 +101,7 @@ def run(ctx, args, listener_id):
             "I can't find %s in this match." % args["player"],
             {"reason": "player_not_found", "query": args["player"]})
 
-    involved = [e for e in ctx.store.events(fx["fixture_id"])
+    involved = [e for e in events_for(ctx, fx)
                 if _norm(e.get("player")) == _norm(found["name"])
                 or _norm(e.get("player_off")) == _norm(found["name"])
                 or _norm(e.get("assist")) == _norm(found["name"])]

@@ -44,7 +44,8 @@ class ProviderUnavailable(Exception):
 # model is never offered a tool that would fail. (Whether a feed's PLAN allows a thing is a
 # separate matter: a refusal is spoken in the vendor's own words.)
 CAPABILITIES = ("fixtures", "events", "lineups", "officials", "h2h", "form", "stats",
-                "injuries", "search", "competitions", "standings", "top_scorers", "player_stats")
+                "injuries", "search", "competitions", "standings", "top_scorers", "player_stats",
+                "team_matches", "team_stats", "squad")
 
 
 class Provider:
@@ -100,6 +101,18 @@ class Provider:
 
     def form(self, fixture_id):
         """{"home": "WWDLW", "away": "LDWWW"}: each side's recent results, W/D/L."""
+        raise NotImplementedError
+
+    def team_matches(self, team, days_back=90, days_ahead=45):
+        """{"team", "upcoming": [fixtures soonest first], "recent": [finished fixtures latest first]} or None."""
+        raise NotImplementedError
+
+    def squad(self, team):
+        """{"team", "coach", "captain", "players": [{"name", "number", "position"}]} or None."""
+        raise NotImplementedError
+
+    def team_stats(self, team):
+        """{"team", "played", "won", "drawn", "lost", "goals_for", "goals_against", "clean_sheets", ...} or None."""
         raise NotImplementedError
 
     def fixtures_on(self, offset_days=0):

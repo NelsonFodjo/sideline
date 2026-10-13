@@ -21,8 +21,8 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Blank secrets beat a developer's own .env, so this test never uses real keys.
-BLANK = {"SIDELINE_LOG_DIR": "off", "SPORTMONKS_TOKEN": "", "GROQ_API_KEY": "", "AWS_ACCESS_KEY_ID": "",
-         "AWS_SECRET_ACCESS_KEY": "", "AWS_PROFILE": "", "AWS_BEARER_TOKEN_BEDROCK": "",
+BLANK = {"SIDELINE_LOG_DIR": "off", "SPORTMONKS_TOKEN": "", "AWS_ACCESS_KEY_ID": "",
+         "AWS_SECRET_ACCESS_KEY": "",
          "SIDELINE_BEDROCK": "off", "SIDELINE_STATE": "memory"}
 
 
@@ -85,7 +85,7 @@ def main():
     proc = _start(8799, SPORTMONKS_TOKEN="not-a-real-token")
     try:
         health = _wait_for_health(proc, 8799)
-        assert health["protocol"] == "2025-11-25" and health["tools"] == 24, health
+        assert health["protocol"] == "2025-11-25" and health["tools"] == 27, health
         assert "mode" not in health, "there is no demo/live mode any more"
         status, page = _get(8799, "/")
         assert status == 200 and "Sideline" in page
@@ -96,7 +96,7 @@ def main():
             json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).encode(),
             {"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=2) as resp:
-            assert len(json.loads(resp.read())["result"]["tools"]) == 24
+            assert len(json.loads(resp.read())["result"]["tools"]) == 27
         print("ok  with a key `python -m sideline` serves on a clean shell:",
               "%d tools, spec %s, the simulator page, MCP tools/list" % (
                   health["tools"], health["protocol"]))

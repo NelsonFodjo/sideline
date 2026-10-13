@@ -39,6 +39,7 @@ def main():
     tools = [r for r in rows if r["kind"] == "tool"]
     agent = [r for r in rows if r["kind"] == "agent"]
     stt = [r for r in rows if r["kind"] == "stt"]
+    tokens = [r for r in rows if r["kind"] == "tokens"]
     first, last = rows[0]["time"], rows[-1]["time"]
     print("%d records, %s to %s\n" % (len(rows), first[:16], last[:16]))
 
@@ -64,6 +65,13 @@ def main():
             len(agent), len(agent) - len(ok), statistics.median(r.get("ms") or 0 for r in agent)))
         used = collections.Counter(t for r in ok for t in (r.get("tools") or []))
         print("  tools chosen: " + ", ".join("%s x%d" % (k, v) for k, v in used.most_common(8)))
+    if tokens:
+        print("\nBEDROCK TOKENS (as counted by Bedrock): %d calls" % len(tokens))
+        for (source, model), rs in sorted(collections.defaultdict(list, {
+                k: [r for r in tokens if (r.get("source"), r.get("model")) == k]
+                for k in {(r.get("source"), r.get("model")) for r in tokens}}).items()):
+            print("  %-6s %-24s %5d calls, %7d in, %6d out" % (
+                source, model, len(rs), sum(r.get("input") or 0 for r in rs), sum(r.get("output") or 0 for r in rs)))
     if stt:
         print("\nSPEECH IN: %d clips; by provider: %s" % (
             len(stt), ", ".join("%s x%d" % kv for kv in collections.Counter(r["provider"] for r in stt).most_common())))

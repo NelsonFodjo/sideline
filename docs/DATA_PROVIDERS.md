@@ -34,6 +34,13 @@ A provider lists what it can supply in `capabilities`, and a tool whose need is 
 | standings, top_scorers | `get_standings`, `get_top_scorers` (the competition's current season, found from `leagues`) |
 | player_stats | `get_player_stats` (the latest season in the player's statistics) |
 | search, competitions | `search`, `get_competitions` |
+| team_matches | `get_schedule` (next matches and last results), the finder's candidates for any team: `fixtures/between/{from}/{to}/{teamId}` over the last 90 days and the next 45, one request kept ten minutes. **The free plan allows this, unlike the first feed we tried**: Celtic showed 5 matches in the next 30 days and 8 in the last 120 |
+| team_stats | `get_team_stats` (`teams/{id}?include=statistics.details.type`, the latest season with values: games, wins, draws, losses, goals, clean sheets, possession, corners) |
+| squad | `get_squad` (`squads/teams/{id}?include=player.position`, plus the active coach from `teams/{id}?include=coaches.coach`) |
+
+**Notes the feed attaches to events.** A card's note is sometimes only its own label ("1st Yellowcard"); read out as a reason
+("booked for 1st Yellowcard") it sounds wrong, so a note that merely restates the card is dropped, and a real reason ("time
+wasting") is kept.
 
 ## Running against it
 

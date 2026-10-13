@@ -21,18 +21,14 @@ Where an automated test pins a rule it is named.
 ## Where a listener's voice goes
 
 Speech in is the most sensitive data this product touches, and who hears it
-depends on the setting: **Groq Whisper** (only when `GROQ_API_KEY` is set, and
-then first in the order because it measured best) sends it to Groq; **Amazon
-Nova Sonic** keeps it in the AWS account; the **browser's
-recognition** sends it to the browser vendor (Chrome and Edge, to theirs).
-Nothing is stored by Sideline. With no Groq key nothing leaves AWS **unless live
-captions are on** (`SIDELINE_LIVE_CAPTION`, default `browser`): the page then also
-runs the browser's recognition to type words while you speak, which sends that
-audio to the browser vendor. Set it to `off` for a strictly in-account path. A person
-choosing a speech provider should be told where their voice goes, so say so in
-any demo that uses one. We chose accuracy over keeping audio in-account only
-because Groq is opt-in by key; if that trade is wrong for your users, leave the
-key unset and Nova Sonic is first. See [SPEECH.md](SPEECH.md).
+depends on the setting. The speech models, **Mistral Voxtral** and **Amazon Nova Sonic**, run on Amazon Bedrock and keep it
+inside the AWS account; the **browser's recognition** sends it to the browser vendor (Chrome and Edge, to theirs).
+Nothing is stored by Sideline. Nothing leaves AWS **unless live captions are on** (`SIDELINE_LIVE_CAPTION`, default
+`browser`): the page then also runs the browser's recognition to type words while you speak, which sends that audio to
+the browser vendor. Set it to `off` for a strictly in-account path. A person choosing a speech provider should be told
+where their voice goes, so say so in any demo that uses captions. We started with a third-party recogniser because it
+measured best, then found an AWS model that matched it and removed the third party, so that the default no longer asks a
+listener to trade accuracy for privacy. See [SPEECH.md](SPEECH.md).
 
 ## Understanding mispronounced answers
 

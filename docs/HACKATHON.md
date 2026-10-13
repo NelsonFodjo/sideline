@@ -41,7 +41,7 @@ wrapper" is the per-listener state (`last_told_at`) and the spoiler guard: the s
 | A self-hosted MCP server, spec 2025-11-25 or later, Streamable HTTP | [`sideline/mcp/server.py`](../sideline/mcp/server.py): `POST /mcp`, `GET /mcp` (SSE), `DELETE /mcp`, protocol version negotiated on `initialize`. Conformance: `tests/test_mcp_protocol.py` (no official suite exists) |
 | The repo calls the track technology in code, not only in a README | The server is the implementation. `python3 -m sideline` is the entry point |
 | Participants cannot use the Alexa+ add-on tooling | Correct, per the FAQ ("select partners only"). So the project is demonstrated through its own MCP client, which the FAQ says satisfies the track |
-| A web page acting as a real MCP client (`initialize`, `tools/list`, `tools/call`) | The simulator page opens an MCP session and lists the tools; the voice agent it talks to makes **every `tools/call` over `/mcp`** through [`sideline/mcp/client.py`](../sideline/mcp/client.py). `tests/test_mcp_client.py` |
+| A web page acting as a real MCP client (`initialize`, `tools/list`, `tools/call`) | The simulated Alexa+ (the simulator page, which introduces itself as that) opens an MCP session and lists the tools; the voice agent it talks to makes **every `tools/call` over `/mcp`** through [`sideline/mcp/client.py`](../sideline/mcp/client.py). `tests/test_mcp_client.py` |
 | Alexa+'s own requirements (HTTPS, 500 ms round trip, account linking, add-on metadata) | **Not met, and stated.** Local HTTP only; a catch-up takes about two seconds (the fast tools call no model); no account linking (the tooling is partner-only, so it could not be exercised); no add-on manifest |
 
 ## AWS Builder
@@ -128,7 +128,6 @@ until judging ends (20 November).
 | What | How it is used | Terms |
 |---|---|---|
 | Sportmonks | the live feed, under the user's own token; the free plan covers a few leagues and 180 calls an hour | **Not read**: the pricing page does not state the free plan's terms |
-| Groq (hosted Whisper) | optional speech in, off unless `GROQ_API_KEY` is set; sends the listener's audio to Groq | **Not read.** Reported free-tier limits are from community sources |
 | AWS (Bedrock, Polly, DynamoDB) | as above | the user's own account and charges; no credits were available (see FL-05) |
 | Open-Meteo | weather at the ground for a match preview; a city and country are sent, nothing about the listener; off with `SIDELINE_WEATHER=off` | CC BY 4.0, free for non-commercial use, no key |
 | MCP specification 2025-11-25 | implemented from the spec, no SDK | open standard |

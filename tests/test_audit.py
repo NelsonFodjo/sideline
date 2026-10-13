@@ -81,6 +81,23 @@ def main():
         assert mine[2]["reason"] == "no_fixture" and mine[2]["spoken"] == "Which match?"
         print("ok  a tool call, a feed refusal and a decline each leave a line with tool, arguments, outcome and speed")
 
+        # Bedrock's own token counts are kept, one line per model call.
+        from sideline.language import agent, bedrock
+
+        class Model:
+            def converse(self, **kw):
+                return {"output": {"message": {"role": "assistant", "content": [{"text": "Hello."}]}},
+                        "usage": {"inputTokens": 321, "outputTokens": 7, "totalTokens": 328}}
+        real = bedrock.available, bedrock.client
+        bedrock.available, bedrock.client = (lambda: True), (lambda: Model())
+        try:
+            agent.run(make_ctx(), "hello", "tok-listener", lambda *a: None)
+        finally:
+            bedrock.available, bedrock.client = real
+        tok = [json.loads(l) for l in lines(directory) if json.loads(l)["kind"] == "tokens"]
+        assert tok and tok[-1]["input"] == 321 and tok[-1]["output"] == 7 and tok[-1]["source"] == "agent", tok
+        print("ok  every model call leaves its token counts, as Bedrock counted them")
+
         audit.setup("off")
     print("\naudit: all good")
 

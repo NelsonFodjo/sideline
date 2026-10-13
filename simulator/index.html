@@ -315,7 +315,6 @@ body.calm .hud,body.calm .wire,body.calm .stage{opacity:0;pointer-events:none}
 <div class="gate" id="gate">
   <div class="halo" aria-hidden="true"></div>
   <h1>Sideline</h1>
-  <p>Your friend for the match, in your ear. Name a game that&rsquo;s on, then just talk: what did I miss, who is he, who&rsquo;s refereeing. Look away whenever you like.</p>
   <button id="begin" type="button" aria-label="Go live: start listening through your microphone">Go live</button>
   <small id="gatenote">needs your microphone</small>
 </div>
@@ -752,7 +751,7 @@ function harshNow(an){
 
    Speech recognition wants 16 kHz mono PCM, and capturing it directly
    sidesteps the container problem entirely: MediaRecorder gives WebM in
-   Chrome and MP4 in Safari, and the providers accept neither. Groq takes
+   Chrome and MP4 in Safari, and the providers accept neither. Voxtral takes
    a file, so PCM gets a 44-byte WAV header server-side.
 
    ScriptProcessor rather than AudioWorklet: deprecated, but it works
@@ -827,7 +826,7 @@ function startLiveCaption(){
       capFails=0;
       var t="";
       for(var i=0;i<e.results.length;i++) t+=e.results[i][0].transcript;
-      t=t.trim();
+      t=justWords(t);
       // The browser will "hear" words in a fan or a keyboard. Show nothing until our
       // own detector (sustained, not click-like) agrees someone is speaking.
       capText=t;
@@ -981,8 +980,7 @@ function watchForBargeIn(){
 }
 
 /* ===================================== speech in: the browser's own ears */
-/* When the server has no speech-to-text configured (no Groq key, no Nova
-   Sonic), the browser's SpeechRecognition does it, and shows the words
+/* When the server has no speech-to-text configured (no AWS credentials), the browser's SpeechRecognition does it, and shows the words
    AS YOU SPEAK them. Chrome and Edge send the audio to their vendor's
    recognition service to do this, which is not Amazon's; Safari support
    varies; Firefox has none. With server transcription the words appear
@@ -990,7 +988,16 @@ function watchForBargeIn(){
 var SR=window.SpeechRecognition||window.webkitSpeechRecognition||null;
 var useBrowserSTT=false, REC=null;
 
+/* Only words are ever shown or acted on. Recognisers label non-speech in brackets ("[SOUND]", "[Music]",
+   "(applause)", "*cough*", a music note): that is a description of noise, not something said, so it is dropped. */
+function justWords(t){
+  t=(t||"").replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}|<[^>]*>|\*[^*]*\*|[\u266a\u266b]+/g," ").replace(/\s+/g," ").trim();
+  return /[A-Za-z0-9\u00C0-\u024F]/.test(t)?t:"";
+}
+
 function liveSaid(text,interim){
+  text=justWords(text);
+  if(!text) return;                                       // noise: show nothing
   var s=$("said");
   clearTimeout(idleT); wake();
   if(allSpans.length) answer.classList.add("stale");      // you are speaking: dim the last answer
@@ -1012,7 +1019,7 @@ function startBrowserRecognition(){
       var t=e.results[i][0].transcript;
       if(e.results[i].isFinal) finalText+=t; else interim+=t;
     }
-    var shown=(finalText+interim).trim();
+    var shown=justWords(finalText+interim);
     if(shown) liveSaid(shown, !!interim);      // writes what you say, live
   };
   r.onerror=function(e){
@@ -1024,7 +1031,7 @@ function startBrowserRecognition(){
   r.onend=function(){
     REC=null;
     if(!armed||speaking||blocked) return;
-    var t=finalText.trim();
+    var t=justWords(finalText);
     if(t.length>1){ liveSaid(t,false); setMode("thinking"); ask(t); }
     else setTimeout(function(){ if(armed&&!speaking) listen(); },250);
   };
@@ -1044,10 +1051,10 @@ async function handleClip(pcm){
       text=(await r.json()).text;
     }catch(e){
       console.warn("server speech recognition unavailable; switching to browser",e);
-      var failed={groq:"Groq speech recognition",sonic:"Nova Sonic speech recognition"}[caps.stt]||"Speech recognition";
+      var failed={voxtral:"Voxtral speech recognition",sonic:"Nova Sonic speech recognition"}[caps.stt]||"Speech recognition";
       caps.stt=null;
       useBrowserSTT=!!SR;
-      $("stack").innerHTML="in <b>"+(useBrowserSTT?"browser":"unavailable")+
+      $("stack").innerHTML="simulated Alexa+ · in <b>"+(useBrowserSTT?"browser":"unavailable")+
         "</b> · out <b>"+(caps.tts?("polly "+(caps.voice||"")):"browser")+"</b>";
       if(useBrowserSTT){
         setQuiet(failed+" unavailable; switching to browser speech recognition. Please repeat.");
@@ -1061,7 +1068,7 @@ async function handleClip(pcm){
   }
   if(paused) return;
   if(!text){ if(armed)listen(); return; }
-  text=text.trim();
+  text=justWords(text);
   if(text.length<2){ if(armed)listen(); return; }
   showSaid(text);
   ask(text);
@@ -1429,7 +1436,7 @@ async function connect(){
     var health=await fetch(BASE+"/health");
     if(!health.ok) throw new Error("health check failed");
     var init=await rpc("initialize",{protocolVersion:"2025-11-25",
-      clientInfo:{name:"sideline-simulator",version:"3"}});
+      clientInfo:{name:"alexa-plus-simulator",version:"3"}});
     await rpc("notifications/initialized");
     var list=await rpc("tools/list");
     $("dot").className="dot ok";
@@ -1444,6 +1451,12 @@ async function connect(){
   }
 }
 
+/* What the simulated Alexa+ says first. Every claim is something the server does and a test or a run backs:
+   real matches only (no recorded data), the per-listener "last told" marker, the spoiler guard, barge-in. */
+var INTRO="Hi, I\u2019m a simulated Alexa+, connected to Sideline: an MCP server for live sports, football for now. "
+  +"It reads real matches as they happen. It remembers what you last heard, so just ask what did I miss. "
+  +"It stays behind your TV, so it won\u2019t spoil a goal. And you can talk over me. Which game are we following?";
+
 $("begin").onclick=async function(){
   try{ await openAudio(); }
   catch(e){
@@ -1457,7 +1470,7 @@ $("begin").onclick=async function(){
     setQuiet("This browser can’t turn speech into text. Try Chrome.");
     return;
   }
-  say("Hi, I'm Sideline. Which live game are we following?");
+  say(INTRO);
 };
 
 /* Ask the server what it can do, so the gate can say so before anyone

@@ -43,8 +43,6 @@ def _boto3():
 
 def _credentials():
     import boto3
-    if os.environ.get("AWS_BEARER_TOKEN_BEDROCK"):
-        return "Bedrock API key (bearer token configured)"
     return "account %s" % boto3.client("sts").get_caller_identity()["Account"]
 
 
@@ -135,7 +133,7 @@ def _tts_live():
 
 
 def _stt_round_trip():
-    """Polly says a phrase; the active provider (Groq or Nova Sonic) must hear it."""
+    """Polly says a phrase; the active speech-in model (Voxtral or Nova Sonic) must hear it."""
     import boto3
 
     from sideline import voice
@@ -164,9 +162,6 @@ def main():
     check("credentials resolve", _credentials)
     check("region set", _region)
 
-    if os.environ.get("AWS_BEARER_TOKEN_BEDROCK") and os.environ.get("AWS_ACCESS_KEY_ID"):
-        print("%s  %-34s %s" % (SKIP, "note", "both a Bedrock API key and access keys are set; AWS tries the API key first, "
-                                "and those expire. If Bedrock says 'Authentication failed', blank AWS_BEARER_TOKEN_BEDROCK."))
     if check("bedrock model access", _model_access):
         if check("bedrock responds", _invoke):
             check("Nova MCP agent tool use", _agent_path)

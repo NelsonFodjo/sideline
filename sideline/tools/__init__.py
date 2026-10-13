@@ -16,8 +16,10 @@ product and a screen-only fact is a bug, not a feature.
 """
 
 import datetime
+import time
 
 from .. import clock
+from ..status import FINISHED
 # The tool modules import the helpers below, so they are imported last (see the end of this file).
 
 # What listeners call teams, when it is not the feed's name. Short on purpose: a nickname that
@@ -171,58 +173,98 @@ def competition_for(ctx, args, listener_id):
                     {"reason": "no_competition"})
 
 
-def resolve_fixture(ctx, args, listener_id):
-    """Fixture the listener means.
+DISCUSSED_SECONDS = 600           # a follow-up that names no match means the one they asked about in the last ten minutes
 
-    Order: explicit argument, then whatever they are following. If
-    neither, that is a ToolError with a spoken line Alexa+ can read -
-    not an exception. "Which match?" is a reasonable thing to be asked.
+
+def events_for(ctx, fx):
+    """The match's events in minute order. A match that was not followed has none logged here, so a played or
+    running match is read from the feed once and kept: any match that has been played can be asked about, not only
+    the one the poller was watching."""
+    fid = fx["fixture_id"]
+    logged = ctx.store.events(fid)
+    if logged or not (fx.get("status") in FINISHED or (fx.get("minute") or 0) > 0):
+        return logged
+    try:
+        for e in ctx.provider.events(fid, since_minute=0):
+            ctx.store.append_event(e)
+    except NotImplementedError:
+        return logged
+    return ctx.store.events(fid)
+
+
+def resolve_fixture(ctx, args, listener_id, prefers=None):
+    """The match the listener means (see sideline/finder.py for how).
+
+    A fixture id they were given; else the team, opponent, day or date they named, across the matches the feed can
+    see (a match already played counts, as does one still to come); else the match they are following. Several
+    plausible matches are not guessed between: that is a ToolError listing them, so they can pick. `prefers` says
+    what the question is about, "played" (who scored) or "coming" (who is playing), which breaks ties.
     """
+    from .. import finder
     from ..mcp.errors import ToolError
-    fid = args.get("fixture_id")
-    tz = clock.zone_from(ctx.store.listener(listener_id))
-    if not fid and args.get("team"):
-        # "When is Arsenal against Lille?" names a match without following it.
-        hits = find_matches(ctx, args["team"], args.get("opponent"), tz=tz)
-        if not hits:
-            raise not_found(ctx, args["team"], args.get("opponent"), tz)
-        if len(hits) > 1:
-            raise ToolError(
-                "I can see more than one %s match. Which one - %s?" % (
-                    args["team"], ", or ".join(clock.say_fixture(m, tz) for m in hits[:3])),
-                {"reason": "ambiguous", "candidates": hits[:3]})
-        fid = hits[0]["fixture_id"]
-    if not fid:
-        fid = ctx.store.listener(listener_id).get("following")
-    if not fid:
-        raise ToolError(
-            "I'm not following a match yet. Tell me which game to follow.",
-            {"reason": "no_fixture"})
-    fx = ctx.provider.fixture(fid)
-    if not fx:
-        raise ToolError("I can't find that match any more.",
-                        {"reason": "fixture_not_found", "fixture_id": fid})
-
-    # Apply the broadcast offset HERE, in one place, rather than asking
-    # eight tools each to remember to subtract it. Every tool downstream
-    # sees the match as the listener's screen is showing it, and none of
-    # them needs to know this happened. See sync_broadcast_delay.py.
     rec = ctx.store.listener(listener_id)
+    tz = clock.zone_from(rec)
+    ref = finder.Reference(args, prefers)
+    fid = ref.fixture_id
+    explicit = bool(ref.team or ref.opponent or ref.when or ref.date)
+
+    discussed = False
+    if fid:
+        fx = ctx.provider.fixture(fid)
+        if not fx:
+            raise ToolError("I can't find that match any more.", {"reason": "fixture_not_found", "fixture_id": fid})
+        discussed = True
+    elif explicit:
+        fx = finder.resolve_match(ctx, ref, rec, tz)
+        discussed = True
+    else:
+        # Nothing named: the match they were just asking about ("who came on?" after "what happened in the Celtic game?")
+        # comes first, then the one they are following. A match is never picked that they did not ask about.
+        recent = rec.get("discussed") or {}
+        fid = recent.get("fixture_id") if time.time() - (recent.get("at") or 0) <= DISCUSSED_SECONDS else None
+        fx = ctx.provider.fixture(fid) if fid else None
+        if fx:
+            fx = dict(fx, found_by="discussed")
+        if not fx:
+            fid = rec.get("following")
+            fx = ctx.provider.fixture(fid) if fid else None
+        if fid and not fx:
+            # The match being followed is one the feed does not know (an id from before, or one it has dropped):
+            # forget it, so that every match question does not fail for ever, and say what is true.
+            rec["following"], rec["last_told_at"], rec["told_event_ids"] = None, None, []
+            ctx.store.save_listener(rec)
+            raise ToolError("I'm not following a match right now. Tell me which game to follow, or ask me about a team.",
+                            {"reason": "no_fixture", "forgot": fid})
+        if not fx:
+            # Nothing followed and nothing named. A match is never picked for the listener: they were not asked.
+            raise ToolError("I'm not following a match yet. Tell me which game to follow, or name a team.",
+                            {"reason": "no_fixture"})
+
+    if discussed and (rec.get("discussed") or {}).get("fixture_id") != fx["fixture_id"]:
+        rec["discussed"] = {"fixture_id": fx["fixture_id"], "at": time.time()}
+        ctx.store.save_listener(rec)
+    elif discussed:
+        rec["discussed"]["at"] = time.time()
+
+    # Times are said in the listener's own clock.
     if rec.get("tz_offset_minutes") is not None:
-        fx = dict(fx, tz_offset_minutes=clock.zone_from(rec))        # for times said aloud
+        fx = dict(fx, tz_offset_minutes=clock.zone_from(rec))
+
+    # The broadcast delay applies in ONE place: to the match being followed while it is in play. Every tool downstream
+    # sees the match as the listener's screen shows it. A match already played, or one they are not watching, has no delay.
     offset = rec.get("broadcast_offset") or 0
-    if offset:
+    if offset and rec.get("following") == fx["fixture_id"] and (fx.get("minute") or 0) > 0 and fx.get("status") not in FINISHED:
         fx = dict(fx)
         fx["real_minute"] = fx.get("minute") or 0
         fx["minute"] = max(0, (fx.get("minute") or 0) - offset // 60)
         fx["broadcast_offset"] = offset
-        fx["score"] = ctx.store.score_at(fid, fx["minute"]) or fx["score"]
+        fx["score"] = ctx.store.score_at(fx["fixture_id"], fx["minute"]) or fx["score"]
     return fx
 
 
 from . import (follow_match, get_capabilities, get_competitions, get_event_detail, get_fixtures,
-               get_head_to_head, get_injuries, get_lineups, get_match_preview, get_match_stats,
-               get_my_matches, get_player_stats, get_schedule, get_standings, get_team_form,
+               get_head_to_head, get_injuries, get_lineups, get_match_preview, get_match_report, get_match_stats,
+               get_my_matches, get_player_stats, get_schedule, get_squad, get_standings, get_team_form, get_team_stats,
                get_top_scorers, search, set_favourites, set_preferences, get_match_state, get_officials, get_player_context,
                sync_broadcast_delay, what_did_i_miss)
 
@@ -239,11 +281,14 @@ REGISTRY = {
     "get_player_stats": get_player_stats.run,
     "get_injuries": get_injuries.run,
     "get_team_form": get_team_form.run,
+    "get_squad": get_squad.run,
+    "get_team_stats": get_team_stats.run,
     "set_favourites": set_favourites.run,
     "get_my_matches": get_my_matches.run,
     "set_preferences": set_preferences.run,
     "get_capabilities": get_capabilities.run,
     "get_match_preview": get_match_preview.run,
+    "get_match_report": get_match_report.run,
     "get_lineups": get_lineups.run,
     "what_did_i_miss": what_did_i_miss.run,
     "get_event_detail": get_event_detail.run,

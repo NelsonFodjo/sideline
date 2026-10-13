@@ -13,7 +13,7 @@ You do not need all of it. What each piece unlocks:
 |---|---|---|
 | **Bedrock (Nova Micro)** | writes the spoken catch-up; the voice agent chooses tools | the fast tools still answer in templated wording; the simulator's voice agent has no answer |
 | **Polly** | the voice, with word timings | the page uses the browser's own voice |
-| **Nova 2 Sonic** | speech in, when there is no Groq key | the browser's own recognition (the least accurate) |
+| **Voxtral Small** and **Nova 2 Sonic** | speech in (Voxtral first, Sonic the fallback) | the browser's own recognition (the least accurate) |
 | **DynamoDB** | what a listener has heard survives a restart | state lives in memory |
 
 If you are short on time: Bedrock first, then Polly, and skip DynamoDB.
@@ -31,13 +31,13 @@ pip3 install boto3
 cp .env.example .env     # then fill in the AWS lines, or export them in your shell
 ```
 
-Any one of: `AWS_ACCESS_KEY_ID` with `AWS_SECRET_ACCESS_KEY`, or `AWS_PROFILE`, or (Bedrock only)
-`AWS_BEARER_TOKEN_BEDROCK`. Region: **`us-east-1`** unless you have a reason not to, because model availability is
+`AWS_ACCESS_KEY_ID` with `AWS_SECRET_ACCESS_KEY`. Region: **`us-east-1`** unless you have a reason not to, because model availability is
 widest there.
 
-A **Bedrock API key** (a bearer token) works for Bedrock but not for Polly or DynamoDB: it is backed by an IAM
-user that, on the account this was built on, could call Bedrock and Polly but was denied DynamoDB. Use IAM keys
-for the full set.
+Use IAM access keys, not a Bedrock API key: an API key covers Bedrock only, and the one tried on the account this was
+built on was backed by an IAM user that could call Bedrock and Polly but was denied DynamoDB (FL-11). Sideline reads
+no Bedrock API key setting; the speech models (Voxtral, Nova Sonic), the language model and Polly all run on the
+access keys.
 
 **Check it:** `make env` (shows which are set, never the values), then `make aws-check`; its first lines read
 "credentials resolve".
@@ -52,10 +52,10 @@ wrong. Set `SIDELINE_BEDROCK_MODEL` to change it.
 
 ## If Bedrock says "Authentication failed"
 
-A Bedrock **API key** (`AWS_BEARER_TOKEN_BEDROCK`) is tried before your access keys, and the short-term ones expire. With
-both set, an expired API key breaks every Bedrock call even though the access keys are fine. Blank
-`AWS_BEARER_TOKEN_BEDROCK` (your access keys also cover Polly and DynamoDB, which an API key never does).
-Likewise `AWS_PROFILE` is a *name* from `~/.aws/config`, not an account number: leave it blank unless you use a profile.
+AWS tries a Bedrock **API key** (`AWS_BEARER_TOKEN_BEDROCK`, if it is set in your shell) before your access keys, and
+the short-term ones expire, so a stale one breaks every Bedrock call even though the keys are fine. Unset it. The same
+goes for `AWS_PROFILE`, which is a *name* from `~/.aws/config`, not an account number: an empty or wrong one stops boto3
+from starting. Neither belongs in `.env`.
 
 ## Step 4: permissions
 
@@ -113,9 +113,11 @@ British, `Joanna` and `Matthew` American. A British voice reads European footbal
 pip3 install aws-sdk-bedrock-runtime awscrt       # Python 3.12 or newer
 ```
 
-It is not in boto3: the bidirectional streaming API needs its own SDK. With it installed, and no Groq key, speech
-in goes to Nova Sonic. It uses IAM credentials resolved through boto3. The comparison with Groq, and when each is
-used, is in [SPEECH.md](SPEECH.md). **Check it:** `make aws-check` reports "speech in (sonic, live call)".
+It is not in boto3: the bidirectional streaming API needs its own SDK. It is optional: speech in uses Voxtral first, which
+needs only boto3 and your Bedrock model access (enable Mistral Voxtral Small in the console if it is not on), and
+Nova Sonic is the fallback. Both use IAM credentials resolved through boto3. The comparison and when each is used is in
+[SPEECH.md](SPEECH.md). On Python 3.14, `awscrt` 0.37 or newer is needed (FL-16). **Check it:** `make aws-check` reports
+"speech in (voxtral, live call)".
 
 ## Step 7: DynamoDB, so state survives a restart
 
@@ -155,11 +157,11 @@ do not need AWS running during judging, so tear things down when you are not tes
 | `CERTIFICATE_VERIFY_FAILED` on any HTTPS call | python.org Python on macOS has no CA bundle | handled in `sideline/tls.py`, which never disables verification; or run "Install Certificates.command" |
 | `ImportError: boto3` | not installed | `pip3 install boto3` |
 | `out=browser` in the startup log | no AWS credentials for Polly | step 2 |
-| `in=browser` in the startup log | no Groq key and no Nova Sonic SDK | step 6, or [SPEECH.md](SPEECH.md) |
+| `in=browser` in the startup log | Voxtral and Nova Sonic both unavailable (no AWS credentials, or no model access) | step 6, or [SPEECH.md](SPEECH.md) |
 | `SubscriptionRequiredException` | the account is not subscribed to that service. **Not** an IAM problem | see below |
 
 **Amazon Transcribe is not used.** On the account this was built on, Transcribe streaming returned
 `SubscriptionRequiredException` ("The AWS Access Key Id needs a subscription for the service") even with full IAM
 permissions, and nothing on the console offers an "activate" button; the reports of this error on AWS re:Post
 point at an account-level state fixed through an Account and billing support case. Rather than wait on that,
-speech in uses Nova Sonic and Groq. The friction is recorded in [FRICTION_LOG.md](FRICTION_LOG.md) (FL-08).
+speech in uses Mistral Voxtral and Nova Sonic on Bedrock. The friction is recorded in [FRICTION_LOG.md](FRICTION_LOG.md) (FL-08).

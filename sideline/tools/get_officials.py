@@ -13,7 +13,7 @@ from .. import sports
 
 
 def run(ctx, args, listener_id):
-    from . import resolve_fixture
+    from . import events_for, resolve_fixture
     fx = resolve_fixture(ctx, args, listener_id)
     o = ctx.provider.officials(fx["fixture_id"])
 
@@ -23,7 +23,7 @@ def run(ctx, args, listener_id):
     sp = sports.for_fixture(fx)
     first = (sp.official_count_keys or [None])[0]
     if first and o.get(first) is None:
-        o.update(sp.official_counts(ctx.store.events(fx["fixture_id"])))
+        o.update(sp.official_counts(events_for(ctx, fx)))
 
     spoken = ctx.lang.templates.say_officials(o, fx)
     structured = {"fixture_id": fx["fixture_id"], "officials": o,

@@ -60,6 +60,15 @@ CASES = [
     ("keep it short", "set_preferences"), ("speak French", "set_preferences"),
     ("what can you do", "get_capabilities"), ("what can I ask you", "get_capabilities"),
     ("kick-off just went", "sync_broadcast_delay"), ("you spoiled that goal", "sync_broadcast_delay"),
+    # Questions about a team, a player or a match that is over: no match to follow.
+    ("when do Arsenal play next", "get_schedule"), ("what are Arsenal's next fixtures", "get_schedule"),
+    ("what were Arsenal's last results", "get_schedule"), ("did Arsenal win their last game", "get_schedule"),
+    ("who is in the Arsenal squad", "get_squad"), ("who is the Arsenal manager", "get_squad"),
+    ("who are Arsenal's goalkeepers", "get_squad"),
+    ("how are Arsenal doing this season", "get_team_stats"), ("what are Arsenal's stats", "get_team_stats"),
+    ("who scored in the Arsenal game", "get_match_report"), ("were there any cards in the Spurs game yesterday", "get_match_report"),
+    ("who came on as a substitute in the Arsenal match", "get_match_report"),
+    ("how did the Arsenal Lille game finish", "get_match_report"),
 ]
 
 

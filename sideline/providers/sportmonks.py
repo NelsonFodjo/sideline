@@ -20,12 +20,14 @@ with invented data; `make verify-data` is how to check again.
 import datetime
 import json
 import logging
+import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from .. import tls
+from ..status import FINISHED, OVER
 from .base import Provider, ProviderUnavailable
 
 LOG = logging.getLogger("sideline.provider")
@@ -41,6 +43,9 @@ DETAIL_INCLUDES = FIXTURE_INCLUDES + ";events.type;lineups;formations;referees.r
 _EVENT_TYPE_IDS = {10: "var", 14: "goal", 15: "owngoal", 16: "penalty", 17: "missedpenalty",
                    18: "substitution", 19: "yellowcard", 20: "redcard", 21: "yellowredcard"}
 _LINEUP_STARTER, _LINEUP_BENCH = 11, 12
+
+
+_LABEL_ONLY = re.compile(r"^(\d+(st|nd|rd|th)\s+)?(yellow|red|second yellow)\s*-?\s*cards?$", re.I)
 
 
 def _kind(event):
@@ -210,7 +215,8 @@ class SportmonksProvider(Provider):
 
     # ---- the optional reads
     capabilities = frozenset({"fixtures", "events", "lineups", "officials", "h2h", "stats", "search",
-                              "competitions", "standings", "top_scorers", "injuries", "form", "player_stats"})
+                              "competitions", "standings", "top_scorers", "injuries", "form", "player_stats", "team_matches",
+                              "team_stats", "squad"})
 
     def _hits(self, path, kind, query):
         doc = self._get("%s/search/%s" % (path, urllib.parse.quote(query)), _ttl=3600)
@@ -229,6 +235,76 @@ class SportmonksProvider(Provider):
         if country:
             out = [c for c in out if country.lower() in (c.get("country") or "").lower()]
         return out
+
+    def _team(self, name):
+        """The team a name means: one named exactly beats a longer name that merely contains it."""
+        from .. import resolve
+        hits = [h for h in self.search(name, "team") if h.get("id")]
+        want = resolve.words(name)
+        exact = [h for h in hits if resolve.words(h["name"]) == want]
+        return (exact or hits or [None])[0]
+
+    def team_matches(self, team, days_back=90, days_ahead=45):
+        """A team's matches around now: what is coming, and how the last ones finished (one request, kept ten minutes)."""
+        found = self._team(team)
+        if not found:
+            return None
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        doc = self._get("fixtures/between/%s/%s/%s" % (today - datetime.timedelta(days=days_back),
+                                                     today + datetime.timedelta(days=days_ahead), found["id"]),
+                        _ttl=600, include=FIXTURE_INCLUDES)
+        every = [self._norm_fixture(i) for i in self._data(doc) if isinstance(i, dict)]
+        done = sorted((f for f in every if f["status"] in FINISHED), key=lambda f: f.get("kickoff") or "", reverse=True)
+        ahead = sorted((f for f in every if f["status"] not in OVER), key=lambda f: f.get("kickoff") or "")
+        return {"team": found["name"], "team_id": found["id"], "upcoming": ahead, "recent": done}
+
+    def squad(self, team):
+        """A team's players (name, shirt number, position), its captain and its manager."""
+        found = self._team(team)
+        if not found:
+            return None
+        rows = self._data(self._get("squads/teams/%s" % found["id"], _ttl=1800, include="player.position"))
+        players = []
+        for r in rows:
+            who = r.get("player") or {}
+            name = who.get("display_name") or who.get("common_name") or who.get("name")
+            if name:
+                players.append({"name": name, "number": r.get("jersey_number"),
+                                "position": ((who.get("position") or {}).get("name") or "").lower() or None,
+                                "captain": bool(r.get("captain"))})
+        coach = None
+        try:
+            team_doc = self._get("teams/%s" % found["id"], _ttl=1800, include="coaches.coach").get("data") or {}
+            for c in team_doc.get("coaches") or []:
+                if c.get("active") and isinstance(c.get("coach"), dict):
+                    coach = c["coach"].get("display_name") or c["coach"].get("common_name")
+                    break
+        except ProviderUnavailable:
+            pass
+        captain = next((p["name"] for p in players if p["captain"]), None)
+        return {"team": found["name"], "coach": coach, "captain": captain, "players": players}
+
+    def team_stats(self, team):
+        """This season's record for a team: games, results, goals, clean sheets, possession."""
+        found = self._team(team)
+        if not found:
+            return None
+        raw = self._get("teams/%s" % found["id"], _ttl=600, include="statistics.details.type").get("data") or {}
+        seasons = [s for s in raw.get("statistics") or [] if s.get("has_values") and s.get("details")]
+        if not seasons:
+            return None
+        latest = max(seasons, key=lambda s: s.get("season_id") or 0)
+        got = {(d.get("type") or {}).get("developer_name"): d.get("value") or {} for d in latest["details"]}
+
+        def count(name):
+            v = got.get(name) or {}
+            return (v.get("all") or v).get("count")
+        return {"team": raw.get("name") or found["name"], "played": (got.get("GAMES_PLAYED") or {}).get("total"),
+                "won": count("WIN"), "drawn": count("DRAW"), "lost": count("LOST"),
+                "goals_for": count("GOALS"), "goals_against": count("GOALS_CONCEDED"),
+                "clean_sheets": count("CLEANSHEET"),
+                "possession": (got.get("BALL_POSSESSION") or {}).get("average"),
+                "corners_per_game": (got.get("CORNERS") or {}).get("average")}
 
     def _season(self, competition):
         """The current season id of a competition named in words, or None."""
@@ -403,6 +479,8 @@ class SportmonksProvider(Provider):
         team = teams.get(raw.get("participant_id"))
         player, other = raw.get("player_name"), raw.get("related_player_name")
         note = (raw.get("addition") or raw.get("info") or "").strip()
+        if _LABEL_ONLY.match(note):                  # "1st Yellowcard" restates the card: it is not a reason
+            note = ""
 
         if kind in ("goal", "owngoal", "penalty"):
             detail = {"owngoal": "own goal", "penalty": "penalty"}.get(kind, "")

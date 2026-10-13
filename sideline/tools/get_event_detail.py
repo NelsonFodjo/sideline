@@ -13,9 +13,9 @@ from ..mcp.errors import ToolError
 
 
 def run(ctx, args, listener_id):
-    from . import resolve_fixture
-    fx = resolve_fixture(ctx, args, listener_id)
-    events = ctx.store.events(fx["fixture_id"])
+    from . import events_for, resolve_fixture
+    fx = resolve_fixture(ctx, args, listener_id, prefers="played")
+    events = events_for(ctx, fx)
     if not events:
         raise ToolError("Nothing has happened in this match yet.",
                         {"reason": "no_events"})
