@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Does the voice agent pick the right tool? Real Nova, invented match data, no feed calls.
+"""Does Nova pick the right MCP tool? Real Nova, invented match data, no feed calls.
 
-    python3 scripts/route_check.py            # every tool offered
-    SIDELINE_AGENT_TOOLS=core python3 scripts/route_check.py
+    python3 scripts/route_check.py
 
 Each line is something a listener might say and the tool it should land on (an optional third item
 is what was said before it, for lines like "say that again" that mean nothing alone). Tools that are close
@@ -27,7 +26,6 @@ from conftest import FOOTBALL  # noqa: E402
 from support import ReplayProvider  # noqa: E402
 
 from sideline import app  # noqa: E402
-from sideline.mcp import registry  # noqa: E402
 
 CASES = [
     ("Follow the Arsenal game", "follow_match"), ("I'm watching Arsenal against Spurs", "follow_match"),
@@ -78,9 +76,8 @@ def main():
     ctx, srv, _ = app.build(provider=provider)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     time.sleep(0.4)
-    core = os.environ.get("SIDELINE_AGENT_TOOLS", "all") == "core"
     run = srv.agent_runner
-    cases = [c for c in CASES if not core or c[1] in registry.CORE_TOOLS]
+    cases = CASES
     wrong = []
     for i, (said, want, *setup) in enumerate(cases):
         try:
@@ -92,8 +89,8 @@ def main():
         if want not in got:
             wrong.append((said, want, got))
             print("  MISS  %-46s wanted %-20s got %s" % (said, want, got), flush=True)
-    print("%d of %d routed to the right tool (%s tools offered)"
-          % (len(cases) - len(wrong), len(cases), "core" if core else "all"))
+    print("%d of %d routed to the right tool (all tools from MCP tools/list offered)"
+          % (len(cases) - len(wrong), len(cases)))
     return 1 if wrong else 0
 
 

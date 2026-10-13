@@ -48,7 +48,6 @@ has nothing to answer with and listener state is kept in memory.
 | `SIDELINE_POLLY_ENGINE` | `generative` | Polly engine: generative (most natural, falls back to neural) or neural. |
 | `SIDELINE_STT` | `auto` | Speech in: auto (Voxtral, then Nova Sonic, both on Bedrock), voxtral, sonic, or off. |
 | `SIDELINE_WEATHER` | `on` | on adds the weather at the ground to a match preview (city and country go to Open-Meteo); off does not. |
-| `SIDELINE_AGENT_TOOLS` | `all` | Tools offered to the voice agent: all, or core (the core eleven, which route more reliably on a small model). |
 | `SIDELINE_LIVE_CAPTION` | `browser` | browser types interim words while you speak (audio also reaches the browser vendor); off does not. |
 
 ## Notes
@@ -78,9 +77,6 @@ has nothing to answer with and listener state is kept in memory.
 - **`SIDELINE_BEDROCK`.** When Bedrock is on, a failure is reported to the listener and never
   replaced with canned wording. When it is off, the deterministic templates are used and the
   response says `generated_by: template`.
-- **`SIDELINE_AGENT_TOOLS`.** The server lists every tool its feed can answer; the voice agent (Nova Micro) is offered
-  all of them by default. A small model routes worse the more tools it sees, so `core` limits it to the core eleven
-  that the product is built around. If a spoken question lands on the wrong tool, try `core` first.
 - **`SIDELINE_WEATHER`.** A match preview can say what the weather will be at the ground. The football feed has no
   weather, so the city and country are sent to [Open-Meteo](https://open-meteo.com/) (free, no key, CC BY 4.0). If the
   city cannot be placed with confidence, or the service is down, the preview leaves the weather out. It never guesses.

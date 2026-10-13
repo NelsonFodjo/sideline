@@ -126,7 +126,9 @@ def main():
     # The page says what it is: a simulated Alexa+, talking to an MCP server, never Alexa+ itself.
     assert "simulated Alexa+" in page and "say(INTRO)" in page and "MCP server for live sports" in page
     intro = page[page.index("var INTRO="):page.index('$("begin").onclick')]
-    assert "I\\u2019m a simulated Alexa+" in intro and "real matches" in intro and "what did I miss" in intro \
+    assert "I\\u2019m a simulated Alexa+" in intro and "I read real matches" in intro \
+        and "I remember what you last heard" in intro and "I stay behind your TV" in intro \
+        and "what did I miss" in intro \
         and "spoil a goal" in intro and "talk over me" in intro, intro
     assert 'name:"alexa-plus-simulator"' in page
     # Noise labels from a recogniser ("[SOUND]") never reach the screen or the agent.

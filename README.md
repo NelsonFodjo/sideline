@@ -93,7 +93,7 @@ they just *heard* ("that's half time") and we hold everything back to match thei
 
 ```
    Alexa+  (the real client: partner-only)        the simulated Alexa+ (what runs today)
-        \                                          a web page + the voice agent
+        \                                          a web page + Nova's MCP host
          \                                         /
           MCP over Streamable HTTP, spec 2025-11-25
                           |
@@ -102,18 +102,19 @@ they just *heard* ("that's half time") and we hold everything back to match thei
         Bedrock      DynamoDB      poller         live football feed
    (Nova Micro:      (listener     (a thread,     (Sportmonks)
     the wording,      state)        followed
-    the agent)                      matches only)
+    the MCP host)                   matches only)
    Polly (voice)   Voxtral / Nova Sonic (speech in)
 ```
 
 In the intended deployment the client is Alexa+: it would do the listening, tool routing and speaking.
 **That path is not reachable by hackathon participants** (the Alexa+ add-on tooling is partner-only), so
-Sideline is demonstrated through a **simulated Alexa+**: a web page, plus a voice agent whose every tool call is
-made over the MCP endpoint, exactly as an external client's would be. When it greets you it says so.
+Sideline is demonstrated through a **simulated Alexa+**: a web page and a thin Nova host. The host gives Nova
+the current MCP tool catalog, full descriptions, and schemas up front. Nova may request several tools in one
+response; the host gathers their results before asking Nova to compose its answer. When it greets you it says so.
 
 | AWS service | What it does here |
 |---|---|
-| **Bedrock, Nova Micro** | writes the spoken catch-up; in the simulator, the agent that chooses which tool to call |
+| **Bedrock, Nova Micro** | writes the spoken catch-up; in the simulator, chooses tools from the full MCP catalog |
 | **Bedrock, Mistral Voxtral** | speech in: hears the listener. Level with or ahead of the third-party recogniser we started with (1.4% word error in noise, every name right, 0.8 s), which was then removed |
 | **Bedrock, Nova 2 Sonic** | speech in, the fallback when Voxtral fails |
 | **Polly** (generative voice, neural fallback) | speech out in Polly's most natural voice, an answer in one flowing piece, with word timings so the screen highlights each word as it is spoken |
@@ -155,8 +156,15 @@ first created, run `make run PY=/path/to/python3`.
 Run it from the repository root. Allow the microphone once (browsers require a gesture), then talk. It
 answers out loud and goes straight back to listening; cut in whenever you like.
 
+To use a separate MCP-capable host, connect it to `http://127.0.0.1:8765/mcp`
+(Streamable HTTP). The host must initialize the session, fetch `tools/list`, give the
+tool definitions to Nova, then execute Nova's tool calls. Bedrock Nova does not connect
+to MCP directly; Sideline's simulator performs that host role for its own demo.
+The default server binds to this machine only. Do not expose the unauthenticated HTTP
+endpoint publicly; a remote host needs a properly secured network path.
+
 **No AWS account?** The server still starts and every tool answers in templated wording through any MCP
-client. The simulator's voice agent needs Bedrock; without it the page says it has no answer.
+client. The simulator's Nova host needs Bedrock; without it the page says it has no answer.
 
 ```bash
 curl -s localhost:8765/mcp -H 'Content-Type: application/json' \
@@ -164,7 +172,7 @@ curl -s localhost:8765/mcp -H 'Content-Type: application/json' \
 make verify-data ARGS=--tools                      # every tool against a real match, printed
 ```
 
-Settings are environment variables, documented in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) (23, and a test
+Settings are environment variables, documented in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) (20, and a test
 keeps that page, `.env.example` and the code in step). **The free feed plan allows 180 calls an hour**, and one
 match in play at the default 30 s poll uses two thirds of them; a match not yet started or already finished costs almost nothing (see `SIDELINE_POLL_SECONDS`).
 
@@ -202,9 +210,12 @@ match in play at the default 30 s poll uses two thirds of them; a match not yet 
 
 **Twenty-seven tools, each one intent.** A feed declares what it can supply (events, line-ups, standings, statistics...),
 and a tool whose need is missing is not offered, so a model is never shown one that would fail; Sportmonks' free plan
-supplies all twenty-seven. Football is the sport the demo and the tests run on; the tools are sport-neutral and the
-sport's words live in its `SportProfile`. Because a small model routes worse the more tools it sees,
-`SIDELINE_AGENT_TOOLS=core` holds the voice agent to the core eleven.
+supplies all twenty-seven. The host fetches `tools/list` through MCP and gives Nova the full descriptions and
+schemas before its first decision. Nova is asked to compare plausible tools before calling; the host refuses
+calls for tools absent from the current catalog. Nova may request multiple tools together; their results are
+gathered and returned to Nova for one answer. Football is the
+sport the demo and the tests run on; the
+tools are sport-neutral and the sport's words live in its `SportProfile`.
 
 Contracts, and the reasoning behind each description: [docs/TOOLS.md](docs/TOOLS.md).
 

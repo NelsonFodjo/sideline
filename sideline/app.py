@@ -81,7 +81,7 @@ def build(provider=None):
 
     def run_agent(question, listener_id, tz_offset_minutes=None, interrupted=None, tz_name=None):
         from . import resolve
-        from .language.agent import run as run_agent_turn
+        from .language.agent import AgentUnavailable, run as run_agent_turn
 
         def run_agent_tool(name, args, tool_listener_id):
             # Nova's tool calls go through our own /mcp endpoint, as an external
@@ -99,8 +99,14 @@ def build(provider=None):
                 rec["tz_offset_minutes"] = tz_offset_minutes
                 rec["tz_name"] = tz_name
                 ctx.store.save_listener(rec)
+        try:
+            catalog = bridge.discover(listener_id)
+        except (OSError, RuntimeError, ValueError) as e:
+            raise AgentUnavailable("MCP tool discovery failed") from e
         result = run_agent_turn(ctx, understood["agent_text"], listener_id, run_agent_tool,
-                                interrupted=interrupted)
+                                interrupted=interrupted,
+                                mcp_tools=catalog["tools"],
+                                mcp_instructions=catalog["instructions"])
         resolve.learn(ctx, listener_id, result)
         if understood["changed"]:
             result["understood"] = understood["text"]

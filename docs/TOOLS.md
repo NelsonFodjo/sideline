@@ -227,9 +227,9 @@ except the two that remember. All of them say what is missing instead of guessin
 | Meta | `get_capabilities` | Read from the tools actually offered, so it is true for this feed. |
 
 **Tools follow the feed.** `registry.TOOL_REQUIRES` maps a tool to the capability it needs, and a feed lists what it
-has (`Provider.capabilities`). The server offers only the tools whose need is met, on `tools/list` and to the voice
-agent alike. A feed that adds a capability gains its tools with no change to them. For a small model,
-`SIDELINE_AGENT_TOOLS=core` offers only the core eleven.
+has (`Provider.capabilities`). The server offers only the tools whose need is met on `tools/list`; Nova's host
+discovers that catalog over MCP before each turn, so unavailable tools are not shown to the model. A feed that adds
+a capability gains its tools with no change to them.
 
 ### `get_head_to_head`
 

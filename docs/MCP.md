@@ -1,6 +1,6 @@
 # The MCP server: what it implements, and what it does not
 
-Sideline is an MCP **server**. Alexa+ is the client; the web page in `simulator/` stands in for it ([simulator/README.md](../simulator/README.md)).
+Sideline is an MCP **server**. Alexa+ or another MCP-capable host is the client; the web page in `simulator/` stands in for it ([simulator/README.md](../simulator/README.md)).
 This page is the protocol surface in one place, so a reviewer does not have to read `sideline/mcp/server.py` to know
 what is there. The tools themselves are in [TOOLS.md](TOOLS.md).
 
@@ -19,7 +19,7 @@ what is there. The tools themselves are in [TOOLS.md](TOOLS.md).
 | Forks | When a request could mean several matches, the tool error lists up to four, numbered, with `detail.candidates`, and the client reads them out | [FINDER.md](FINDER.md) |
 | MCP Apps | Screened devices get a card in `_meta.ui`; nothing essential is only in the card | [ACCESSIBILITY.md](ACCESSIBILITY.md) |
 | Origin check | Every request's `Origin` is checked against `SIDELINE_ALLOWED_ORIGINS` (the DNS-rebinding guard the spec asks for); a request with no `Origin`, as Alexa+ sends, passes | `tests/test_mcp_protocol.py` |
-| Own client | The voice agent calls the tools through this server's `/mcp`, as any client would, so the protocol is exercised by the product itself | `tests/test_mcp_client.py` |
+| Own client | Before a turn, the simulator's Nova host fetches `initialize` instructions and `tools/list` through `/mcp`; Nova receives the live definitions, and selected tools are called back through `/mcp` | `tests/test_mcp_client.py` |
 | Audit | One JSON line per call (tool, arguments, time, outcome), `make log-report` | `tests/test_audit.py` |
 
 ## Not implemented, and why
@@ -46,3 +46,10 @@ curl -s localhost:8765/mcp -H 'Content-Type: application/json' \
 lists every tool with its annotations (no session needed for `tools/list`, which keeps `curl` and the MCP Inspector
 usable). `make test` runs the protocol suite offline; `make route-check` runs the real model against the tool
 descriptions.
+
+Bedrock Nova does not connect to MCP by itself. A host must discover the MCP tools, pass their descriptions
+and schemas to Nova, then execute Nova's tool requests. Sideline's simulator gives Nova the current full
+catalog up front, preserving each tool's examples and distinctions. Nova can request multiple tools in one
+response; the host only dispatches names present in the discovered catalog and returns results together for
+Nova to compose. A separate
+MCP host can connect directly to the same `/mcp` endpoint.

@@ -21,7 +21,7 @@ return, it is too late.
 | `catchup()` | Composition and prioritisation. The one that genuinely earns it. |
 | `milestones()` | A long absence, compressed to headlines plus an offer of detail. Called by `what_did_i_miss`. |
 | `translate()` | The same facts in another language or register (a listener can ask for one). |
-| The voice agent, `/agent/chat` | Nova receives the MCP tool definitions, selects tools, and phrases the result. |
+| The Nova MCP host, `/agent/chat` | Fetches `initialize` instructions and `tools/list` over MCP, gives Nova the live tool catalog, then executes Nova's `tools/call` selections over MCP. |
 | Nova 2 Sonic | speech in: a separate use of Bedrock, described in [SPEECH.md](SPEECH.md). |
 
 **Deterministic, never a model**
@@ -48,7 +48,7 @@ If Bedrock is **off**, the deterministic templates in [`templates.py`](../sideli
 and the response says `generated_by: template`. That is a configuration choice, not a fallback.
 
 Every response reports who wrote the words in `structuredContent.generated_by`: `bedrock`, `template`,
-`tool-data` (the agent asked for facts) or `bedrock+bedrock` (translated). It is the easiest way to show the model
+`tool-data` (the Nova host asked for facts) or `bedrock+bedrock` (translated). It is the easiest way to show the model
 working on camera.
 
 ## The grounding rule
@@ -82,19 +82,22 @@ Three rules keep the rest inside a listener's patience:
 2. Catch-up prompts are capped at 12 events.
 3. The provider caches for 12 seconds, so no tool waits on the football feed more than once.
 
-`max_attempts=1` on the boto3 client is intentional: a retry costs another request timeout. The one exception is the voice agent, which retries **once**, after 0.6 s, when AWS answers at once with "capacity limit reached" or "slow down" (`ServiceUnavailableException`, `ThrottlingException`): that refusal is quick and the same request a moment later usually works. Any other error is not retried. The request ceiling is
+`max_attempts=1` on the boto3 client is intentional: a retry costs another request timeout. The one exception is the Nova MCP host, which retries **once**, after 0.6 s, when AWS answers at once with "capacity limit reached" or "slow down" (`ServiceUnavailableException`, `ThrottlingException`): that refusal is quick and the same request a moment later usually works. Any other error is not retried. The request ceiling is
 8 seconds. A first-ever precompute-and-cache design was built and then removed: it moved the model off the
 listener's clock but was only ever tested against a simulated model, and the honest statement is that a catch-up
 takes about two seconds.
 
-## The voice agent
+## The Nova MCP host
 
-The simulator posts the listener's transcript to `/agent/chat`. The server first resolves what they meant
-([SPEECH.md](SPEECH.md)), then gives Nova the public MCP tool names, descriptions and input schemas through
-Bedrock Converse tool use. When Nova picks a tool, the call goes through
-[`mcp/client.py`](../sideline/mcp/client.py) to this server's own `/mcp` endpoint, so it crosses the real protocol
-(session, `tools/call`, schema validation) exactly as an external client's would. The result goes back to Nova for
-a short, grounded reply.
+The simulator posts the listener's transcript to `/agent/chat`. The server resolves what they meant
+([SPEECH.md](SPEECH.md)), then discovers the MCP `initialize` instructions and `tools/list` catalog over
+[`mcp/client.py`](../sideline/mcp/client.py). It passes the complete discovered descriptions and input schemas
+to Bedrock Converse up front. Nova decides whether and what to call; selected tools are executed through the
+same server's `/mcp` endpoint, with protocol sessions and server-side schema validation. Tool results return to
+Nova for its answer. The prompt contains general grounding and spoken-response guidance, not phrase-to-tool rules.
+
+Bedrock Nova is a model API, not an MCP client: a host must do this discovery and dispatch. Any other
+MCP-capable host can connect directly to `/mcp` and provide Nova (or another model) with the same tool catalog.
 
 Conversation context is four layers, each small and bounded, and none is persisted across restarts:
 
@@ -115,7 +118,7 @@ time zone, lives in the state store and survives restarts. The model never recei
 short sentences, never to narrate, and never to promise to keep the listener updated (the server cannot speak
 first).
 
-For the agent, `what_did_i_miss` returns its structured event facts, not a prewritten paragraph (a header asks for
+For Nova, `what_did_i_miss` returns its structured event facts, not a prewritten paragraph (a header asks for
 this): Nova is itself a model and would only paraphrase a paragraph, at the cost of a second model call.
 
 ## Model choice
@@ -125,7 +128,7 @@ both tool use and catch-up generation. This is compression under a voice deadlin
 model with `temperature=0.2`. Availability varies by account and region; `make aws-check` checks the selected
 model. We make no claim about what model Alexa+ uses.
 
-**A larger model, measured (2026-10-13, one account, one run each, so indicative only).** Asked a broad batch of
+**Historical comparison (2026-10-13, one account, one run each; not a measurement of the current MCP-discovery prompt).** Asked a broad batch of
 real questions against the live feed, Nova Micro dropped arguments the question plainly gave: "where is Celtic in the
 league?" and "who are the top scorers for Rangers?" arrived with no team, and "what did I miss?" after following a match
 went to the wrong tool. `amazon.nova-lite-v1:0` kept the team in both and chose the right tool for the third. On the
@@ -176,48 +179,7 @@ turning it on and read your actual usage after the first run.
 Every model call writes a `tokens` line to the day's call log (`logs/calls-<date>.jsonl`) with the input and output
 counts exactly as Bedrock reports them (the Converse response's `usage`), and `make log-report` totals them by source
 (`agent` for the voice agent, `text` for catch-ups). Measured on the real service with all 27 tools offered: about
-5,000 input tokens and 15 to 20 output tokens for a one-tool question. Nearly all of the input is the tool list, which
-is the price of offering 27 tools; `SIDELINE_AGENT_TOOLS=core` offers 11 and cuts it roughly in half.
-
-## Why replies are fast, and five things that keep the small model honest
-
-Measured on the real service, on questions about a real team (2026-10-14): a follow-up answered in 0.8 to 1.0 s and a
-first question in 3 to 5 s (the first includes cold connections and the feed).
-
-- **Short, finished answers are not rephrased.** Nearly every tool already writes its answer for the ear. Asking the model
-  to say it again in its own words costs a whole round trip (about a second and a half) and can only make it less exact. So
-  when one tool answered one question and its text is 240 characters or fewer, it is returned as written
-  (`generated_by: tool`). Longer answers (a full line-up) still go through the model, which shortens them for the ear, unless
-  the tool marks its answer `verbatim` (`get_match_report`, whose goals a rewrite would drop, up to 900 characters). Tools
-  whose agent-mode output is facts to be phrased (`what_did_i_miss`) always go through the model, and so does a listener who
-  asked for brief answers.
-- **The model is told today's date**, in the listener's own zone. Left to guess, it wrote last year ("20 September" became
-  2025) and the match was "not found". The finder also moves a date written with the wrong year to the year nearest to now.
-- **Arguments the question gives away are filled in.** A small model drops optional arguments first: asked "who came on?" it
-  called `get_match_report` with no `part`, and the whole report was read out again. Where the words of the question say
-  it (came on, cards, scored, VAR), `part` is set in code, never overriding what the model passed.
-- **The next seven days are spelled out in the prompt** ("Saturday is 2026-10-17, ..."). Told only today's date, the model counted
-  to "Saturday" wrong by a day. With the list, Nova Lite gets "which teams play on Saturday?" and "who plays on the 25th?" right
-  (it passes `date`); Micro mostly still passes `when: tomorrow`.
-- **What a model sends is cleaned, not trusted.** Nova Lite sometimes sent `&quot;Celtic&quot;` (HTML-escaped quotes) as a team name,
-  and either model sometimes wraps an answer in a stray `<response>` tag. Both are removed at the agent's edge.
-- **A competition the listener did not say is dropped.** Asked "what are the next matches?" the model passed "Premier League",
-  copied from an example in a tool description, for a feed that does not cover it. A competition stays only if one of its
-  words is in the question (`_without_invented_competition`). With none, the tool asks which, and names the leagues the
-  feed does cover.
-- **The match they were just asking about is remembered** for ten minutes (`rec["discussed"]`), so "who came on?" after
-  "what happened in the last Celtic match?" needs no match named. A match is never picked that they did not ask about, and
-  a list of matches read out for a choice remembers the question, so the pick answers it ([FINDER.md](FINDER.md)).
-
-**Where the time goes, and what was done** (measured 2026-10-14, a warm server): a model call is about 0.75 s with 7,800 input
-tokens, nearly all of it the tool list; a feed lookup is 0.5 to 1 s each; speech for a long answer is 2.5 to 2.8 s. So
-the speech is pipelined a sentence at a time (first audio 1.2 s: [SPEECH.md](SPEECH.md)), the squad and manager requests
-run in parallel, and the model is called once at startup so the connection and TLS handshake are the server's, not the
-first listener's (the first question went from 5.5 s to 3.4 s). **Prompt caching was tried and does not apply here**: Nova
-Micro rejects a `cachePoint` in the tool list ("extraneous key [cachePoint]"), and the tool list is the bulk of the prompt,
-so there was nothing worth caching.
-
-Routing is held at 71 of 71 on `make route-check` with all 27 tools offered, by descriptions that each name their neighbour
-("not the table (get_standings)"). It took three passes: a longer prompt and more tools made follow, preview and standings
-phrasings slip, and each was fixed at the description that attracted it, not by adding rules. A shortlist of tools offered
-to the model was tried first and rejected on its recall: [FINDER.md](FINDER.md), "Tried and rejected".
+Every turn now receives the current tool catalog from MCP, without the old shortlist option or phrase-to-tool instructions.
+The simulator's fake-model tests verify that the full catalog, tool schemas, tool execution and post-tool results are wired
+through the protocol. **Real-Nova routing with this new path has not yet been re-measured**; `make route-check` is
+available to test it against the live model and invented match data.

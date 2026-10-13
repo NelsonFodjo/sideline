@@ -39,7 +39,6 @@ VARIABLES = [
     ("SIDELINE_POLLY_ENGINE", False, "generative", "Polly engine: generative (most natural, falls back to neural) or neural"),
     ("SIDELINE_STT", False, "auto", "Speech in: auto (Voxtral, then Nova Sonic, on Bedrock), voxtral, sonic, or off"),
     ("SIDELINE_WEATHER", False, "on", "on adds the weather at the ground to a match preview (city and country go to Open-Meteo); off does not"),
-    ("SIDELINE_AGENT_TOOLS", False, "all", "Tools offered to the voice agent: all, or core (the core eleven, which route more reliably on a small model)"),
     ("SIDELINE_LIVE_CAPTION", False, "browser", "browser types interim words while you speak (audio also reaches the browser vendor); off does not"),
 ]
 

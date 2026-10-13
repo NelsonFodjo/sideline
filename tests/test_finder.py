@@ -262,7 +262,10 @@ def main():
         try:
             model.plan = [("get_match_report", {"team": "Harbour FC", "opponent": "Cove Town"})]
             out = agent.run(ctx, "What happened against Cove Town?", "pick", run_tool)
-            assert out["generated_by"] == "tool" and out["text"].startswith("I can see more than one Harbour FC match"), out
+            assert out["generated_by"] == "nova" and out["text"] == "Okay.", out
+            declined_result = model.seen[1]
+            assert declined_result["toolResult"]["status"] == "error"
+            assert "I can see more than one Harbour FC match" in declined_result["toolResult"]["content"][0]["text"]
             model.plan = [("get_match_report", {"fixture_id": 4})]
             agent.run(ctx, "The second one (fixture_id 4)", "pick", run_tool)
             assert any('earlier question: "What happened against Cove Town?"' in (m.get("text") or "") for m in model.seen), model.seen
@@ -280,7 +283,7 @@ def main():
                 return {"output": {"message": {"role": "assistant", "content": [{"text": "Okay."}]}}}
         bedrock.available, bedrock.client = (lambda: True), (lambda: Spy())
         try:
-            agent.run(ctx, "hello", "ann", run_tool)
+            agent.run(ctx, "What day is it?", "ann", run_tool)
         finally:
             bedrock.available, bedrock.client = real
         assert "Today is Wednesday 14 October 2026." in seen_systems[0], seen_systems[0][-120:]

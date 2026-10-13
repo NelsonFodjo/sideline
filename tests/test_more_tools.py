@@ -187,13 +187,8 @@ def main():
             assert len(registry.public_tools()) == 27 and len(registry.public_tools(core_only=True)) == 11
         finally:
             registry.limit_to(None)
-        os.environ["SIDELINE_AGENT_TOOLS"] = "core"
-        try:
-            assert len(agent._bedrock_tools()) == 11, "the voice agent can be held to the core eleven"
-        finally:
-            os.environ.pop("SIDELINE_AGENT_TOOLS", None)
-        assert len(agent._bedrock_tools()) == 27
-        print("ok  a feed without a capability does not offer its tools; SIDELINE_AGENT_TOOLS=core holds the agent to eleven")
+        assert len(agent._bedrock_tools(registry.public_tools())) == 27
+        print("ok  a feed without a capability does not offer its tools; the Nova host offers the complete MCP catalog")
 
         # ---------------------------------------------------------- a feed without it
         class Bare(type(ctx.provider)):

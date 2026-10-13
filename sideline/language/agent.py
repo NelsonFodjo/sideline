@@ -4,7 +4,6 @@ import datetime
 import html
 import json
 import logging
-import os
 import re
 import threading
 import time
@@ -26,43 +25,18 @@ MAX_CONVERSATIONS = 256
 CONVERSATION_TTL_SECONDS = 1800
 
 SYSTEM = (
-    "You are Sideline, a concise live-sports companion (football first, any "
-    "match or game a provider supplies) for listeners "
-    "following by ear. Your tools read live match data, so you CAN give scores, "
-    "times, line-ups and previews: never say you cannot provide real-time or live "
-    "information. Use the available tools to answer questions about "
-    "the match and the listener's state. Call follow_match when they ask to "
-    "follow or switch matches. Do not invent match facts: rely only on tool "
-    "results. Ask a brief clarification if a tool reports ambiguity or the "
-    "listener's request is unclear. A question about a team (its squad, manager, season, next games, last results) or a player needs no match: pass the "
-    "team or player by name to get_squad, get_team_stats, get_schedule or get_player_stats. The match tools also work on "
-    "a match that has already been played: pass the team, and the opponent, when (last, next, yesterday) or a date. A match "
-    "is followed only when the listener asks to follow it. Never say a match cannot be found for a question about a team. "
-    "When a tool lists matches to choose from, the list is read to the listener, who picks: never choose for them. When a "
-    "message names a match with (fixture_id N): if they were choosing which match to follow, call follow_match with it; "
-    "otherwise answer the question they asked before choosing, about that match, passing fixture_id N to the tool. For greetings or general conversation, "
-    "respond naturally without claiming live match knowledge. Your response "
-    "is spoken aloud: output only the answer to the listener, in at most two "
-    "short sentences (up to five when the tool gave a match preview, which you "
-    "read out almost word for word). Never say an id, a fixture number or any "
-    "other technical detail, and say a time of day exactly as the tool wrote it, including the name of the time zone. "
-    "Always call a tool for anything about a match, a time, the weather or a team: "
-    "never answer those from memory, and never state weather, a score or a time "
-    "that a tool did not give you in this conversation. "
-    "Say only what the listener asked for: do not volunteer a match they did not "
-    "mention. When a tool says it cannot find a match, say that in one plain sentence "
-    "and stop: never suggest a typo, never blame the listener, never ask them to confirm "
-    "an id. For 'say that again', 'repeat that' or 'what was that', call "
-    "get_event_detail (never get_capabilities). For 'I'm watching X', 'keep me updated on X' or 'switch to X', call follow_match. For 'who's top of the league' or 'the table', call get_standings. For 'last results', 'recent games' or 'did they win', call get_schedule "
-    "with which=last; for goals, cards or substitutions in a match that was played, call get_match_report; when the "
-    "listener names no match, leave the match out of the tool call: the server knows which one they were just asking about. For 'when is X playing' or 'what time is X against Y', call "
-    "get_schedule with the team and the opponent. If the listener names a team, pass it to the tool every time, even if they are following a different match, and never say they are following a team they did not follow. Do not include analysis, reasoning, a preamble, "
-    "step-by-step explanation, or narration of actions/tool calls. Never say "
-    "what you are thinking or about to do, and never refer to the listener as "
-    "'the user': speak to them. You cannot speak first, so never promise to "
-    "keep them updated; they will ask."
+    "You are Sideline, a concise live-sports companion. Use the available MCP "
+    "tools for current sports facts, following their descriptions and schemas. "
+    "Match each tool's full use case to what the listener actually asked; do not "
+    "choose a tool just because it shares a word with the request. All available "
+    "tool descriptions and schemas are already provided. Compare overlapping "
+    "tools, call only those needed, and ask a focused clarification rather than "
+    "guessing when no tool clearly fits. "
+    "Treat tool results as the source of truth; do not guess or invent live facts. "
+    "If a tool fails or the request is ambiguous, explain briefly and ask a "
+    "focused clarification. Reply naturally in one or two short sentences for "
+    "spoken delivery. Do not expose internal reasoning or tool identifiers."
 )
-
 
 class AgentUnavailable(Exception):
     """Nova could not complete an agent turn."""
@@ -192,29 +166,6 @@ class Focus:
 
 FOCUSES = Focus()
 
-# A short answer a tool has already written for the ear is returned as it is: asking the model to say it again in
-# its own words costs a whole round trip (about a second and a half) and can only make it less exact. Longer answers
-# (a full line-up) still go through the model, which shortens them for the ear, unless the tool marks its answer verbatim.
-DIRECT_MAX_CHARS = 240
-VERBATIM_MAX_CHARS = 900
-NEEDS_MODEL = ("what_did_i_miss",)        # in agent mode it returns event facts to be phrased, not a finished answer
-
-
-def _direct_answer(tool_results, requests, ctx, listener_id):
-    """The text to say as it is, when one tool answered one question and its answer is already speech; else None."""
-    if len(tool_results) != 1 or len(requests) != 1:
-        return None
-    record = tool_results[0]
-    structured = record.get("structured")
-    if record.get("declined") or structured is None or record.get("name") in NEEDS_MODEL:
-        return None
-    if _preference(ctx, listener_id).find("brief") >= 0:
-        return None
-    text = (record.get("spoken") or "").strip()
-    limit = VERBATIM_MAX_CHARS if (structured or {}).get("verbatim") else DIRECT_MAX_CHARS
-    return text if text and len(text) <= limit else None
-
-
 def _usage(usage):
     """Bedrock's own token counts for one call (Converse returns them), as plain integers."""
     usage = usage if isinstance(usage, dict) else {}
@@ -248,15 +199,6 @@ def _invents_weather(text, tool_results):
         if structured.get("weather") or "forecast" in (record.get("spoken") or "").lower():
             return False
     return True
-
-
-_CHITCHAT = re.compile(r"^\W*(hi|hello|hey|thanks?|thank you|ok(ay)?|cheers|bye|goodbye|great|cool|"
-                       r"good (morning|afternoon|evening|night))\b", re.I)
-
-
-def _is_chitchat(question):
-    """A greeting or a thank-you: the only turns that need no tool."""
-    return len(question.split()) <= 5 and bool(_CHITCHAT.match(question))
 
 
 _FOLLOW_INTENT = re.compile(r"\b(follow|following|watch|watching|switch|tune|track|"
@@ -382,22 +324,28 @@ def _converse(**kwargs):
         return bedrock.client().converse(**kwargs)
 
 
-def _bedrock_tools():
-    # SIDELINE_AGENT_TOOLS=core offers the voice agent only the core eleven tools: fewer choices
-    # route more reliably on a small model. The MCP server lists them all.
-    core = os.environ.get("SIDELINE_AGENT_TOOLS", "all").strip().lower() == "core"
-    return [
-        {"toolSpec": {
-            "name": spec["name"],
-            "description": spec["description"],
-            "inputSchema": {"json": spec["inputSchema"]},
-        }}
-        for spec in public_tools(core_only=core)
-    ]
+def _bedrock_tools(mcp_tools):
+    """Adapt the MCP server's current tools/list result to Bedrock's schema."""
+    if not isinstance(mcp_tools, list):
+        raise AgentUnavailable("MCP tools/list returned no tool catalog")
+    tools = []
+    for spec in mcp_tools:
+        if (not isinstance(spec, dict)
+                or not isinstance(spec.get("name"), str)
+                or not isinstance(spec.get("inputSchema"), dict)):
+            raise AgentUnavailable("MCP tools/list returned an invalid tool definition")
+        tools.append(
+            {"toolSpec": {
+                "name": spec["name"],
+                "description": spec.get("description", ""),
+                "inputSchema": {"json": spec["inputSchema"]},
+            }})
+    return tools
 
 
-def run(ctx, question, listener_id, tool_runner, interrupted=None):
-    """Ask Nova to answer, executing any requested tools through the registry."""
+def run(ctx, question, listener_id, tool_runner, interrupted=None,
+        mcp_tools=None, mcp_instructions=""):
+    """Give Nova the MCP catalog, then execute its selected tool calls."""
     from . import bedrock
 
     if not bedrock.available():
@@ -414,28 +362,31 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None):
         # They talked over the last answer: what they say next belongs to it.
         asked = ("[The listener cut in while you were saying: \"%s\". What follows "
                  "is a follow-up to that, not a new subject.] %s" % (interrupted, question))
-    messages.append({"role": "user", "content": [{"text": asked}]})
     tool_results = []
     weather_retried = live_retried = False
-    tool_config = {"tools": _bedrock_tools()}
+    if mcp_tools is None:
+        mcp_tools = public_tools()
+    tool_specs = {spec["name"]: spec for spec in mcp_tools}
+    messages.append({"role": "user", "content": [{"text": asked}]})
+    tool_config = {"tools": _bedrock_tools(mcp_tools)}
 
     for _ in range(MAX_TURNS):
-        # A small model left to choose will answer a match question from memory, or ask which
-        # Arsenal match, instead of looking. So the first step of any turn that is not a
-        # greeting must be a tool; after that it chooses freely.
-        choice = dict(tool_config)
-        if not tool_results and not _is_chitchat(question):
-            choice["toolChoice"] = {"any": {}}
         try:
-            response = _converse(
-                modelId=bedrock.MODEL_ID,
-                system=[{"text": SYSTEM + _today(ctx, listener_id) + _preference(ctx, listener_id) + FOCUSES.line(listener_id)}],
-                messages=messages,
-                toolConfig=choice,
-                inferenceConfig={"maxTokens": MAX_TOKENS,
-                                 "temperature": 0.2,
-                                 "topP": 0.9},
-            )
+            system = SYSTEM
+            if mcp_instructions:
+                system += "\n\nMCP server instructions: " + mcp_instructions
+            system += (_today(ctx, listener_id) + _preference(ctx, listener_id)
+                       + FOCUSES.line(listener_id))
+            request = {
+                "modelId": bedrock.MODEL_ID,
+                "system": [{"text": system}],
+                "messages": messages,
+                "inferenceConfig": {"maxTokens": MAX_TOKENS,
+                                    "temperature": 0.2,
+                                    "topP": 0.9},
+                "toolConfig": tool_config,
+            }
+            response = _converse(**request)
         except Exception as exc:
             LOG.warning("Nova agent request failed: %s", exc)
             raise AgentUnavailable("Bedrock Converse request failed") from exc
@@ -481,21 +432,37 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None):
         for request in requests[:remaining]:
             name = request.get("name")
             call_id = request.get("toolUseId")
-            args = _fill_arguments(request.get("name"), _without_invented_competition(
-                _without_invented_id(_plain_strings(request.get("input")), question), question), question)
-            if name == "follow_match" and not _asked_to_follow(question):
-                # A model that guesses must not move the listener to another match.
-                message = "The listener did not ask to follow a match, so none was followed."
-                result_content, is_error, result_record = message, True, {"name": name, "spoken": message}
+            args = request.get("input")
+            if name not in tool_specs:
+                message = "That tool is not available in the current MCP catalog."
+                result_content, is_error, result_record = message, True, {
+                    "name": name, "spoken": message,
+                }
             else:
-                result_content, is_error, result_record = _execute_tool(
-                    name, args, listener_id, tool_runner)
+                args = _fill_arguments(name, _without_invented_competition(
+                    _without_invented_id(_plain_strings(args), question), question), question)
+                if name == "follow_match" and not _asked_to_follow(question):
+                    # A model that guesses must not move the listener to another match.
+                    message = "The listener did not ask to follow a match, so none was followed."
+                    result_content, is_error, result_record = message, True, {"name": name, "spoken": message}
+                else:
+                    result_content, is_error, result_record = _execute_tool(
+                        name, args, listener_id, tool_runner, tool_specs)
+            called_tools_this_turn = True
             result_record["args"] = args if isinstance(args, dict) else {}
             tool_results.append(result_record)
+            model_result = {
+                "tool": name,
+                "ok": not is_error,
+                "spoken": result_record.get("spoken") or result_content,
+            }
+            structured = result_record.get("structured") or result_record.get("detail")
+            if structured:
+                model_result["data"] = structured
             results.append({
                 "toolResult": {
                     "toolUseId": call_id,
-                    "content": [{"text": result_content}],
+                    "content": [{"text": json.dumps(model_result, ensure_ascii=False)}],
                     "status": "error" if is_error else "success",
                 }
             })
@@ -504,16 +471,11 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None):
         for record in tool_results:
             if record.get("declined") and (record.get("detail") or {}).get("fork"):
                 FOCUSES.set_pending(listener_id, question)
-            if record.get("declined"):
-                # The tool said no, and said why. The listener hears that, word for word,
-                # not a model's apology for it ("I can't provide real-time updates").
-                return {"text": record["spoken"], "generated_by": "tool",
-                        "tool_results": tool_results}
-        direct = _direct_answer(tool_results, requests, ctx, listener_id)
-        if direct:
-            CONVERSATIONS.remember(listener_id, question, direct)
-            FOCUSES.remember(listener_id, tool_results)
-            return {"text": direct, "generated_by": "tool", "tool_results": tool_results}
+        results.append({"text": (
+            "Combine the tool results into one concise, natural answer using only "
+            "supported facts. Explain any errors or ambiguity plainly and ask a "
+            "focused follow-up if needed. Call another tool only if essential facts "
+            "are still missing.")})
         messages.append({"role": "user", "content": results})
         if len(tool_results) >= MAX_TOOL_CALLS:
             break
@@ -521,11 +483,11 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None):
     raise AgentUnavailable("Nova exceeded the agent tool-use limit")
 
 
-def _execute_tool(name, args, listener_id, tool_runner):
-    from ..tools import REGISTRY
-
-    spec = next((item for item in public_tools() if item["name"] == name), None)
-    if not spec or name not in REGISTRY:
+def _execute_tool(name, args, listener_id, tool_runner, tool_specs=None):
+    if tool_specs is None:
+        tool_specs = {item["name"]: item for item in public_tools()}
+    spec = (tool_specs or {}).get(name)
+    if not spec:
         message = "That tool is not available."
         return message, True, {"name": name, "spoken": message}
     if not isinstance(args, dict):

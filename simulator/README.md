@@ -58,12 +58,13 @@ if the answer involves looking at something, it is the wrong input.
 
 ## It is an MCP client
 
-On load the page opens an MCP session (`initialize`, `notifications/initialized`) and lists the tools
-(`tools/list`). Each thing you say goes to `/agent/chat`: the server works out what you meant
-([docs/SPEECH.md](../docs/SPEECH.md)), gives Nova the tool definitions, and when Nova picks a tool the call is
-made through [`sideline/mcp/client.py`](../sideline/mcp/client.py) to the server's own `/mcp`, as an external client's
-would be. Any other MCP client can call `/mcp` directly. **It is not Alexa:** Nova's agent loop is a Bedrock
-tool-use bridge, not an Alexa+ integration.
+On each turn the server resolves the transcript ([docs/SPEECH.md](../docs/SPEECH.md)) and its MCP host fetches
+the live tool catalog and server instructions over `/mcp`. Nova receives complete descriptions and schemas
+up front, compares their use cases, and can call multiple tools in one response. The host refuses names absent
+from the discovered catalog. Results are returned together so Nova can compose its answer. Every selected tool is called through
+[`sideline/mcp/client.py`](../sideline/mcp/client.py) to `/mcp`. Tool choice is not forced and the model prompt
+does not contain phrase-to-tool rules. Any other MCP client can call `/mcp` directly. **It is not Alexa:** the
+simulator is a Bedrock host using MCP, not an Alexa+ integration.
 
 ## Speech in
 

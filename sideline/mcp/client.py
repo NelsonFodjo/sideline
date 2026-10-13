@@ -1,10 +1,7 @@
 """A minimal MCP client over Streamable HTTP, standard library only.
 
-The voice agent uses it. When Nova chooses a tool, the call is made to this
-server's own /mcp endpoint exactly as an external client's would be: a session,
-JSON-RPC `tools/call`, schema validation, the same error handling. So the
-simulator really is an MCP client of this server, instead of reaching around the
-protocol into the tool registry.
+Nova's host uses it to discover the server's tool catalog and execute any
+selected `tools/call` through the same protocol an external MCP client uses.
 
 It adds one header, `X-Sideline-Agent: 1`, which asks `what_did_i_miss` for its
 event facts rather than a model-written paragraph (the agent is a model and would
@@ -28,6 +25,7 @@ class McpClient(object):
         self._sid = None
         self._id = 0
         self._lock = threading.Lock()
+        self.instructions = ""
 
     # ------------------------------------------------------------ transport
     def _post(self, body, listener_id, agent=False):
@@ -52,13 +50,36 @@ class McpClient(object):
                                "params": params}, listener_id, agent)
 
     def _initialize(self, listener_id):
-        sid, _ = self._rpc("initialize", {
+        sid, doc = self._rpc("initialize", {
             "protocolVersion": PROTOCOL_VERSION, "capabilities": {},
-            "clientInfo": {"name": "sideline-agent", "version": "1"}}, listener_id)
+            "clientInfo": {"name": "sideline-nova-mcp-host", "version": "1"}}, listener_id)
         self._sid = sid
+        self.instructions = ((doc or {}).get("result") or {}).get("instructions") or ""
         self._post({"jsonrpc": "2.0", "method": "notifications/initialized"}, listener_id)
 
     # ----------------------------------------------------------------- tools
+    def discover(self, listener_id):
+        """Fetch the MCP server instructions and current tools/list catalog."""
+        if not self._sid:
+            self._initialize(listener_id)
+        try:
+            _, doc = self._rpc("tools/list", {}, listener_id)
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+            self._initialize(listener_id)
+            _, doc = self._rpc("tools/list", {}, listener_id)
+        if not isinstance(doc, dict):
+            raise RuntimeError("MCP tools/list returned an invalid response")
+        if "error" in doc:
+            err = doc["error"]
+            raise RuntimeError("MCP error %s: %s" % (err.get("code"), err.get("message")))
+        result = doc.get("result") or {}
+        tools = result.get("tools")
+        if not isinstance(tools, list):
+            raise RuntimeError("MCP tools/list returned no tool catalog")
+        return {"instructions": self.instructions, "tools": tools}
+
     def call(self, name, args, listener_id, agent=False):
         """tools/call. Returns (spoken, structured, ui); raises ToolError when
         the tool declined, InvalidParams when the arguments were refused."""

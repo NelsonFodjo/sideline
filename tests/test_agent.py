@@ -10,6 +10,7 @@ from conftest import make_ctx
 
 from sideline.language import agent, bedrock
 from sideline.mcp import server as mcp_server
+from sideline.mcp.registry import public_tools
 from sideline.tools import REGISTRY
 
 PORT = 8796
@@ -20,17 +21,30 @@ class FakeBedrock:
     def __init__(self):
         self.calls = []
         self.final_text = "I'm following Arsenal against Tottenham."
+        self.tool_uses = [{
+            "toolUseId": "call-1",
+            "name": "follow_match",
+            "input": {"team": "Arsenal"},
+        }]
+        self._next_tool = True
+        self.step = 0
+
+    @property
+    def next_tool(self):
+        return self._next_tool
+
+    @next_tool.setter
+    def next_tool(self, value):
+        self._next_tool = value
+        self.step = 0
 
     def converse(self, **kwargs):
         self.calls.append(kwargs)
-        if len(self.calls) == 1:
+        if self._next_tool and self.step == 0:
+            self.step = 1
             return {"output": {"message": {
                 "role": "assistant",
-                "content": [{"toolUse": {
-                    "toolUseId": "call-1",
-                    "name": "follow_match",
-                    "input": {"team": "Arsenal"},
-                }}],
+                "content": [{"toolUse": item} for item in self.tool_uses],
             }}}
         return {"output": {"message": {
             "role": "assistant",
@@ -51,73 +65,158 @@ def _post(path, payload, origin=None):
         return error.code, json.loads(error.read())
 
 
+def _tool_results(call):
+    return [
+        block["toolResult"]
+        for message in call["messages"]
+        for block in message.get("content", [])
+        if isinstance(block, dict) and "toolResult" in block
+    ]
+
+
+def _message_text(call):
+    return "\n".join(
+        block["text"]
+        for message in call["messages"]
+        for block in message.get("content", [])
+        if isinstance(block, dict) and isinstance(block.get("text"), str)
+    )
+
+
 def main():
     ctx = make_ctx(start_minute=40)
     model = FakeBedrock()
+    catalog = public_tools()
     original_available, original_client = bedrock.available, bedrock.client
     bedrock.available = lambda: True
     bedrock.client = lambda: model
-    real_direct = agent.DIRECT_MAX_CHARS
-    agent.DIRECT_MAX_CHARS = 0              # these tests are about the model path; the direct path has its own below
     try:
         result = agent.run(
             ctx, "Follow Arsenal, please.", "agent-listener",
-            lambda name, args, listener: REGISTRY[name](ctx, args, listener))
+            lambda name, args, listener: REGISTRY[name](ctx, args, listener),
+            mcp_tools=catalog, mcp_instructions="Prefer what_did_i_miss for catch-up.")
         assert result["generated_by"] == "nova"
         assert "following Arsenal" in result["text"]
         assert result["tool_results"][0]["name"] == "follow_match"
         assert result["tool_results"][0]["structured"]["fixture_id"] == 1208341
-        assert model.calls[0]["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
+        offered = model.calls[0]["toolConfig"]["tools"]
+        assert [item["toolSpec"]["name"] for item in offered] == [
+            item["name"] for item in catalog]
+        assert offered[0]["toolSpec"]["name"] == "follow_match"
+        assert offered[0]["toolSpec"]["inputSchema"]["json"] == catalog[0]["inputSchema"]
         system_prompt = model.calls[0]["system"][0]["text"]
-        assert "output only the answer to the listener" in system_prompt
-        assert "Never say what you are thinking" in system_prompt
+        assert "Start following a match" in offered[0]["toolSpec"]["description"]
+        assert "Not the score (get_match_state)" in offered[0]["toolSpec"]["description"]
+        assert "All available tool descriptions and schemas are already provided" in system_prompt
+        assert "Prefer what_did_i_miss for catch-up." in system_prompt
         assert model.calls[0]["inferenceConfig"]["maxTokens"] <= 220
-        assert model.calls[1]["messages"][2]["content"][0]["toolResult"]["toolUseId"] == "call-1"
-        assert model.calls[0]["toolConfig"]["toolChoice"] == {"any": {}}, "a match question must start with a tool"
-        assert "toolChoice" not in model.calls[1]["toolConfig"], "after a tool, the model chooses freely"
-        print("ok  Nova receives MCP schemas, calls a registered tool, and uses its result")
+        assert "toolChoice" not in model.calls[0]["toolConfig"], "the model decides whether a tool is needed"
+        assert any(item["toolUseId"] == "call-1" for item in _tool_results(model.calls[1]))
+        print("ok  Nova receives the full MCP catalog and schemas before selecting tools")
 
-        # A short answer a tool has already written for the ear is said as it is: no second model call.
-        agent.DIRECT_MAX_CHARS = real_direct
-        before = len(model.calls)
         model.calls[:] = []
+        model.tool_uses = [
+            {"toolUseId": "call-state", "name": "get_match_state", "input": {"team": "Arsenal"}},
+            {"toolUseId": "call-officials", "name": "get_officials", "input": {"team": "Arsenal"}},
+        ]
+        model.next_tool = True
+        combined = agent.run(
+            ctx, "What's the score and who is refereeing?", "multi-listener",
+            lambda name, args, listener: REGISTRY[name](ctx, args, listener),
+            mcp_tools=catalog)
+        assert [item["name"] for item in combined["tool_results"]] == [
+            "get_match_state", "get_officials"], combined["tool_results"]
+        final_tool_results = [
+            item for item in _tool_results(model.calls[1])
+            if item["toolUseId"] in ("call-state", "call-officials")
+        ]
+        assert [item["toolUseId"] for item in final_tool_results] == [
+            "call-state", "call-officials"], final_tool_results
+        assert "Combine the tool results into one concise" in _message_text(model.calls[1])
+        print("ok  Nova requests two tools in one response and gets both results together to compose")
+
+        model.calls[:] = []
+        model.tool_uses = [{
+            "toolUseId": "unselected-call",
+            "name": "not_in_catalog",
+            "input": {},
+        }]
+        model.next_tool = True
+        attempted = []
+        rejected = agent.run(
+            ctx, "What's the score?", "unselected-listener",
+            lambda name, args, listener: attempted.append(name) or REGISTRY[name](ctx, args, listener),
+            mcp_tools=catalog)
+        assert not attempted, attempted
+        assert rejected["tool_results"][0]["name"] == "not_in_catalog"
+        assert "not available" in rejected["tool_results"][0]["spoken"]
+        assert any(
+            item["status"] == "error"
+            for item in _tool_results(model.calls[1])
+            if item["toolUseId"] == "unselected-call"
+        )
+        print("ok  the host refuses a tool name absent from the current MCP catalog")
+
+        model.calls[:] = []
+        model.tool_uses = [{
+            "toolUseId": "call-1",
+            "name": "follow_match",
+            "input": {"team": "Arsenal"},
+        }]
+        model.next_tool = True
         direct = agent.run(ctx, "Follow Arsenal, please.", "direct-listener",
                            lambda name, args, listener: REGISTRY[name](ctx, args, listener))
-        assert direct["generated_by"] == "tool" and len(model.calls) == 1, (direct["generated_by"], len(model.calls))
-        assert direct["text"] == direct["tool_results"][0]["spoken"]
-        assert agent._direct_answer([{"name": "what_did_i_miss", "structured": {}, "spoken": "x"}], [1], ctx, "u") is None
-        assert agent._direct_answer([{"name": "get_lineups", "structured": {}, "spoken": "x" * 300}], [1], ctx, "u") is None
-        assert agent._direct_answer([{"name": "get_match_report", "structured": {"verbatim": True}, "spoken": "x" * 300}], [1], ctx, "u")
-        assert agent._direct_answer([{"name": "a", "structured": {}, "spoken": "x"}] * 2, [1, 2], ctx, "u") is None
-        agent.DIRECT_MAX_CHARS = 0
-        model.calls[:] = [None] * before
-        print("ok  one short, finished answer from one tool is said as it is, saving a model round trip")
+        assert direct["generated_by"] == "nova" and len(model.calls) == 2, (direct["generated_by"], len(model.calls))
+        assert direct["text"] == model.final_text
+        print("ok  even a short tool answer returns to Nova for natural phrasing")
 
+        model.next_tool = False
         followup = agent.run(
             ctx, "What about that match?", "agent-listener",
             lambda name, args, listener: REGISTRY[name](ctx, args, listener))
         assert followup["text"]
-        assert model.calls[2]["messages"][0]["content"][0]["text"] == "Follow Arsenal, please."
-        assert model.calls[2]["messages"][1]["content"][0]["text"] == result["text"]
+        assert model.calls[-1]["messages"][0]["content"][0]["text"] == "Follow Arsenal, please."
+        assert model.calls[-1]["messages"][1]["content"][0]["text"] == result["text"]
         print("ok  recent conversation turns are supplied for natural follow-ups")
 
-        model.final_text = (
-            "<thinking>The user has greeted me. I will respond naturally "
-            "without claiming live match knowledge.</thinking> Hello! "
-            "How can I assist you today?")
+        calls_before = len(model.calls)
+        model.next_tool = False
+        model.final_text = "Hello! What would you like to know?"
         cleaned = agent.run(
             ctx, "hello", "reasoning-listener",
             lambda name, args, listener: REGISTRY[name](ctx, args, listener))
-        assert cleaned["text"] == "Hello! How can I assist you today?"
-        assert "<thinking>" not in cleaned["text"]
-        assert "toolChoice" not in model.calls[-1]["toolConfig"], "a greeting needs no tool"
-        assert agent._is_chitchat("hello") and agent._is_chitchat("Thanks!") and agent._is_chitchat("hi there")
-        assert not agent._is_chitchat("tell me about the Arsenal match") and not agent._is_chitchat("What time is it?")
+        assert cleaned["text"] == model.final_text
+        assert cleaned["generated_by"] == "nova" and not cleaned["tool_results"]
+        assert len(model.calls) == calls_before + 1, "the model handles greetings and conversational turns"
+        assert "toolConfig" in model.calls[-1], "the model decides if the greeting needs a tool"
         assert agent.CONVERSATIONS.get("reasoning-listener")[-1]["content"][0]["text"] == cleaned["text"]
         assert agent._listener_answer(
             "<thinking>private</thinking>") == ""
         assert agent._listener_answer("<thinking>private") == ""
         print("ok  model-emitted thinking tags are removed before display, speech, and history")
+
+        for conversational_turn, expected in (
+                ("Are you still around?", "I'm here. What's on your mind?"),
+                ("That was stupid.", "Sorry, I missed the mark. What were you asking about?"),
+                ("Thank you.", "You're welcome.")):
+            model.calls[:] = []
+            model.next_tool = False
+            model.final_text = expected
+            social = agent.run(
+                ctx, conversational_turn, "social-listener",
+                lambda name, args, listener: REGISTRY[name](ctx, args, listener))
+            assert social["text"] == expected and social["generated_by"] == "nova"
+            assert not social["tool_results"] and len(model.calls) == 1, (conversational_turn, model.calls)
+
+        model.calls[:] = []
+        model.next_tool = False
+        model.final_text = "Dan means the point he was making about the match."
+        social = agent.run(
+            ctx, "Dan, what does he mean?", "social-listener",
+            lambda name, args, listener: REGISTRY[name](ctx, args, listener))
+        assert social["text"] == model.final_text and not social["tool_results"]
+        assert len(model.calls) == 1 and "toolConfig" in model.calls[0]
+        print("ok  social and context-dependent conversation are model-led, not phrase-scripted")
 
         call_count = len(model.calls)
         spoken, catchup, _ = REGISTRY["what_did_i_miss"](
@@ -128,7 +227,7 @@ def main():
 
         invalid = agent._execute_tool(
             "get_event_detail", {"minute": "forty"}, "agent-listener",
-            lambda *_: None)
+            lambda *_: None, {spec["name"]: spec for spec in catalog})
         assert invalid[1] is True
         print("ok  model tool arguments are validated against the MCP input schema")
     finally:
@@ -194,18 +293,22 @@ def main():
     finally:
         disabled.shutdown()
         disabled.server_close()
-    # The listener hears the real error, not a model's apology for it.
+    # The model receives the real error and owns the spoken response.
     from sideline.mcp.errors import ToolError
     real = "The match data feed said: rateLimit: Too many requests. Your rate limit is 10 requests per minute. Try again shortly."
 
     def refusing(name, args, listener):
         raise ToolError(real, {"reason": "provider_unavailable", "problem": "rateLimit"})
     model2 = FakeBedrock()
+    model2.final_text = "I couldn't reach the match feed. Would you like me to try again?"
     bedrock.available = lambda: True
     bedrock.client = lambda: model2
     out = agent.run(ctx, "Follow Arsenal, please.", "err-listener", refusing)
-    assert out["text"] == real and out["generated_by"] == "tool" and len(model2.calls) == 1, out
-    print("ok  a feed error is spoken as it is, with no model call to reword it")
+    assert out["text"] == model2.final_text and out["generated_by"] == "nova" and len(model2.calls) == 2, out
+    error_context = next(item for item in _tool_results(model2.calls[1])
+                         if item["toolUseId"] == "call-1")
+    assert error_context["status"] == "error" and "rateLimit" in error_context["content"][0]["text"]
+    print("ok  a feed error and its details return to Nova for a conversational response")
 
     # A match is followed only when the listener asked. A model that guesses is refused.
     ran = []
@@ -214,7 +317,7 @@ def main():
     agent.run(ctx, "Tell me about the Arsenal match", "guess-listener",
               lambda name, args, listener: ran.append(name) or REGISTRY[name](ctx, args, listener))
     assert "follow_match" not in ran, ran
-    assert model3.calls[1]["messages"][2]["content"][0]["toolResult"]["status"] == "error"
+    assert any(item["status"] == "error" for item in _tool_results(model3.calls[1]))
     assert agent._asked_to_follow("Follow Arsenal") and agent._asked_to_follow("I'm watching the Spurs game")
     assert agent._asked_to_follow("Arsenal against Lille (fixture_id 5)") and not agent._asked_to_follow("When is Arsenal playing?")
     print("ok  follow_match is refused unless the listener asked to follow, or chose an offered match")

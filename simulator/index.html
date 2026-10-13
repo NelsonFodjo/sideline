@@ -1243,13 +1243,17 @@ function fetchSpeech(text,again){
     });
 }
 
-async function say(text){
+async function say(text, quick){
   $("sr").textContent=""; $("sr").textContent=text;          // announce once
   var spans=layout(text);
   speaking=true; setMode("speaking");
   clearTimeout(idleT); wake();
   var gen=++speakGen;
 
+  if(quick){
+    browserSay(text,spans);
+    return;
+  }
   if(caps.tts){
     var parts=speechParts(text);
     var asked=parts.map(function(p){ var q=fetchSpeech(p.text); q.catch(function(){}); return q; });   // all at once
@@ -1458,7 +1462,7 @@ async function ask(text){
     else hideMatch();
     var spoken=result.text||"I couldn't get an answer.";
     if(paused) pendingAnswer=spoken;      // already told to the server: keep it, say it on resume
-    else say(spoken);
+    else say(spoken,false);
   }catch(e){
     // There is no offline fallback: the answer comes from Nova and the live
     // feed, or the listener is told it did not.
@@ -1502,8 +1506,8 @@ async function connect(){
 /* What the simulated Alexa+ says first. Every claim is something the server does and a test or a run backs:
    real matches only (no recorded data), the per-listener "last told" marker, the spoiler guard, barge-in. */
 var INTRO="Hi, I\u2019m a simulated Alexa+, connected to Sideline: an MCP server for live sports, football for now. "
-  +"It reads real matches as they happen. It remembers what you last heard, so just ask what did I miss. "
-  +"It stays behind your TV, so it won\u2019t spoil a goal. And you can talk over me. Which game are we following?";
+  +"I read real matches as they happen. I remember what you last heard, so just ask what did I miss. "
+  +"I stay behind your TV, so I won\u2019t spoil a goal. And you can talk over me. Which game are we following?";
 
 $("begin").onclick=async function(){
   try{ await openAudio(); }

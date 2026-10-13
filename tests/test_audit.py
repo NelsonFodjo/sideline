@@ -91,7 +91,7 @@ def main():
         real = bedrock.available, bedrock.client
         bedrock.available, bedrock.client = (lambda: True), (lambda: Model())
         try:
-            agent.run(make_ctx(), "hello", "tok-listener", lambda *a: None)
+            agent.run(make_ctx(), "Dan, what does he mean?", "tok-listener", lambda *a: None)
         finally:
             bedrock.available, bedrock.client = real
         tok = [json.loads(l) for l in lines(directory) if json.loads(l)["kind"] == "tokens"]

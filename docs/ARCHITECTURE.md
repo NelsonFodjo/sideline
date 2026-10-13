@@ -7,9 +7,9 @@
 In the intended deployment the client is Alexa+: it does speech recognition, chooses which tool a sentence maps
 to, writes the wording the listener hears, speaks it and renders anything on screen, and we expose tools and
 hold state. **That deployment is not reachable by hackathon participants** (the add-on tooling is partner-only;
-see [HACKATHON.md](HACKATHON.md)). So today the client is a **simulated Alexa+**: our own web page, `simulator/index.html`, plus a voice
-agent behind it, and both speak real MCP to the server, as the hackathon FAQ describes. Any MCP client works
-the same way.
+see [HACKATHON.md](HACKATHON.md)). So today the client is a **simulated Alexa+**: our own web page, `simulator/index.html`,
+and a thin Nova host. It gives Nova the current MCP catalog with complete descriptions and schemas up front, then
+dispatches only calls for tools in that catalog. Any MCP client can connect to the same server.
 
 One consequence holds either way: **the quality of a tool's description is product surface.** The agent and any
 MCP client choose a tool by reading its description. A badly worded description is a bug the listener
@@ -18,7 +18,7 @@ experiences as "it keeps telling me the score when I asked what happened."
 ## The layers
 
 ```
-   MCP client: the simulated Alexa+ (a web page + a voice agent), or any MCP client
+   MCP client: the simulated Alexa+ (a web page + Nova host), or any MCP client
                               |
               MCP / Streamable HTTP / 2025-11-25
                               |
@@ -26,15 +26,15 @@ experiences as "it keeps telling me the score when I asked what happened."
             |           |            |              |
         Bedrock     DynamoDB      poller       live football feed
         (wording,   (listener     (a thread    (Sportmonks)
-         agent)      state)        in the
+         tool host)  state)        in the
                                    server)
 ```
 
 | Layer | Who owns it |
 |---|---|
-| MCP client | the simulator page opens a session and lists the tools; the voice agent makes every `tools/call` over `/mcp` ([`mcp/client.py`](../sideline/mcp/client.py)). External clients use `/mcp` directly |
+| MCP client | the Nova host fetches `initialize` instructions and `tools/list`, gives the live tool definitions to Nova, then makes every selected `tools/call` over `/mcp` ([`mcp/client.py`](../sideline/mcp/client.py)). External clients use `/mcp` directly |
 | MCP server | this repo ([`mcp/server.py`](../sideline/mcp/server.py)) |
-| Bedrock | AWS: Nova Micro writes the catch-up and, in the simulator, chooses tools; Nova 2 Sonic hears speech |
+| Bedrock | AWS: Nova Micro writes the catch-up and chooses among the discovered MCP tools; Nova 2 Sonic hears speech |
 | Polly | AWS: speech out (generative voice), with word timings |
 | DynamoDB | AWS: listener state and the event log (memory when no table is available) |
 | Poller | this repo: a thread in the server process |
@@ -49,15 +49,16 @@ The listener says **"what did I miss?"**
 1. The client captures the listener's speech. In the simulator the browser records it and the server
    transcribes it (Voxtral, or Nova Sonic as the fallback, both on Bedrock: see [SPEECH.md](SPEECH.md)).
 2. `sideline/resolve.py` checks whether it answers a choice we just offered, and repairs misheard names.
-3. Nova is given the tool definitions and selects `what_did_i_miss`.
-4. The agent's MCP client calls `tools/call` on our own `/mcp`. The server validates the arguments and runs the tool.
-5. The tool reads this listener's `last_told_at` from the store and pulls every logged event since, minus
+3. The host discovers `tools/list` over MCP and gives Nova the full descriptions and schemas.
+4. Nova compares overlapping tool use cases and calls the fitting tool or asks a focused clarification.
+5. The host's MCP client calls `tools/call` on `/mcp`. The server validates the arguments and runs the tool.
+6. The tool reads this listener's `last_told_at` from the store and pulls every logged event since, minus
    anything already told.
-6. For the agent it returns the event facts (a header, `X-Sideline-Agent`, asks for facts rather than a
-   paragraph, because the agent is a model and would only paraphrase one). For any other client, Bedrock
+7. For Nova it returns the event facts (a header asks for facts rather than a
+   paragraph, because Nova is a model and would only paraphrase one). For any other client, Bedrock
    composes the paragraph.
-7. `last_told_at` moves forward; the event ids are recorded as told.
-8. Nova phrases the result, Polly speaks it, and the page highlights each word as it is spoken.
+8. `last_told_at` moves forward; the event ids are recorded as told.
+9. Nova phrases the result, Polly speaks it, and the page highlights each word as it is spoken.
 
 The server side is steps 4 to 7; the rest belong to the client. A client such as Alexa+ would do steps 1, 3 and 8.
 
