@@ -258,6 +258,18 @@ Two problems came with it, and both are handled in `voice.synthesize`:
 "under-21" and "Alexa+" to "Alexa-plus" (Polly would drop the plus). "MCP" is left alone: Polly already says it letter by letter, and
 spelling it "M-C-P" made the intro a second slower (4.3 s against 5.3 s for the same sentence).
 
+**One sentence at a time (what the listener waits for).** Making a whole long answer's audio took 2.5 to 2.8 s, and nothing
+played until it was done. So the page splits an answer into its first sentence and the rest (`speechParts`: not at "St." or an
+initial, and a short "Okay." joins the next sentence), asks for both at once, plays the first as soon as it is ready and chains
+the rest on as it finishes. Measured on the real service: the first audio for the long match report is ready in **1.2 s instead
+of 2.8 s**, and for the squad answer in 1.7 s instead of 2.5 s; the rest is ready while the first sentence is still playing
+(it takes about four seconds to say). Highlights and word timings keep their place in the whole text through each part's
+offset; pausing, interrupting or a new answer stops the chain (`speakGen`); and if the rest cannot be made, it is said with
+the browser's voice rather than dropped. A failed speech request is retried once after 0.4 s first, because a throttled
+Polly call is usually fine a moment later and the fallback changes the voice mid-answer; the server logs the cause
+("polly unavailable, browser speech will be used"). Short answers stay one request. The cost is a join between two utterances,
+where one piece flowed through. Pinned by `tests/test_simulator.py`, which runs the page's real splitting under Node.
+
 If the generative engine is not available for the voice or region, the answer falls back to neural with its own exact
 timings, and says so in the log. Pinned in `tests/test_voice.py` with a fake Polly; whether it *sounds* better is for your
 ears: `SIDELINE_POLLY_ENGINE=neural` is the one-line way back, and `SIDELINE_POLLY_VOICE` accepts any generative voice

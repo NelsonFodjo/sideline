@@ -79,6 +79,8 @@ Two decisions inside it worth knowing:
   exhaust a request budget by lunchtime. A match that is over is read once more and then left alone, and a match
   nobody follows any more is dropped from the list, so a finished game does not keep spending the hourly limit.
 
+The protocol surface, what is implemented and what is not, is in [MCP.md](MCP.md).
+
 ## The simulator's own endpoints
 
 `/voice/stt`, `/voice/tts`, `/voice/capabilities` and `/agent/chat` are the simulated Alexa+'s support and are not part of the MCP

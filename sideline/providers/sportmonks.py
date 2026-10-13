@@ -35,6 +35,7 @@ BASE = "https://api.sportmonks.com/v3/football"
 TIMEOUT = 8
 HOURLY_CALLS = 180          # the free plan, per kind of data (rate_limit in every response says what is left)
 
+_CLUB_WORDS = {"fc", "afc", "sc", "cf", "fk", "club", "football"}
 FIXTURE_INCLUDES = "participants;league.country;venue;state;scores;periods"
 DETAIL_INCLUDES = FIXTURE_INCLUDES + ";events.type;lineups;formations;referees.referee"
 
@@ -240,6 +241,11 @@ class SportmonksProvider(Provider):
         """The team a name means: one named exactly beats a longer name that merely contains it."""
         from .. import resolve
         hits = [h for h in self.search(name, "team") if h.get("id")]
+        if not hits:
+            # "Rangers FC" for a club the feed calls "Rangers": the words that only say it is a club are dropped
+            bare = " ".join(w for w in name.split() if w.lower().strip(".") not in _CLUB_WORDS)
+            if bare and bare != name:
+                hits = [h for h in self.search(bare, "team") if h.get("id")]
         want = resolve.words(name)
         exact = [h for h in hits if resolve.words(h["name"]) == want]
         return (exact or hits or [None])[0]
@@ -258,12 +264,39 @@ class SportmonksProvider(Provider):
         ahead = sorted((f for f in every if f["status"] not in OVER), key=lambda f: f.get("kickoff") or "")
         return {"team": found["name"], "team_id": found["id"], "upcoming": ahead, "recent": done}
 
+    def known_teams(self):
+        """Every team in the covered leagues' tables, kept an hour: what a misheard name is compared with."""
+        kept = getattr(self, "_known", None)
+        if kept and time.time() - kept[0] < 3600:
+            return kept[1]
+        names = []
+        doc = self._get("leagues", _ttl=3600, include="currentSeason")
+        for league in self._data(doc):
+            season = ((league.get("currentseason") or league.get("currentSeason") or {}) if isinstance(league, dict) else {}).get("id")
+            if not season or "play" in (league.get("name") or "").lower():
+                continue
+            for row in self._data(self._get("standings/seasons/%s" % season, _ttl=3600, include="participant")):
+                name = ((row or {}).get("participant") or {}).get("name") if isinstance(row, dict) else None
+                if name and name not in names:
+                    names.append(name)
+        self._known = (time.time(), names)
+        return names
+
     def squad(self, team):
         """A team's players (name, shirt number, position), its captain and its manager."""
         found = self._team(team)
         if not found:
             return None
-        rows = self._data(self._get("squads/teams/%s" % found["id"], _ttl=1800, include="player.position"))
+        # The squad and the manager are two requests that do not depend on each other: ask for both at once.
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_squad = pool.submit(self._get, "squads/teams/%s" % found["id"], 1800, include="player.position")
+            f_coach = pool.submit(self._get, "teams/%s" % found["id"], 1800, include="coaches.coach")
+            rows = self._data(f_squad.result())
+            try:
+                team_doc = f_coach.result().get("data") or {}
+            except ProviderUnavailable:
+                team_doc = {}
         players = []
         for r in rows:
             who = r.get("player") or {}
@@ -273,14 +306,10 @@ class SportmonksProvider(Provider):
                                 "position": ((who.get("position") or {}).get("name") or "").lower() or None,
                                 "captain": bool(r.get("captain"))})
         coach = None
-        try:
-            team_doc = self._get("teams/%s" % found["id"], _ttl=1800, include="coaches.coach").get("data") or {}
-            for c in team_doc.get("coaches") or []:
-                if c.get("active") and isinstance(c.get("coach"), dict):
-                    coach = c["coach"].get("display_name") or c["coach"].get("common_name")
-                    break
-        except ProviderUnavailable:
-            pass
+        for c in team_doc.get("coaches") or []:
+            if c.get("active") and isinstance(c.get("coach"), dict):
+                coach = c["coach"].get("display_name") or c["coach"].get("common_name")
+                break
         captain = next((p["name"] for p in players if p["captain"]), None)
         return {"team": found["name"], "coach": coach, "captain": captain, "players": players}
 
@@ -308,15 +337,25 @@ class SportmonksProvider(Provider):
 
     def _season(self, competition):
         """The current season id of a competition named in words, or None."""
-        want = " ".join(competition.lower().split())
+        want = " ".join(competition.lower().replace("-", " ").split())
         doc = self._get("leagues", _ttl=3600, include="currentSeason")
-        for i in self._data(doc):
-            if isinstance(i, dict) and (i.get("name") or "").lower() == want:
-                return (i.get("currentseason") or i.get("currentSeason") or {}).get("id")
-        for i in self._data(doc):
-            if isinstance(i, dict) and want in (i.get("name") or "").lower():
-                return (i.get("currentseason") or i.get("currentSeason") or {}).get("id")
-        return None
+        rows = [i for i in self._data(doc) if isinstance(i, dict)]
+
+        def season_of(i):
+            return (i.get("currentseason") or i.get("currentSeason") or {}).get("id")
+        for i in rows:
+            if (i.get("name") or "").lower().replace("-", " ") == want:
+                return season_of(i)
+        for i in rows:
+            if want in (i.get("name") or "").lower().replace("-", " "):
+                return season_of(i)
+        # "the Scottish Premiership" for a league the feed calls "Premiership": all of the feed's name is in what was
+        # said; the longest name wins, so a play-off needs to be asked for
+        said = set(want.split())
+        fits = [i for i in rows if (i.get("name") or "").strip()
+                and set((i["name"]).lower().replace("-", " ").split()) <= said]
+        fits.sort(key=lambda i: -len(i["name"]))
+        return season_of(fits[0]) if fits else None
 
     def standings(self, competition):
         season = self._season(competition)

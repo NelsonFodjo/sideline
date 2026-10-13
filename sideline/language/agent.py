@@ -183,9 +183,10 @@ class Focus:
         said = [x for x in said if x]
         if not said:
             return ""
-        return (" The listener was last talking about %s. For 'they', 'them', 'him', 'that match' or 'and what "
-                "about...', mean that, and pass the team or player to the tool by name; it is context, not a "
-                "fact to state." % ", ".join(said))
+        return (" The listener was last talking about %s. Use that only when their question leaves out who or what it is about "
+                "('and them?', 'what about him', 'that match', 'who came on'): then pass that team or player by name. If "
+                "they ask something general (a day, what is on, a league) or name something else, ignore it. It is context, "
+                "not a fact to state." % ", ".join(said))
 
 
 FOCUSES = Focus()
@@ -225,6 +226,7 @@ def _listener_answer(text):
                   text, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r"<thinking\b[^>]*>.*$", " ",
                   text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"</?[A-Za-z][^<>]{0,40}>", " ", text)         # a stray <response> wrapper is not for the listener
     return " ".join(text.split())
 
 
@@ -280,7 +282,10 @@ def _today(ctx, listener_id):
         from .. import clock
         tz = clock.zone_from(ctx.store.listener(listener_id))
         day = (clock.now() + datetime.timedelta(minutes=int(tz or 0)))
-        return " Today is %s." % day.strftime("%A %d %B %Y")
+        coming = ", ".join("%s is %s" % ((day + datetime.timedelta(days=n)).strftime("%A"),
+                                         (day + datetime.timedelta(days=n)).strftime("%Y-%m-%d")) for n in range(1, 8))
+        # the next seven days, spelled out: a small model gets "Saturday" wrong by a day when it must count
+        return " Today is %s. The coming days: %s." % (day.strftime("%A %d %B %Y"), coming)
     except Exception:                                      # noqa: BLE001  a courtesy, never a failure
         return ""
 
@@ -330,6 +335,41 @@ def _without_invented_id(args, question):
     return {k: v for k, v in args.items() if k != "fixture_id"}
 
 
+def _without_invented_competition(args, question):
+    """A competition the listener did not say is one the model took from the examples in a tool description.
+
+    Asked "what are the next matches?" it passed "Premier League", and the answer was about a league this feed
+    does not cover. A competition stays only when one of its words is in the question.
+    """
+    if not isinstance(args, dict) or not args.get("competition"):
+        return args
+    said = set(re.findall(r"[a-z0-9]+", question.lower()))
+    words = [w for w in re.findall(r"[a-z0-9]+", str(args["competition"]).lower()) if w not in ("the", "league", "cup")]
+    if any(w in said for w in words):
+        return args
+    return {k: v for k, v in args.items() if k != "competition"}
+
+
+# AWS answers "capacity limit reached" or "slow down" at once, and the same request a moment later usually works. The
+# client is set to no automatic retries (a retry after a timeout would double the wait), so this one retry is only for
+# those quick refusals.
+_BUSY = ("ServiceUnavailableException", "ThrottlingException", "ModelNotReadyException", "InternalServerException")
+BUSY_RETRY_SECONDS = 0.6
+
+
+def _converse(**kwargs):
+    from . import bedrock
+    try:
+        return bedrock.client().converse(**kwargs)
+    except Exception as exc:                                    # noqa: BLE001
+        code = ((getattr(exc, "response", None) or {}).get("Error") or {}).get("Code")
+        if code not in _BUSY:
+            raise
+        LOG.info("bedrock busy (%s): trying once more", code)
+        time.sleep(BUSY_RETRY_SECONDS)
+        return bedrock.client().converse(**kwargs)
+
+
 def _bedrock_tools():
     # SIDELINE_AGENT_TOOLS=core offers the voice agent only the core eleven tools: fewer choices
     # route more reliably on a small model. The MCP server lists them all.
@@ -375,7 +415,7 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None):
         if not tool_results and not _is_chitchat(question):
             choice["toolChoice"] = {"any": {}}
         try:
-            response = bedrock.client().converse(
+            response = _converse(
                 modelId=bedrock.MODEL_ID,
                 system=[{"text": SYSTEM + _today(ctx, listener_id) + _preference(ctx, listener_id) + FOCUSES.line(listener_id)}],
                 messages=messages,
@@ -429,7 +469,8 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None):
         for request in requests[:remaining]:
             name = request.get("name")
             call_id = request.get("toolUseId")
-            args = _fill_arguments(request.get("name"), _without_invented_id(request.get("input"), question), question)
+            args = _fill_arguments(request.get("name"), _without_invented_competition(
+                _without_invented_id(request.get("input"), question), question), question)
             if name == "follow_match" and not _asked_to_follow(question):
                 # A model that guesses must not move the listener to another match.
                 message = "The listener did not ask to follow a match, so none was followed."

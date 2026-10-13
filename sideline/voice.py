@@ -179,6 +179,12 @@ def warm():
             from .language import bedrock
             if bedrock.available():
                 bedrock.client()
+                # A first request pays for the connection and the TLS handshake: let that be the server's, not the
+                # first listener's (about a second saved on the first question).
+                try:
+                    bedrock._converse("Reply with one word.", "ready", max_tokens=2)
+                except Exception:                                  # noqa: BLE001
+                    pass
     except Exception as e:                                     # noqa: BLE001
         LOG.debug("warm-up skipped: %s", e)
 

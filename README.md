@@ -260,6 +260,7 @@ DynamoDB). How each requirement is met, the third-party material, and the dates:
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it fits together, and why |
 | [docs/FINDER.md](docs/FINDER.md) | How Sideline works out which match you mean, played or to come, and lists the options when it is unsure |
+| [docs/MCP.md](docs/MCP.md) | The protocol surface: what the server implements, and what it does not (HTTPS, auth, an independent client) |
 | [docs/TOOLS.md](docs/TOOLS.md) | The contracts, and why each description is worded as it is |
 | [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | Every environment variable |
 | [docs/AWS_SETUP.md](docs/AWS_SETUP.md) | The AWS side, step by step, and what each service needs |

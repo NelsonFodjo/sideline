@@ -140,6 +140,29 @@ def main():
         script = fn + "\nconsole.log(JSON.stringify(%s.map(function(c){return justWords(c[0]);})));" % json.dumps(cases)
         got = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=20).stdout)
         assert got == [w for _, w in cases], got
+    # One sentence at a time: the answer is split into its first sentence and the rest, both asked for at once.
+    assert "function speechParts" in page and "function playChain" in page and "speakGen++" in page
+    assert page.count("fetchSpeech(") >= 2 and "playPolly" not in page
+    if shutil.which("node"):
+        fn = page[page.index("var ABBR="):page.index("function fetchSpeech")]
+        cases = ["Celtic have 29 players: 3 goalkeepers, 10 defenders. The manager is Martin O'Neill. The captain is Callum McGregor.",
+                 "It's at St. Mirren Park, in Paisley. Kick-off is today at 9 PM, in about 3 hours. Forecast cloudy.",
+                 "Okay. Motherwell against Celtic, on 11 October: Full time. Celtic 2, Motherwell 0. Camilo Duran scored on 9.",
+                 "A. Saka scored on 34, left foot from inside the box. Son scored on 58, right foot from the edge.",
+                 "Short answer.", "Yes. It is.", "One sentence only with no full stop at all"]
+        script = fn + "\nconsole.log(JSON.stringify(%s.map(speechParts)));" % json.dumps(cases)
+        got = json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=20).stdout)
+        for text, parts in zip(cases, got):
+            assert parts[0]["base"] == 0 and parts[0]["text"] == text[:len(parts[0]["text"])], parts
+            if len(parts) == 2:
+                assert text[parts[1]["base"]:] == parts[1]["text"], "marks of the second part land in the whole text"
+                assert parts[0]["text"].rstrip()[-1] in ".!?"
+        assert len(got[0]) == 2 and got[0][0]["text"].endswith("29 players: 3 goalkeepers, 10 defenders.")
+        assert len(got[1]) == 2 and got[1][0]["text"].endswith("Paisley."), "no split at St."
+        assert len(got[2]) == 2 and got[2][0]["text"].endswith("Full time."), "a short 'Okay.' joins the next sentence"
+        assert len(got[3]) == 2 and got[3][0]["text"].endswith("inside the box."), "no split at an initial"
+        assert [len(g) for g in got[4:]] == [1, 1, 1], "short answers are one request"
+    print("ok  an answer is split into its first sentence and the rest (not at St. or an initial); both asked for at once")
     # The space bar pauses (and resumes); an in-flight answer is kept.
     assert 'e.code==="Space"' in page
     # The zone and "I cut in here" ride along with a question; noise stays off the caption.

@@ -1176,7 +1176,7 @@ function reveal(spans,charIndex){
 }
 
 function stopSpeaking(){
-  speaking=false; clearInterval(bargeTimer); stopRolling();
+  speaking=false; speakGen++; clearInterval(bargeTimer); stopRolling();
   markTimers.forEach(clearTimeout); markTimers=[];
   if(audioEl){ audioEl.pause(); audioEl=null; }
   if(window.speechSynthesis) speechSynthesis.cancel();
@@ -1200,15 +1200,47 @@ function timedReveal(spans,done,startFrom){
 }
 
 /* Polly's marks tell us when each word starts, so we know how long it lasts. */
-function applyMarkDurations(spans,marks){
+function applyMarkDurations(spans,marks,base){
   var byAt={};
+  base=base||0;
   spans.forEach(function(s,i){ byAt[s.dataset.at]=i; });
   (marks||[]).forEach(function(m,j){
-    var i=byAt[m.start];
+    var i=byAt[m.start+base];
     if(i==null) return;
     var next=marks[j+1], d=next?(next.time-m.time):500;
     spans[i].dataset.dur=Math.max(120,Math.round(d*.94));
   });
+}
+
+/* One sentence at a time. Waiting for the whole answer's audio before the first word is what made replies feel slow:
+   a long answer took two to four seconds to make. So the answer is split into its first sentence and the rest, both
+   are asked for at once, the first plays the moment it is ready (about a second), and the rest is made while it plays
+   and follows it. Marks and highlights keep their place in the whole text through `base`, the part's offset. */
+var speakGen=0;                                   // raised whenever speech stops, so a waiting chain gives up
+var ABBR={st:1,mr:1,mrs:1,ms:1,dr:1,vs:1,v:1,fc:1,no:1,jr:1,sr:1,u:1,w:1};
+function speechParts(text){
+  var re=/[.!?]+(?=\s+[A-Z0-9])/g, m;
+  while((m=re.exec(text))){
+    var end=m.index+m[0].length;
+    var before=text.slice(0,m.index).split(/\s+/).pop().toLowerCase().replace(/[^a-z]/g,"");
+    if(m[0].charAt(0)==="." && (ABBR[before]||before.length<=1)) continue;      // "St. Mirren", "A. Saka"
+    if(end<25) continue;                                                       // "Okay." is not worth a request of its own
+    var rest=text.slice(end), lead=rest.match(/^\s*/)[0].length, tail=rest.slice(lead);
+    if(tail.length<30) return [{text:text,base:0}];                            // too short to be worth two
+    return [{text:text.slice(0,end),base:0},{text:tail,base:end+lead}];
+  }
+  return [{text:text,base:0}];
+}
+
+/* One try more before the browser's voice: a throttled or dropped Polly request is usually fine a moment later,
+   and falling back changes the voice mid-answer. */
+function fetchSpeech(text,again){
+  return fetch(BASE+"/voice/tts",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({text:text})}).then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
+    .catch(function(e){
+      if(again===0) throw e;
+      return new Promise(function(ok){ setTimeout(ok,400); }).then(function(){ return fetchSpeech(text,0); });
+    });
 }
 
 async function say(text){
@@ -1216,45 +1248,61 @@ async function say(text){
   var spans=layout(text);
   speaking=true; setMode("speaking");
   clearTimeout(idleT); wake();
+  var gen=++speakGen;
 
   if(caps.tts){
+    var parts=speechParts(text);
+    var asked=parts.map(function(p){ var q=fetchSpeech(p.text); q.catch(function(){}); return q; });   // all at once
     try{
-      var r=await fetch(BASE+"/voice/tts",{method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({text:text})});
-      if(r.ok){
-        var doc=await r.json();
-        await playPolly(doc,spans);
-        return;
-      }
-    }catch(e){}
+      var first=await asked[0];
+      if(gen!==speakGen) return;                              // interrupted or paused while it was being made
+      await playChain(parts,asked,first,spans,gen);
+      return;
+    }catch(e){ if(gen!==speakGen) return; }
   }
   browserSay(text,spans);
 }
 
-function playPolly(doc,spans){
+/* Play part 0 now, then each next part as its audio is ready. */
+function playChain(parts,asked,first,spans,gen){
   return new Promise(function(done){
-    audioEl=new Audio("data:audio/mp3;base64,"+doc.audio);
-    audioEl.crossOrigin="anonymous";
-    try{
-      srcNode=ctx.createMediaElementSource(audioEl);
-      srcNode.connect(outAn); outAn.connect(ctx.destination);
-    }catch(e){ /* already connected, or unsupported: still audible */ }
-
-    applyMarkDurations(spans,doc.marks);
-    // One timer per word, from Polly's own millisecond offsets.
-    markTimers=(doc.marks||[]).map(function(m){
-      return setTimeout(function(){ reveal(spans,m.start); }, m.time);
-    });
-
-    audioEl.onended=function(){ finishSpeaking(spans,done); };
-    audioEl.onerror=function(){ finishSpeaking(spans,done); };
-    watchForBargeIn();
-    audioEl.play().catch(function(){ finishSpeaking(spans,done); });
+    var i=0;
+    function next(doc){
+      var base=parts[i].base;
+      var el=new Audio("data:audio/mp3;base64,"+doc.audio);
+      el.crossOrigin="anonymous";
+      audioEl=el;
+      try{
+        srcNode=ctx.createMediaElementSource(el);
+        srcNode.connect(outAn); outAn.connect(ctx.destination);
+      }catch(e){ /* already connected, or unsupported: still audible */ }
+      applyMarkDurations(spans,doc.marks,base);
+      markTimers.forEach(clearTimeout);
+      // One timer per word, from Polly's own millisecond offsets, placed in the whole text by this part's offset.
+      markTimers=(doc.marks||[]).map(function(m){
+        return setTimeout(function(){ reveal(spans,m.start+base); }, m.time);
+      });
+      var last=i===parts.length-1;
+      el.onended=function(){
+        if(gen!==speakGen) return;
+        if(last){ finishSpeaking(spans,done); return; }
+        i++;
+        asked[i].then(function(d){ if(gen===speakGen) next(d); },
+                      function(){                                  // the rest could not be made: say it with the browser's voice
+                        if(gen!==speakGen) return;
+                        browserSay(parts[i].text,spans,parts[i].base); done();
+                      });
+      };
+      el.onerror=function(){ if(gen===speakGen) finishSpeaking(spans,done); };
+      if(i===0) watchForBargeIn();
+      el.play().catch(function(){ if(gen===speakGen) finishSpeaking(spans,done); });
+    }
+    next(first);
   });
 }
 
-function browserSay(text,spans){
+function browserSay(text,spans,base){
+  base=base||0;
   if(!("speechSynthesis" in window)){ timedReveal(spans); return; }
   speechSynthesis.cancel();
   var u=new SpeechSynthesisUtterance(text), gotBoundary=false;
@@ -1263,7 +1311,7 @@ function browserSay(text,spans){
   if(pref)u.voice=pref; else if(vs.length)u.voice=vs[0];
   u.rate=1.02;
   u.onboundary=function(e){
-    if(!e.name||e.name==="word"){ gotBoundary=true; reveal(spans,e.charIndex); }
+    if(!e.name||e.name==="word"){ gotBoundary=true; reveal(spans,e.charIndex+base); }
   };
   u.onend=function(){ finishSpeaking(spans); };
   watchForBargeIn();

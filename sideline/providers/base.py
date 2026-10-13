@@ -107,6 +107,10 @@ class Provider:
         """{"team", "upcoming": [fixtures soonest first], "recent": [finished fixtures latest first]} or None."""
         raise NotImplementedError
 
+    def known_teams(self):
+        """The names of the teams in the competitions covered (for "did you mean"), or raise NotImplementedError."""
+        raise NotImplementedError
+
     def squad(self, team):
         """{"team", "coach", "captain", "players": [{"name", "number", "position"}]} or None."""
         raise NotImplementedError

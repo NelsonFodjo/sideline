@@ -54,6 +54,14 @@ def main():
         assert declines(ctx, "get_competitions", country="Nowhere").detail["reason"] == "no_match"
         print("ok  search and competitions: the closest names, with countries; nothing found is said")
 
+        from sideline.tools import no_team
+        ctx.provider.known_teams = lambda: ["Celtic", "Rangers", "Brøndby IF"]
+        assert no_team(ctx, "Selltic").spoken == "I can't find Selltic. Did you mean Celtic?"
+        assert no_team(ctx, "Ranjers").detail["did_you_mean"] == "Rangers"
+        assert "Did you mean" not in no_team(ctx, "Arsenal").spoken, "a real team that is not covered is not 'corrected'"
+        del ctx.provider.known_teams
+        print("ok  a misheard team name is offered the covered team it sounds like, never silently swapped")
+
         # ---------------------------------------------------------- standings and scorers
         spoken, s, _ = run(ctx, "get_standings")                    # the followed match's competition
         assert spoken == ("The Premier League table: First, Arsenal, 20 points. Second, Tottenham, 18 points. "
@@ -69,6 +77,13 @@ def main():
         fresh = make_ctx(start_minute=40)
         assert declines(fresh, "get_standings", "nobody").detail["reason"] == "no_competition", \
             "no match followed and none named: it asks which competition"
+        # a team named with no competition and no match followed: its league is found from its own matches
+        fresh.provider.team_matches = lambda team, **kw: {"team": team, "recent": [
+            {"competition": "Invented Cup"}, {"competition": "Premier League"}], "upcoming": []}
+        spoken, _, _ = run(fresh, "get_standings", "nobody", team="Arsenal")
+        assert spoken.startswith("In the Premier League, Arsenal are first with 20 points"), spoken
+        fresh.provider.team_matches = lambda team, **kw: None
+        assert declines(fresh, "get_standings", "nobody", team="Arsenal").detail["reason"] == "no_competition"
         print("ok  the table (said as first, second...), one team's place, the top scorers; no competition asks which")
 
         # ---------------------------------------------------------- schedule
@@ -76,6 +91,32 @@ def main():
         assert spoken.startswith("Arsenal, in Mauritius time: Arsenal against Tottenham"), spoken
         assert declines(ctx, "get_schedule", team="Zzyzx").spoken.endswith("yesterday, today or tomorrow.")
         print("ok  a team's schedule: its matches in the window with times, the zone said once")
+
+        # top scorers of one team
+        assert run(ctx, "get_top_scorers", team="Chelsea")[0] == "Chelsea's top scorers in the Premier League: A Third, Chelsea, 1 goal.", \
+            run(ctx, "get_top_scorers", team="Chelsea")[0]
+        assert declines(ctx, "get_top_scorers", team="Everton").detail["reason"] == "no_match"
+
+        # stop following
+        spoken, s, _ = run(ctx, "follow_match", stop=True)
+        assert spoken == "Okay, I've stopped following Arsenal against Tottenham." and s["stopped"], spoken
+        assert ctx.store.listener("ann")["following"] is None
+        assert run(ctx, "follow_match", stop=True)[0] == "You aren't following a match."
+        run(ctx, "follow_match", team="Arsenal")
+        print("ok  a team's top scorers; stop following, said once and then plainly")
+
+        # following a team whose next match is days away: it is followed, and said to be not started
+        later = {"fixture_id": 9001, "home": "Everton", "away": "Villa", "minute": 0, "status": "NS", "score": {"home": 0, "away": 0},
+                 "competition": "Premier League", "country": "Inventland",
+                 "kickoff": (clock.now() + datetime.timedelta(days=5)).isoformat()}
+        far = make_ctx(start_minute=0)
+        far.provider.capabilities = set(far.provider.capabilities) | {"team_matches"}
+        far.provider.team_matches = lambda team, **kw: {"team": team, "upcoming": [later], "recent": []}
+        far.provider.fixture = (lambda real: lambda fid: later if fid == 9001 else real(fid))(far.provider.fixture)
+        spoken, s, _ = run(far, "follow_match", team="Everton")
+        assert spoken.startswith("Following Everton against Villa. Not started yet."), spoken
+        assert far.store.listener("ann")["following"] == 9001
+        print("ok  follow a team with no match within a day: its next match is followed, however far off")
 
         # ---------------------------------------------------------- the match, by the numbers
         spoken, s, _ = run(ctx, "get_match_stats")

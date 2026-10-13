@@ -30,4 +30,4 @@ def run(ctx, args, listener_id):
         ctx.provider.name if ctx.provider.name != "base" else "the live feed",
         ", ".join(caps[:-1]) + ", and " + caps[-1] if len(caps) > 1 else caps[0])
     return spoken, {"provider": ctx.provider.name, "tools": names, "capabilities": sorted(ctx.provider.capabilities),
-                    "sports": sport_names, "generated_by": "template"}, None
+                    "sports": sport_names, "generated_by": "template", "verbatim": True}, None

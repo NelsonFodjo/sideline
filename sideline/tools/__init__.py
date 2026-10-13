@@ -138,6 +138,54 @@ def not_found(ctx, team, opponent=None, tz=None):
                      {"reason": "no_match", "team": team, "opponent": opponent})
 
 
+def covered_leagues(ctx):
+    """The competitions the feed covers, as "Name (Country)", or [] when it cannot say."""
+    leagues = []
+    try:
+        for c in ctx.provider.competitions() or []:
+            if c.get("name") and c["name"] not in leagues and "play-off" not in c["name"].lower():
+                leagues.append(c["name"] if not c.get("country") else "%s (%s)" % (c["name"], c["country"]))
+    except Exception:                                      # noqa: BLE001  a courtesy: the plain question is enough
+        return []
+    return leagues
+
+
+def say_list(items):
+    """"a", "a and b", "a, b and c"."""
+    return ", ".join(items[:-1]) + " and " + items[-1] if len(items) > 1 else (items[0] if items else "")
+
+
+def _closest_team(ctx, team):
+    """The covered team a misheard name sounds most like ("Selltic" -> Celtic), when the sound is close enough; else None."""
+    from .. import resolve
+    try:
+        names = ctx.provider.known_teams()
+    except Exception:                                      # noqa: BLE001  a courtesy: the plain answer is enough
+        return None
+    want = resolve.words(team)
+    best = max(((resolve.similarity(want, resolve.words(n)), n) for n in names), default=(0, None))
+    return best[1] if best[0] >= 0.7 else None
+
+
+def no_team(ctx, team):
+    """The question to ask when a team is not found, saying what is covered when the feed can say.
+
+    A name the feed does not know is often a real team outside the leagues the plan covers (Arsenal, on a plan of the
+    Danish and Scottish leagues), and "I can't find a team called Arsenal" is then misleading: it is not that it does
+    not exist, it is that it is not covered.
+    """
+    from ..mcp.errors import ToolError
+    close = _closest_team(ctx, team)
+    if close:
+        return ToolError("I can't find %s. Did you mean %s?" % (team, close),
+                         {"reason": "no_match", "team": team, "did_you_mean": close})
+    leagues = covered_leagues(ctx)
+    if leagues:
+        return ToolError("I can't find %s in the leagues I cover: %s. Which team do you mean?" % (team, say_list(leagues)),
+                         {"reason": "no_match", "team": team, "covered": leagues})
+    return ToolError("I can't find a team called %s. Which team do you mean?" % team, {"reason": "no_match", "team": team})
+
+
 def feed(ctx, method, *args, **kwargs):
     """Call an optional read on the feed; a feed without it says so, in words."""
     from ..mcp.errors import ToolError
@@ -149,6 +197,11 @@ def feed(ctx, method, *args, **kwargs):
 
 _ORDINALS = ("zeroth", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth",
              "ninth", "tenth")
+
+
+def possessive(name):
+    """"Celtic's", but "Rangers'": a name ending in s takes the apostrophe alone."""
+    return name + ("'" if name.endswith(("s", "S")) else "'s")
 
 
 def ordinal(n):
@@ -169,11 +222,13 @@ def competition_for(ctx, args, listener_id):
     fx = (ctx.store.fixture(fid) or {}) if fid else {}
     if fx.get("competition"):
         return fx["competition"]
-    raise ToolError("Which competition? Tell me one, like the Premier League, or follow a match first.",
-                    {"reason": "no_competition"})
+    covered = covered_leagues(ctx)
+    raise ToolError("Which competition? %s" % ("I cover %s." % say_list(covered) if covered
+                                               else "Tell me one, or follow a match first."),
+                    {"reason": "no_competition", "covered": covered})
 
 
-DISCUSSED_SECONDS = 600           # a follow-up that names no match means the one they asked about in the last ten minutes
+from ..finder import DISCUSSED_SECONDS       # a follow-up that names no match means the one they asked about in the last ten minutes (finder.py)
 
 
 def events_for(ctx, fx):

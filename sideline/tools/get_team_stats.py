@@ -4,7 +4,7 @@ A team question, not a match question: found by name, whatever is being followed
 """
 
 from ..mcp.errors import ToolError
-from . import feed
+from . import feed, no_team
 
 
 def _n(v, one, many):
@@ -17,7 +17,7 @@ def run(ctx, args, listener_id):
         raise ToolError("Which team?", {"reason": "needs_team"})
     s = feed(ctx, "team_stats", team)
     if not s or s.get("played") is None:
-        raise ToolError("I can't find a team called %s. Which team do you mean?" % team, {"reason": "no_match", "team": team})
+        raise no_team(ctx, team)
     parts = ["%s this season: %s" % (s["team"], _n(s["played"], "game", "games"))]
     if None not in (s.get("won"), s.get("drawn"), s.get("lost")):
         parts[0] += ", won %s, drew %s, lost %s" % (s["won"], s["drawn"], s["lost"])

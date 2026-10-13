@@ -125,6 +125,15 @@ both tool use and catch-up generation. This is compression under a voice deadlin
 model with `temperature=0.2`. Availability varies by account and region; `make aws-check` checks the selected
 model. We make no claim about what model Alexa+ uses.
 
+**A larger model, measured (2026-10-13, one account, one run each, so indicative only).** Asked a broad batch of
+real questions against the live feed, Nova Micro dropped arguments the question plainly gave: "where is Celtic in the
+league?" and "who are the top scorers for Rangers?" arrived with no team, and "what did I miss?" after following a match
+went to the wrong tool. `amazon.nova-lite-v1:0` kept the team in both and chose the right tool for the third. On the
+71-phrasing routing check Micro scored 71 and Lite 70 (the one miss was a transient `AgentUnavailable`, not a routing
+choice), and the whole run took 68 s against 88 s. So the voice agent is smarter and no slower on Lite; the default stays
+Micro because the latency and caching figures in these docs were measured on it. Switching is one line:
+`SIDELINE_BEDROCK_MODEL=amazon.nova-lite-v1:0`. Prompt caching on Lite was not tried.
+
 ## Turning it on
 
 Step by step in [AWS_SETUP.md](AWS_SETUP.md). Model access is granted per account and model, and an access failure
@@ -164,7 +173,7 @@ counts exactly as Bedrock reports them (the Converse response's `usage`), and `m
 5,000 input tokens and 15 to 20 output tokens for a one-tool question. Nearly all of the input is the tool list, which
 is the price of offering 27 tools; `SIDELINE_AGENT_TOOLS=core` offers 11 and cuts it roughly in half.
 
-## Why replies are fast, and four things that keep the small model honest
+## Why replies are fast, and five things that keep the small model honest
 
 Measured on the real service, on questions about a real team (2026-10-14): a follow-up answered in 0.8 to 1.0 s and a
 first question in 3 to 5 s (the first includes cold connections and the feed).
@@ -181,9 +190,21 @@ first question in 3 to 5 s (the first includes cold connections and the feed).
 - **Arguments the question gives away are filled in.** A small model drops optional arguments first: asked "who came on?" it
   called `get_match_report` with no `part`, and the whole report was read out again. Where the words of the question say
   it (came on, cards, scored, VAR), `part` is set in code, never overriding what the model passed.
+- **A competition the listener did not say is dropped.** Asked "what are the next matches?" the model passed "Premier League",
+  copied from an example in a tool description, for a feed that does not cover it. A competition stays only if one of its
+  words is in the question (`_without_invented_competition`). With none, the tool asks which, and names the leagues the
+  feed does cover.
 - **The match they were just asking about is remembered** for ten minutes (`rec["discussed"]`), so "who came on?" after
   "what happened in the last Celtic match?" needs no match named. A match is never picked that they did not ask about, and
   a list of matches read out for a choice remembers the question, so the pick answers it ([FINDER.md](FINDER.md)).
+
+**Where the time goes, and what was done** (measured 2026-10-14, a warm server): a model call is about 0.75 s with 7,800 input
+tokens, nearly all of it the tool list; a feed lookup is 0.5 to 1 s each; speech for a long answer is 2.5 to 2.8 s. So
+the speech is pipelined a sentence at a time (first audio 1.2 s: [SPEECH.md](SPEECH.md)), the squad and manager requests
+run in parallel, and the model is called once at startup so the connection and TLS handshake are the server's, not the
+first listener's (the first question went from 5.5 s to 3.4 s). **Prompt caching was tried and does not apply here**: Nova
+Micro rejects a `cachePoint` in the tool list ("extraneous key [cachePoint]"), and the tool list is the bulk of the prompt,
+so there was nothing worth caching.
 
 Routing is held at 71 of 71 on `make route-check` with all 27 tools offered, by descriptions that each name their neighbour
 ("not the table (get_standings)"). It took three passes: a longer prompt and more tools made follow, preview and standings

@@ -5,7 +5,7 @@ question about a match, and does not need one: the team is found by name, whatev
 """
 
 from ..mcp.errors import ToolError
-from . import feed
+from . import feed, no_team, possessive
 
 _PLURAL = {"goalkeeper": "goalkeepers", "defender": "defenders", "midfielder": "midfielders", "attacker": "attackers"}
 LISTED = 14
@@ -26,7 +26,7 @@ def run(ctx, args, listener_id):
         raise ToolError("Which team's squad?", {"reason": "needs_team"})
     s = feed(ctx, "squad", team)
     if not s or not s.get("players"):
-        raise ToolError("I can't find a team called %s. Which team do you mean?" % team, {"reason": "no_match", "team": team})
+        raise no_team(ctx, team)
     players = s["players"]
     if position in _PLURAL:
         mine = [p for p in players if p.get("position") == position]
@@ -34,7 +34,7 @@ def run(ctx, args, listener_id):
             raise ToolError("I don't have any %s listed for %s." % (_PLURAL[position], s["team"]),
                             {"reason": "no_match", "team": s["team"], "position": position})
         shown = mine[:LISTED]
-        spoken = "%s's %s: %s." % (s["team"], _PLURAL[position], _names(shown))
+        spoken = "%s %s: %s." % (possessive(s["team"]), _PLURAL[position], _names(shown))
         if len(mine) > len(shown):
             spoken += " And %d more." % (len(mine) - len(shown))
         return spoken, {"team": s["team"], "position": position, "players": shown, "generated_by": "template"}, None
@@ -46,6 +46,8 @@ def run(ctx, args, listener_id):
         spoken += " The manager is %s." % s["coach"]
     if s.get("captain"):
         spoken += " The captain is %s." % s["captain"]
+    elif not args.get("position"):
+        spoken += " The feed doesn't list a captain."
     spoken += " Ask for a position to hear the names."
     return spoken, {"team": s["team"], "coach": s.get("coach"), "captain": s.get("captain"),
                     "total": len(players), "generated_by": "template"}, None

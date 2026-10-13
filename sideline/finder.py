@@ -24,6 +24,7 @@ the days around today on one that cannot.
 
 import datetime
 import math
+import time
 
 from . import clock, resolve
 from .mcp.errors import ToolError
@@ -34,6 +35,8 @@ FORK_MAX = 4                  # options read out; more than this is too many to 
 PLAUSIBLE = 0.5               # a runner-up this close to the best is a real alternative
 CLEAR_WIN = 0.6               # ...and the best wins outright when the runner-up is below this share of it
 FOLLOWED_LIFT = 1.25
+DISCUSSED_LIFT = 2.0          # the match they were just asking about outranks the one merely followed
+DISCUSSED_SECONDS = 600       # ...for ten minutes
 DECAY_DAYS = 7.0              # with no time said, a match fades with its distance from now...
 FLOOR = 0.1                   # ...but never to nothing: a match weeks ago is still the answer when it is the one that fits
 MISMATCH = 0.35               # a match of the wrong kind for the question (played versus upcoming)
@@ -148,7 +151,7 @@ def _other_side_fit(fx, name):
     return best
 
 
-def score_all(cands, ref, followed, tz, now=None):
+def score_all(cands, ref, followed, tz, now=None, discussed=None):
     """[(score, fixture)], best first. Scores are between 0 and 1.25 and mean 'how likely this is the one'."""
     now = now or clock.now()
     today = (now + datetime.timedelta(minutes=int(tz or 0))).date()
@@ -198,6 +201,8 @@ def score_all(cands, ref, followed, tz, now=None):
             s *= MISMATCH
         if followed is not None and fx["fixture_id"] == followed:
             s *= FOLLOWED_LIFT
+        if discussed is not None and fx["fixture_id"] == discussed and not (ref.when or ref.date):   # a time they said wins
+            s *= DISCUSSED_LIFT
         scored.append((s, fx))
     scored.sort(key=lambda p: -p[0])
     return scored
@@ -229,11 +234,13 @@ def decide(scored):
 def resolve_match(ctx, ref, rec, tz, question_hint=None):
     """The one fixture the listener means, or a ToolError that forks, or says what was not found."""
     cands = candidates(ctx, ref, rec, tz)
-    scored = score_all(cands, ref, rec.get("following"), tz)
+    recent = rec.get("discussed") or {}
+    talked = recent.get("fixture_id") if time.time() - (recent.get("at") or 0) <= DISCUSSED_SECONDS else None
+    scored = score_all(cands, ref, rec.get("following"), tz, discussed=talked)
     outcome, picked = decide(scored)
     if outcome == "one":
         fx = dict(picked)
-        fx["found_by"] = "followed" if fx["fixture_id"] == rec.get("following") else (
+        fx["found_by"] = "followed" if fx["fixture_id"] == rec.get("following") else "discussed" if fx["fixture_id"] == talked else (
             "asked" if (ref.when or ref.date or ref.opponent) else "nearest")
         fx["alternatives"] = len(scored) - 1
         return fx
@@ -251,8 +258,8 @@ def _nothing(ctx, ref, cands, tz):
     if ref.team and not cands and "team_matches" in getattr(ctx.provider, "capabilities", ()):
         try:
             if ctx.provider.team_matches(ref.team) is None:
-                return ToolError("I can't find a team called %s. Which team do you mean?" % ref.team,
-                                 {"reason": "no_match", "team": ref.team})
+                from .tools import no_team
+                return no_team(ctx, ref.team)
         except NotImplementedError:
             pass
     if ref.team and (not cands or not (ref.when or ref.date)):

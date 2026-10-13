@@ -29,6 +29,15 @@ the wording.
 Without explicit disambiguation in *both* descriptions, routing becomes a
 coin toss. The test asserts each one names the other.
 
+**4. Fix routing in the descriptions, not in the agent.** Real Alexa+ sees only this MCP server: its tool names,
+descriptions, schemas and results. A patch inside the voice agent would make the simulator look better and change nothing
+for Alexa+. So a misroute is fixed here. Example: "let's look at the Superliga" went to `get_competitions` every time,
+because that tool's description said "do you have La Liga" and a small model took any league name for it. The fix was to
+say what the tool is *not* for and to give `get_fixtures` that phrasing. A related finding: **the example phrases in a
+description are copied by a small model** (it passed "Premier League" for a feed that does not cover it), so examples are
+chosen with care. The agent keeps only small safety checks on arguments the model invents (an id, a competition the
+listener never said), which are pinned in `tests/test_agent.py`.
+
 ---
 
 ## The tools
@@ -44,6 +53,8 @@ Side effect: following a match is what tells the poller to watch it.
 Ambiguity is the listener's to resolve, not ours to guess. Two Arsenal
 matches today returns a `ToolError` naming both, which Alexa+ reads as a
 question.
+
+Following works for a match days away (a team's next match is followed and said to be not started; the poller waits), and `stop: true` stops following ("stop following"). Following a match also makes it the one they mean next.
 
 Switching fixture resets `last_told_at`. Carrying it across would make
 the first catch-up read out the wrong game.
@@ -164,7 +175,7 @@ to know any of this happened.
 
 What is on, for a listener who has not named a team: "which teams are playing", "what's live", "any Premier
 League tonight". Up to five matches, **each with its time** in the listener's own clock (or its minute if it is
-under way), live ones first, then the big competitions, then the rest, and a count of the remainder. It reads the
+under way), live ones first, then the big competitions, then the rest, and a count of the remainder. On a quiet day it says so and names the next day with matches (looking up to ten days ahead, one cached request each), so "the next matches" is never answered with "nothing tomorrow". It reads the
 day's list the server already keeps, so it costs no extra feed request. Every place Sideline names a match, in a
 list, in "which one?", and in "did you mean?", carries the time, because for a match the time is what the listener
 is asking about.
@@ -199,7 +210,7 @@ except the two that remember. All of them say what is missing instead of guessin
 | Group | Tool | Notes |
 |---|---|---|
 | Discover | `search`, `get_competitions` | A heard name is checked against what exists; a free feed's few leagues are listed. |
-| | `get_standings`, `get_top_scorers` | Positions are said as words (first, second...). With no competition named, the followed match's is used; with neither, it asks which. |
+| | `get_standings`, `get_top_scorers` | Pass `team` for one team's place or scorers (its league is found from its matches). Positions are said as words (first, second...). With no competition named, the followed match's is used; with a team named, its league is found from the team's own matches (so "how many points do Celtic have" needs no match followed); with neither, it asks which, listing the leagues the feed covers. |
 | | `get_schedule` | A team's next matches with times (`which: next`) or its last results with scores (`which: last`), as far as the feed can see (six weeks ahead, three months back on the free plan). Owns "what time is X playing"; `get_match_preview` owns "tell me about the match". |
 | Teams, with no match | `get_squad`, `get_team_stats`, `get_team_form` | Players by position with the manager and captain (a position gives the names); the season so far; the last results as won/drew/lost (pass `team`). None needs a match to be followed. |
 | Played matches | `get_match_report` | The result and goals first, then cards, substitutions or VAR by name (`part`). Any match that has been played: the events come from the feed once and are kept. Returned as written. |

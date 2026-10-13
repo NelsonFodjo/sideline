@@ -9,6 +9,8 @@ Side effect that matters: following a match is what tells the poller to
 start watching it. See poller.py.
 """
 
+import time
+
 from .. import clock, sports, sync
 from ..status import FINISHED
 from ..mcp.errors import ToolError
@@ -20,11 +22,31 @@ def run(ctx, args, listener_id):
     team = (args.get("team") or "").strip()
     fixture_id = args.get("fixture_id")
 
+    if args.get("stop"):
+        rec = ctx.store.listener(listener_id)
+        fid = rec.get("following")
+        if not fid:
+            return "You aren't following a match.", {"stopped": False, "generated_by": "template"}, None
+        fx = ctx.store.fixture(fid) or {}
+        rec["following"], rec["last_told_at"], rec["told_event_ids"] = None, None, []
+        ctx.store.save_listener(rec)
+        what = "%s against %s" % (fx["home"], fx["away"]) if fx.get("home") and fx.get("away") else "the match"
+        return "Okay, I've stopped following %s." % what, {"stopped": True, "fixture_id": fid, "generated_by": "template"}, None
+
     fx = None
     if fixture_id:
         fx = ctx.provider.fixture(fixture_id)
     else:
         matches = find_matches(ctx, team, args.get("opponent"), tz=tz0) if team else []
+        if not matches and team and "team_matches" in getattr(ctx.provider, "capabilities", ()):
+            # Nothing within a day: follow the team's next match, however far off. The poller waits for it.
+            from .. import finder
+            try:
+                nxt = finder.resolve_match(ctx, finder.Reference(dict(args, when="next")), ctx.store.listener(listener_id), tz0)
+                matches = [nxt]
+            except ToolError as e:
+                if (e.detail or {}).get("fork"):
+                    raise
         if len(matches) == 1:
             fx = matches[0]
         elif len(matches) > 1:
@@ -63,6 +85,7 @@ def run(ctx, args, listener_id):
         # over. Back to the prior, armed but uncalibrated.
         rec["broadcast_offset"], rec["offset_source"] = sync.prior_for(rec.get("locale"))
         rec["offset_calibrated"] = False
+    rec["discussed"] = {"fixture_id": fx["fixture_id"], "at": time.time()}      # what they follow is what they mean next
     ctx.store.save_listener(rec)
     ctx.store.save_fixture({"fixture_id": fx["fixture_id"], **fx})
 

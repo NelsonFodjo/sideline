@@ -223,6 +223,19 @@ def main():
             assert e.spoken == "I can't find a team called Team Squad. Which team do you mean?", (tool, e.spoken)
         print("ok  'Team Squad' is not a team: Sideline asks which team, whatever the tool")
 
+        # 9e. A team outside the leagues the plan covers is not "unknown": it is not covered, and that is said.
+        ctx.provider.competitions = lambda country=None: [
+            {"id": 1, "name": "Superliga", "country": "Denmark"}, {"id": 2, "name": "Premiership", "country": "Scotland"},
+            {"id": 3, "name": "Premiership Play-Offs", "country": "Scotland"}]
+        try:
+            e = declined(ctx, "get_squad", {"team": "Arsenal"})
+            assert e.spoken == ("I can't find Arsenal in the leagues I cover: Superliga (Denmark) and Premiership (Scotland). "
+                                "Which team do you mean?"), e.spoken
+            assert e.detail["covered"] == ["Superliga (Denmark)", "Premiership (Scotland)"]
+        finally:
+            del ctx.provider.competitions
+        print("ok  a team outside the covered leagues is said to be outside them, with which ones are covered")
+
         # 10. A fork is remembered with the question; the pick answers it.
         class Scripted(object):
             def __init__(self):
@@ -264,6 +277,7 @@ def main():
         finally:
             bedrock.available, bedrock.client = real
         assert "Today is Wednesday 14 October 2026." in seen_systems[0], seen_systems[0][-120:]
+        assert "Saturday is 2026-10-17" in seen_systems[0] and "Tuesday is 2026-10-20" in seen_systems[0], "the next week, spelled out"
         agent.FOCUSES.set_pending("p2", "a question")
         assert agent.FOCUSES.take_pending("p2") == "a question" and agent.FOCUSES.take_pending("p2") is None
         print("ok  a fork is read out, the question is remembered, and the pick answers it (once)")
@@ -298,6 +312,14 @@ def main():
     assert finder.kind(live) == "live" and finder.kind(cands[5]) == "coming" and finder.kind(cands[0]) == "played"
     assert finder.Reference({}).open_ended and not finder.Reference({"team": "x"}).open_ended
     assert finder.Reference({"when": "never"}).when is None and finder.Reference({"date": "2026-13-45"}).date is None
+    # The match they were just asking about outranks a close rival, so "what's the score?" needs no fork
+    open_ref = finder.Reference({"team": "Harbour FC"})
+    plain = finder.score_all(cands, open_ref, None, 240, now=NOW)
+    top_two = [f["fixture_id"] for _, f in plain][:2]
+    assert finder.decide(plain)[0] == "fork", "without it the two nearest are a fork"
+    talked = finder.score_all(cands, open_ref, None, 240, now=NOW, discussed=top_two[1])
+    assert talked[0][1]["fixture_id"] == top_two[1] and finder.decide(talked)[0] == "one", [(round(x, 2), f["fixture_id"]) for x, f in talked]
+    print("ok  the match just discussed outranks a close rival, so a plain follow-up is not a fork")
     print("ok  scoring: 'last' ranks the played matches 1, one half, ...; a clear winner is used, a close pair is a fork")
 
     print("\nfinder: all good")

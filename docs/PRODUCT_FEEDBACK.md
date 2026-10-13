@@ -181,6 +181,15 @@ invented score. Working out why took a controlled comparison, and the documentat
 **Would we build with it again?** Yes, with the guard, and with a dedicated transcription mode we would not need it. Being
 level with a specialised recogniser inside the account is the reason we dropped the third party entirely.
 
+### 3b. Bedrock prompt caching on Nova Micro (tried, not usable for tools)
+
+**Tried for** cutting the latency of a request that repeats about 7,800 input tokens of tool definitions every turn. A
+`cachePoint` in `toolConfig.tools` is refused on `amazon.nova-micro-v1:0`: `Malformed input request: #/toolConfig/tools/26:
+extraneous key [cachePoint] is not permitted`. A cache point in `system` is accepted by the API, but the system text is the small
+part of the prompt, so nothing worth caching. A warm call was 0.75 s without it. **Suggestion** Allow a cache point after the
+tools on Nova Micro, or say in the Converse documentation that it is not supported there: for a tool-using voice agent the
+tool list is the whole prompt.
+
 ### 5c. Amazon Bedrock, Titan Text Embeddings v2 (tried, not used)
 
 **Tried for** choosing which of 27 tools to show the model: embed the question and each tool's documented phrasings, offer the

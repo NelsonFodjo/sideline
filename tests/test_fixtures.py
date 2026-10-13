@@ -78,6 +78,36 @@ def main():
                 raise AssertionError("an empty list must be said plainly")
         print("ok  by competition, live only, tomorrow; an empty day is said plainly")
 
+        # A quiet day looks ahead: "the next matches" never ends in "nothing tomorrow".
+        later = [fx(20, "Far", "Away", 15, day=7)]
+        ctx.provider.fixtures_on = lambda off: later if off == 3 else []
+        spoken, s, _ = REGISTRY["get_fixtures"](ctx, {"when": "tomorrow"}, "ann")
+        assert spoken == "Nothing tomorrow. The next matches are on Wednesday: Far against Away at 7 PM.", spoken
+        assert s["skipped"] == "tomorrow", s
+        spoken, s, _ = REGISTRY["get_fixtures"](ctx, {"date": "2026-10-07"}, "ann")
+        assert spoken == "On Wednesday: Far against Away at 7 PM.", spoken
+        spoken, _, _ = REGISTRY["get_fixtures"](ctx, {"date": "2026-10-05"}, "ann")
+        assert spoken.startswith("Nothing tomorrow. The next matches are on Wednesday"), "a quiet named day looks ahead too: " + spoken
+        try:
+            REGISTRY["get_fixtures"](ctx, {"when": "yesterday"}, "ann")
+            raise AssertionError("yesterday does not look ahead")
+        except ToolError as e:
+            assert e.spoken == "I can't see any matches yesterday.", e.spoken
+        ctx.provider.fixtures_on = lambda off: []
+        try:
+            REGISTRY["get_fixtures"](ctx, {"when": "tomorrow"}, "ann")
+            raise AssertionError("nothing in ten days is said plainly")
+        except ToolError as e:
+            assert e.spoken == "I can't see any matches tomorrow.", e.spoken
+        from sideline.tools import possessive
+        assert [possessive(n) for n in ("Celtic", "Rangers", "St. Mirren", "Hearts")] == ["Celtic's", "Rangers'", "St. Mirren's", "Hearts'"]
+        from sideline.tools.get_fixtures import _matches
+        assert _matches({"competition": "Premiership", "country": "Scotland"}, "Scottish Premiership")
+        assert _matches({"competition": "Superliga", "country": "Denmark"}, "the Danish Superliga")
+        assert not _matches({"competition": "Superliga Play-offs", "country": "Denmark"}, "Danish Superliga")
+        assert not _matches({"competition": "Premier League", "country": "England"}, "Scottish Premiership")
+        print("ok  a quiet day names the next day with matches; names ending in s take the apostrophe alone")
+
         # A named zone is said once at the top of a list, and after a single match.
         rec = ctx.store.listener("ann"); rec["tz_name"] = "Indian/Mauritius"; ctx.store.save_listener(rec)
         ctx.provider.fixtures_on = lambda off: day if off == 0 else []

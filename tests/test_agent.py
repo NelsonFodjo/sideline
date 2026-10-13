@@ -232,6 +232,41 @@ def main():
     assert fill("get_match_report", {"part": "goals"}, "any cards") == {"part": "goals"}, "what the model passed is kept"
     assert fill("get_squad", {"team": "x"}, "any cards") == {"team": "x"}
     print("ok  an argument the model leaves out but the question gives away is filled in, never overriding the model")
+    class Busy(Exception):
+        response = {"Error": {"Code": "ServiceUnavailableException"}}
+
+    class Flaky:
+        def __init__(self, error):
+            self.calls, self.error = 0, error
+
+        def converse(self, **kw):
+            self.calls += 1
+            if self.calls == 1:
+                raise self.error
+            return {"ok": True}
+    saved_client, saved_wait = bedrock.client, agent.BUSY_RETRY_SECONDS
+    agent.BUSY_RETRY_SECONDS = 0
+    try:
+        flaky = Flaky(Busy())
+        bedrock.client = lambda: flaky
+        assert agent._converse(x=1) == {"ok": True} and flaky.calls == 2, "a capacity refusal is tried once more"
+        other = Flaky(ValueError("bad request"))
+        bedrock.client = lambda: other
+        try:
+            agent._converse(x=1)
+            raise AssertionError("an ordinary error is not retried")
+        except ValueError:
+            assert other.calls == 1
+    finally:
+        bedrock.client, agent.BUSY_RETRY_SECONDS = saved_client, saved_wait
+    print("ok  a Bedrock 'capacity limit' or 'slow down' is retried once; any other error is not")
+    assert agent._listener_answer("<response> No games on Sunday. </response>") == "No games on Sunday."
+    nocomp = agent._without_invented_competition
+    assert nocomp({"competition": "Premier League"}, "What are the next matches?") == {}, "taken from a description's example"
+    assert nocomp({"competition": "Premier League", "when": "today"}, "Any Premier League games today?") == {"competition": "Premier League", "when": "today"}
+    assert nocomp({"competition": "Superliga"}, "Who is top of the Danish Superliga?") == {"competition": "Superliga"}
+    assert nocomp({"team": "Celtic"}, "x") == {"team": "Celtic"} and nocomp(None, "x") is None
+    print("ok  a competition the listener did not say is dropped; one they said is kept")
     bedrock.available, bedrock.client = original_available, original_client
 
     # A small model invents weather when asked for it; weather is only said if a tool gave it.

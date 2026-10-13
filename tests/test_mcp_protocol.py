@@ -76,6 +76,13 @@ def main():
             assert t["description"], t["name"]
             assert t["inputSchema"]["type"] == "object"
         print("ok  tools/list ->", len(names), "tools, all described")
+        by = {t["name"]: t["annotations"] for t in doc["result"]["tools"]}
+        assert all(a["destructiveHint"] is False for a in by.values()), "nothing here deletes anything"
+        assert {n for n, a in by.items() if not a["readOnlyHint"]} == {
+            "follow_match", "sync_broadcast_delay", "set_favourites", "set_preferences", "what_did_i_miss", "get_lineups"}
+        assert by["get_match_state"]["readOnlyHint"] and by["get_match_state"]["openWorldHint"]
+        assert by["set_favourites"]["openWorldHint"] is False and by["what_did_i_miss"]["idempotentHint"] is False
+        print("ok  every tool declares read-only / idempotent / open-world hints; the six that change listener state say so")
 
         # --- tools/call ---------------------------------------------
         code, doc, _ = _post({"jsonrpc": "2.0", "id": 3, "method": "tools/call",

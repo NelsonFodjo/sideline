@@ -38,7 +38,10 @@ It has four steps, in this order.
      first. A day or a date is a hit or a miss. With no time said, a match in play scores highest and the rest fade with
      distance from now (`exp(-days / 7)`, never below 0.1: a match three weeks ago is still the answer when it is the only one that fits the opponent named).
    - A match of the wrong kind for the question (a future match when asked "what happened") is multiplied by 0.35.
-   - The match being followed gets a lift (×1.25).
+   - The match being followed gets a lift (×1.25). The match they were **just asking about** (the last ten minutes) gets a
+     bigger one (×2) when no day or date was said, so "what's the score?" after a talk about Hearts against Dundee is that
+     match, not a fork of every Hearts match. A day or date they say always wins over it. Following a match makes it the one
+     they mean next.
 4. **Decide.** A clear winner (the runner-up is under 60% of it) is used. Two or more plausible matches (at least half the
    best) are a **fork**: a numbered list of up to four, each with its score and day, read out for the listener to pick from.
    The list is remembered as an offer, so "the second one" or a mispronounced name snaps to an option
@@ -88,6 +91,17 @@ On the phrasings the descriptions themselves quote, matching reaches 71 of 71, w
 filter that hides the right tool one time in ten, it makes routing worse, and the embedding call adds latency. So it was
 **not shipped**, and nothing of it is in the code: the model sees every tool and the routing is held by short descriptions
 that each name their neighbour, a system prompt, and `make route-check`.
+
+## When the team is real but not covered
+
+A name the feed does not know is often a real team outside the leagues the plan covers: Arsenal, on a plan of the Danish and
+Scottish leagues. "I can't find a team called Arsenal" is then misleading. The answer names what is covered ("I can't find
+Arsenal in the leagues I cover: Superliga (Denmark) and Premiership (Scotland). Which team do you mean?"), read from the feed's
+own list of competitions, and asks, so the listener can steer.
+
+The conversation's topic (the match, team and player just discussed) is given to the model only for questions that leave out who
+or what they are about ("and them?", "who came on"). A general question ("the matches of yesterday") must not inherit a team:
+an earlier version of that instruction did, and answered an Arsenal question to someone asking what was on yesterday.
 
 ## Limits
 

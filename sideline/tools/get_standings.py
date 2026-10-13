@@ -12,10 +12,37 @@ def _row_is(row, team):
     return " ".join(want) in " ".join(have) or resolve.similarity(want, have) >= 0.82
 
 
+def _league_of(ctx, team):
+    """The competition whose table has `team` in it, found from the team's own matches (a team needs no match
+    followed to be asked about). Each competition it plays in is tried in turn; a cup has no table and is skipped."""
+    try:
+        found = ctx.provider.team_matches(team)
+    except NotImplementedError:
+        return None, None
+    names = []
+    for fx in ((found or {}).get("recent") or []) + ((found or {}).get("upcoming") or []):
+        if fx.get("competition") and fx["competition"] not in names:
+            names.append(fx["competition"])
+    for name in names[:3]:
+        table = ctx.provider.standings(name)
+        if table and any(_row_is(r, team) for r in table):
+            return name, table
+    return None, None
+
+
 def run(ctx, args, listener_id):
-    competition = competition_for(ctx, args, listener_id)
     team = (args.get("team") or "").strip()
-    table = feed(ctx, "standings", competition)
+    table = None
+    try:
+        competition = competition_for(ctx, args, listener_id)
+    except ToolError:
+        if not team:
+            raise
+        competition, table = _league_of(ctx, team)
+        if not competition:
+            raise
+    if table is None:
+        table = feed(ctx, "standings", competition)
     if not table:
         raise ToolError("I can't see a table for %s." % competition,
                         {"reason": "no_match", "competition": competition})

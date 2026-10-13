@@ -8,7 +8,7 @@ next Saturday. A feed that cannot look further falls back to yesterday, today an
 
 from .. import clock
 from ..mcp.errors import ToolError
-from . import _is_team, feed, find_matches, not_found
+from . import _is_team, feed, find_matches, no_team, not_found, possessive
 
 NEXT, LAST = 3, 5
 
@@ -42,7 +42,7 @@ def run(ctx, args, listener_id):
             raise
         return _near(ctx, team, opponent, tz, phrase, shown_name)            # a feed that cannot look further
     if not data:
-        raise ToolError("I can't find a team called %s. Which team do you mean?" % team, {"reason": "no_match", "team": team})
+        raise no_team(ctx, team)
     name = data["team"]
 
     if which == "last":
@@ -52,7 +52,7 @@ def run(ctx, args, listener_id):
                             {"reason": "no_match", "team": name})
         items = ["%s, %s" % (_score(f), clock.say_day(clock.kickoff(f), tz_minutes=tz)) for f in done[:LAST]]
         form = "".join(_outcome(f, data["team_id"]) for f in done[:LAST])
-        spoken = "%s's last %s: %s." % (name, "result" if len(items) == 1 else "%d results" % len(items), ". ".join(items))
+        spoken = "%s last %s: %s." % (possessive(name), "result" if len(items) == 1 else "%d results" % len(items), ". ".join(items))
         return spoken, {"team": name, "which": "last", "form": form, "matches": [
             {"home": f["home"], "away": f["away"], "score": f["score"], "kickoff": f.get("kickoff")}
             for f in done[:LAST]], "generated_by": "template"}, None
