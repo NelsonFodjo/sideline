@@ -123,10 +123,11 @@ def main():
     print("ok  the whole package imports with boto3 unavailable")
 
     # ----------------------------- the repository holds what it claims, and no more
-    for rel in ("README.md", "LICENSE", "Makefile", "requirements.txt", ".env.example",
+    for rel in ("README.md", "LICENSE", "Makefile", "run.sh", "requirements.txt", ".env.example",
                 "scripts/verify_data.py", "scripts/verify_aws.py", "scripts/create_table.py",
                 "simulator/index.html", "docs/ENVIRONMENT.md", "docs/AWS_SETUP.md"):
         assert os.path.exists(os.path.join(ROOT, rel)), "missing: " + rel
+    assert os.access(os.path.join(ROOT, "run.sh"), os.X_OK), "run.sh is not executable"
     removed = ("data", "deploy", "Dockerfile", "run.py", "sideline/providers/replay.py",
                "sideline/providers/statsbomb.py", "sideline/summaries.py", "sideline/auth.py",
                "sideline/metrics.py", "sideline/secretsmanager.py", "sideline/autodetect.py",

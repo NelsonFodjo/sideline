@@ -103,9 +103,12 @@ fixture's `sport` key picks the profile; absent means football. See [SPORTS.md](
 
 ## Standard library first
 
-The server imports nothing outside the Python standard library. That is a deliberate choice:
+The server can start without third-party packages; AWS integrations are optional
+when using `python3 -m sideline` directly. The `./run.sh` launcher creates an
+isolated `.venv` and installs `requirements.txt` so those integrations are
+available without changing the system Python. That separation is deliberate:
 
-1. **A reviewer can run it.** Clone, set a token, `python3 -m sideline`. No virtualenv, no version conflict.
+1. **A reviewer can run it.** Clone, set a token, `./run.sh`. Its dependencies stay in the project `.venv`.
 2. **Supply chain.** A public repo with a handful of transitive dependencies is a public repo with a handful of
    things that can be compromised between now and judging.
 3. **It forced better decisions.** No web framework meant writing the Streamable HTTP transport properly rather

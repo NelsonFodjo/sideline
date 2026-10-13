@@ -146,9 +146,9 @@ Step by step in [AWS_SETUP.md](AWS_SETUP.md). Model access is granted per accoun
 can look like a credentials error; `make aws-check` separates the two.
 
 ```bash
-pip3 install boto3
-# set AWS credentials in .env, and Bedrock switches on by itself (SIDELINE_BEDROCK=auto)
-make aws-check
+./run.sh
+# On first launch this installs boto3 in .venv from requirements.txt.
+# Set AWS credentials in .env and Bedrock switches on by itself (SIDELINE_BEDROCK=auto).
 ```
 
 ## IAM

@@ -135,19 +135,22 @@ and its voice runs on AWS.
 | Durable state | DynamoDB access and the table (`make create-table`) |
 | Speech in | the same AWS credentials: Voxtral and Nova Sonic run on Bedrock, so the listener's audio never leaves your account (see [docs/SPEECH.md](docs/SPEECH.md)) |
 
-Python 3.8 or newer. The server itself uses only the standard library.
+Python 3.8 or newer. The first launch creates an isolated `.venv` and installs
+the dependencies from `requirements.txt`; later launches reuse it and reinstall
+if the requirements change or `boto3` is missing. Packages are not installed
+system-wide.
 
 ```bash
 git clone https://github.com/NelsonFodjo/sideline && cd sideline
-pip3 install boto3                                 # the AWS integrations (all optional)
-pip3 install aws-sdk-bedrock-runtime awscrt        # Nova Sonic speech in (Python 3.12+; optional)
-
 cp .env.example .env        # then fill in SPORTMONKS_TOKEN and your AWS credentials
 make env                    # what is set; never prints a secret
 make verify-data            # does the feed key work, and what is on today?
-make aws-check              # does each AWS piece actually work?
-make run                    # then open http://127.0.0.1:8765/  (or: make sim)
+make run                    # bootstraps dependencies and starts the server
+# then open http://127.0.0.1:8765/ (or: make sim)
 ```
+
+You can also start it with `./run.sh`. To choose the interpreter when `.venv` is
+first created, run `make run PY=/path/to/python3`.
 
 Run it from the repository root. Allow the microphone once (browsers require a gesture), then talk. It
 answers out loud and goes straight back to listening; cut in whenever you like.

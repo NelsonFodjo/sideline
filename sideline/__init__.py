@@ -1,7 +1,7 @@
 """Sideline - live football for people who cannot see the screen.
 
 Entry points:
-    python3 -m sideline           start the MCP server (needs SPORTMONKS_TOKEN)
+    ./run.sh                      start the MCP server and bootstrap dependencies
     python3 scripts/verify_data.py --tools   run every tool against the live feed
 
 Read docs/ARCHITECTURE.md first. The one file that matters most is

@@ -1,11 +1,11 @@
-# python3 on most Linux and macOS; override with `make run PY=python`
+# python3 on most Linux and macOS; PY selects the interpreter when .venv is created
 PY ?= python3
 export PYTHONPATH := .:tests
 
 .PHONY: run sim test env verify-data next-matches route-check logs log-report aws-check create-table stt-check compare-stt clean
 
-run:              ## start the server (needs SPORTMONKS_TOKEN; see README)
-	$(PY) -m sideline
+run:              ## start the server (bootstraps dependencies; needs SPORTMONKS_TOKEN)
+	PY="$(PY)" ./run.sh
 
 sim:              ## open the voice simulator (served by the running server)
 	@$(PY) -c "import webbrowser;webbrowser.open('http://127.0.0.1:8765/')" \
