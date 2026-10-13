@@ -132,7 +132,12 @@ def candidates(ctx, ref, rec, tz):
         following = rec.get("following")
         if following:
             add(ctx.provider.fixture(following))
-        for offset in (0, -1) if ref.when in ("last", "yesterday") else (0,):
+        if ref.date:                                              # a day with no team named: that day's matches, near or far
+            today = (clock.now() + datetime.timedelta(minutes=int(tz or 0))).date()
+            offsets = ((ref.date - today).days,)
+        else:
+            offsets = {"last": (0, -1), "yesterday": (0, -1), "next": (0, 1), "tomorrow": (0, 1)}.get(ref.when, (0,))
+        for offset in offsets:
             for fx in day_fixtures(ctx, offset, tz):
                 add(fx)
     return list(found.values())

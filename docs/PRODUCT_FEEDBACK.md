@@ -181,6 +181,14 @@ invented score. Working out why took a controlled comparison, and the documentat
 **Would we build with it again?** Yes, with the guard, and with a dedicated transcription mode we would not need it. Being
 level with a specialised recogniser inside the account is the reason we dropped the third party entirely.
 
+### 3a. Bedrock Converse: "Service capacity limit has been reached"
+
+On Nova Micro, `converse` sometimes failed at once with `ServiceUnavailableException: Service capacity limit has been reached. Please
+try again later.` (seen on several of our runs of a few hundred calls, a few seconds apart from calls that succeeded). With the client
+set to no retries (a retry after a timeout doubles a voice user's wait) that is one failed answer. We retry once after 0.6 s for that
+error and the throttling errors only. **Suggestion** Document whether the capacity error is expected on on-demand Nova models, and
+which retry policy to use for a latency-bound voice caller: retry fast refusals, never timeouts.
+
 ### 3b. Bedrock prompt caching on Nova Micro (tried, not usable for tools)
 
 **Tried for** cutting the latency of a request that repeats about 7,800 input tokens of tool definitions every turn. A

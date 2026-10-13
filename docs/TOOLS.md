@@ -175,7 +175,7 @@ to know any of this happened.
 
 What is on, for a listener who has not named a team: "which teams are playing", "what's live", "any Premier
 League tonight". Up to five matches, **each with its time** in the listener's own clock (or its minute if it is
-under way), live ones first, then the big competitions, then the rest, and a count of the remainder. On a quiet day it says so and names the next day with matches (looking up to ten days ahead, one cached request each), so "the next matches" is never answered with "nothing tomorrow". It reads the
+under way), live ones first, then the big competitions, then the rest, and a count of the remainder. It also takes `date` for a named day ("Saturday", "the 20th"; the agent works the date out from the days it is given). On a quiet day it says so and names the next day with matches (looking up to ten days ahead, one cached request each), so "the next matches" is never answered with "nothing tomorrow". It reads the
 day's list the server already keeps, so it costs no extra feed request. Every place Sideline names a match, in a
 list, in "which one?", and in "did you mean?", carries the time, because for a match the time is what the listener
 is asking about.
@@ -193,6 +193,12 @@ accepted only when the country matches (a Hartlepool in another country is not u
 that off the network. The estimate is the vendor's, labelled as an estimate, and is not advice.
 
 Does not advance `last_told_at`: a preview is not news of what happened.
+
+### Names that are not found
+
+A team name that matches nothing is not guessed at. If a covered team sounds close ("Selltic", "Ranjers") the answer is "I can't find
+Selltic. Did you mean Celtic?", from the teams in the covered leagues' tables (`known_teams`, kept an hour). A real team the plan does
+not cover (Arsenal) is not "corrected": the answer names the leagues that are covered.
 
 ### Pointing any tool at any match
 

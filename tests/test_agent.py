@@ -261,6 +261,8 @@ def main():
         bedrock.client, agent.BUSY_RETRY_SECONDS = saved_client, saved_wait
     print("ok  a Bedrock 'capacity limit' or 'slow down' is retried once; any other error is not")
     assert agent._listener_answer("<response> No games on Sunday. </response>") == "No games on Sunday."
+    assert agent._plain_strings({"team": "&quot;Celtic&quot;", "opponent": " 'Rangers' ", "n": 3, "l": ["&amp;x"]}) == \
+        {"team": "Celtic", "opponent": "Rangers", "n": 3, "l": ["&x"]}
     nocomp = agent._without_invented_competition
     assert nocomp({"competition": "Premier League"}, "What are the next matches?") == {}, "taken from a description's example"
     assert nocomp({"competition": "Premier League", "when": "today"}, "Any Premier League games today?") == {"competition": "Premier League", "when": "today"}

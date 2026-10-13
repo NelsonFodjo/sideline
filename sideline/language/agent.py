@@ -1,6 +1,7 @@
 """Bedrock tool-use loop that lets Nova operate Sideline's MCP tools."""
 
 import datetime
+import html
 import json
 import logging
 import os
@@ -322,6 +323,17 @@ def _fill_arguments(name, args, question):
     return args
 
 
+def _plain_strings(value):
+    """Text a model sometimes sends HTML-escaped (&quot;Celtic&quot;) or in quotes, as the listener said it."""
+    if isinstance(value, str):
+        return html.unescape(value).strip().strip("\"'").strip()
+    if isinstance(value, dict):
+        return {k: _plain_strings(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_plain_strings(v) for v in value]
+    return value
+
+
 def _without_invented_id(args, question):
     """A fixture id the listener did not give is one the model made up: drop it.
 
@@ -470,7 +482,7 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None):
             name = request.get("name")
             call_id = request.get("toolUseId")
             args = _fill_arguments(request.get("name"), _without_invented_competition(
-                _without_invented_id(request.get("input"), question), question), question)
+                _without_invented_id(_plain_strings(request.get("input")), question), question), question)
             if name == "follow_match" and not _asked_to_follow(question):
                 # A model that guesses must not move the listener to another match.
                 message = "The listener did not ask to follow a match, so none was followed."

@@ -37,6 +37,7 @@ It has four steps, in this order.
      against Cove Town" counted Reef United games as more recent, and was caught by a test. For `next`, nearest upcoming
      first. A day or a date is a hit or a miss. With no time said, a match in play scores highest and the rest fade with
      distance from now (`exp(-days / 7)`, never below 0.1: a match three weeks ago is still the answer when it is the only one that fits the opponent named).
+   - A day or date with **no team named** looks at that day's matches however far from today (a bare "the 5th of September" or "the match on the 20th"); several that day are a fork.
    - A match of the wrong kind for the question (a future match when asked "what happened") is multiplied by 0.35.
    - The match being followed gets a lift (×1.25). The match they were **just asking about** (the last ten minutes) gets a
      bigger one (×2) when no day or date was said, so "what's the score?" after a talk about Hearts against Dundee is that

@@ -146,6 +146,13 @@ def main():
         day = (NOW + datetime.timedelta(days=-10)).date().isoformat()
         _, s, _ = ask(ctx, "get_match_state", {"team": "Harbour FC", "date": day})
         assert s["fixture_id"] == 2
+        # a day with no team named: that day's matches, however far back
+        by_day = lambda off: [dict(m) for m in MATCHES
+                              if (datetime.datetime.fromisoformat(m["kickoff"]).date() - NOW.date()).days == off]
+        ctx.provider.fixtures_on = by_day
+        _, s, _ = ask(ctx, "get_match_state", {"date": day})
+        assert s["fixture_id"] == 2, "the match on that day, with no team said"
+        ctx.provider.fixtures_on = lambda off: []
         miss = declined(ctx, "get_match_state", {"team": "Harbour FC", "date": "2026-01-02"})
         assert "can't find a match on 2 January for Harbour FC" in miss.spoken and "I do see" in miss.spoken, miss.spoken
         _, s, _ = ask(ctx, "get_match_state", {"team": "Harbour FC", "opponent": "Cove Town", "when": "last"})

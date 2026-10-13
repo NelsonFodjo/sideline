@@ -82,7 +82,7 @@ Three rules keep the rest inside a listener's patience:
 2. Catch-up prompts are capped at 12 events.
 3. The provider caches for 12 seconds, so no tool waits on the football feed more than once.
 
-`max_attempts=1` on the boto3 client is intentional: a retry costs another request timeout. The request ceiling is
+`max_attempts=1` on the boto3 client is intentional: a retry costs another request timeout. The one exception is the voice agent, which retries **once**, after 0.6 s, when AWS answers at once with "capacity limit reached" or "slow down" (`ServiceUnavailableException`, `ThrottlingException`): that refusal is quick and the same request a moment later usually works. Any other error is not retried. The request ceiling is
 8 seconds. A first-ever precompute-and-cache design was built and then removed: it moved the model off the
 listener's clock but was only ever tested against a simulated model, and the honest statement is that a catch-up
 takes about two seconds.
@@ -133,6 +133,12 @@ went to the wrong tool. `amazon.nova-lite-v1:0` kept the team in both and chose 
 choice), and the whole run took 68 s against 88 s. So the voice agent is smarter and no slower on Lite; the default stays
 Micro because the latency and caching figures in these docs were measured on it. Switching is one line:
 `SIDELINE_BEDROCK_MODEL=amazon.nova-lite-v1:0`. Prompt caching on Lite was not tried.
+
+A second batch of about fifty harder questions (misspelt and misheard names, named days and dates, "who got booked in the Celtic
+Rangers game", "keep answers brief", gibberish, other sports) agreed: **Micro** left out arguments the question gave (a date, a
+team, a table's team) in roughly a third of them, and sent "keep answers brief" to a match preview. **Lite** passed dates and
+"brief" correctly and was the better agent on all but a few. Neither answers a question about two teams at once ("Celtic or Rangers,
+who is higher?") because it needs two tool calls. If your account allows it, Lite is the one to run.
 
 ## Turning it on
 
@@ -190,6 +196,11 @@ first question in 3 to 5 s (the first includes cold connections and the feed).
 - **Arguments the question gives away are filled in.** A small model drops optional arguments first: asked "who came on?" it
   called `get_match_report` with no `part`, and the whole report was read out again. Where the words of the question say
   it (came on, cards, scored, VAR), `part` is set in code, never overriding what the model passed.
+- **The next seven days are spelled out in the prompt** ("Saturday is 2026-10-17, ..."). Told only today's date, the model counted
+  to "Saturday" wrong by a day. With the list, Nova Lite gets "which teams play on Saturday?" and "who plays on the 25th?" right
+  (it passes `date`); Micro mostly still passes `when: tomorrow`.
+- **What a model sends is cleaned, not trusted.** Nova Lite sometimes sent `&quot;Celtic&quot;` (HTML-escaped quotes) as a team name,
+  and either model sometimes wraps an answer in a stray `<response>` tag. Both are removed at the agent's edge.
 - **A competition the listener did not say is dropped.** Asked "what are the next matches?" the model passed "Premier League",
   copied from an example in a tool description, for a feed that does not cover it. A competition stays only if one of its
   words is in the question (`_without_invented_competition`). With none, the tool asks which, and names the leagues the
