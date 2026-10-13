@@ -48,7 +48,7 @@ class Event(dict):
             "id": new_id("e"),
             "fixture_id": fixture_id,
             "minute": minute,
-            "kind": kind,                 # goal | card | substitution | var | period
+            "kind": kind,                 # per sport, e.g. goal | card | substitution | var | period
             "at": time.time(),
             "superseded_by": None,
         })
@@ -85,9 +85,8 @@ class Store:
     def save_listener(self, rec): raise NotImplementedError
 
     def followers(self, fixture_id):
-        """Listener ids following a fixture. Used to precompute summaries;
-        a backend that cannot answer returns [] and the product still
-        works, just without precomputation."""
+        """Listener ids following a fixture. A backend that cannot answer
+        returns [] and the product still works."""
         return []
     def append_event(self, event): raise NotImplementedError
     def events(self, fixture_id): raise NotImplementedError
@@ -150,18 +149,8 @@ class Store:
         if not evs:
             return None
         fx = self.fixture(fixture_id) or {}
-        home = fx.get("home")
-        h = a = 0
-        for e in evs:
-            if e["minute"] > minute or e["kind"] != "goal":
-                continue
-            if e.get("superseded_by"):
-                continue
-            if e.get("team") == home:
-                h += 1
-            else:
-                a += 1
-        return {"home": h, "away": a}
+        from .. import sports
+        return sports.for_fixture(fx).score_from(evs, fx.get("home"), minute)
 
     def mark_told(self, listener_id, minute, event_ids=()):
         """Move the marker forward. Never backwards.
@@ -186,7 +175,7 @@ class Store:
 class MemoryStore(Store):
     """Default backend.
 
-    Used by the test suite, the replay harness and local development.
+    Used by the test suite and when no DynamoDB table is available.
     Deliberately the default so the whole repository can be run and
     judged with no AWS account - see README, "Run it in sixty seconds".
     """

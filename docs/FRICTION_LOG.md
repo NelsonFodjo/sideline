@@ -22,7 +22,7 @@ Severity: **critical** blocks shipping · **important** costs real time ·
 | FL-05 | Plan AWS usage for the AWS Builder challenge | Rules say credit codes ran out 7 Oct; FAQ still explains how to request them | important | Mock Bedrock in tests; spin services up only to test | Update the FAQ, or restore credits for the remaining window |
 | FL-06 | Find guidance on live-content sync for voice agents | The two Design Guide pages read had nothing on a voice agent being ahead of a delayed broadcast | nice-to-have | `sync_broadcast_delay`, anchored on what the listener hears | Mention live-content latency in the conversation-surface guidance |
 | FL-07 | Share a private repo with reviewers | FAQ documents the 7-day invitation expiry; the instinct is to invite early | nice-to-have | Public repo needs no invites; otherwise invite on submission day | Surface the expiry next to the repo URL field |
-| FL-08 | Enable Amazon Transcribe streaming for the simulator | IAM full-access policy and `transcribe:*` permission were added, but streaming still returned `SubscriptionRequiredException` | important | Use browser speech recognition while investigating the AWS account/service response | Explain what account or service action resolves this exception, and distinguish it clearly from missing IAM permission |
+| FL-08 | Enable Amazon Transcribe streaming for the simulator | IAM full-access policy and `transcribe:*` permission were added, but streaming still returned `SubscriptionRequiredException` (also seen on App Runner, 2026-10-13) | important | Use browser speech recognition while investigating the AWS account/service response | Explain what account or service action resolves this exception, and distinguish it clearly from missing IAM permission |
 
 ---
 
@@ -80,10 +80,10 @@ the header will be supported.
 **Steps** Read the target; looked for guidance on tools whose responses a
 model composes. **Expected** A recommended pattern. **Actual** The target
 is stated once, with no guidance. (The latency of a Bedrock call has *not*
-yet been measured by us; see EVIDENCE.md.)
+yet been measured by us at the time; a real call later took about 1.5 to 2.1 s.)
 
-**Severity** important **Workaround** `SIDELINE_BEDROCK_TIMEOUT` and
-deterministic templates as the fast path. **Suggestion** Document a
+**Severity** important **Workaround** Deterministic templates as the fast path,
+and stating that a Bedrock catch-up takes about two seconds. **Suggestion** Document a
 pattern for LLM-backed tools: precomputed summaries, streaming partial
 results, or a longer budget for tools declared as slower.
 
@@ -155,6 +155,12 @@ region, added the Transcribe managed policy and a policy allowing
 permission is granted. **Actual** AWS continued returning
 `SubscriptionRequiredException`; the error does not identify what account
 or service change is required.
+
+**Re-observed 2026-10-13** with a real streaming call from `make aws-check`:
+the same exception, while Polly worked from the same credentials, which
+points at an account-level state rather than IAM. App Runner's
+`ListServices` returned `SubscriptionRequiredException` on the same account.
+Neither error says what to do about it.
 
 **Severity** important: the simulator cannot use its configured AWS
 speech-to-text path, despite the permissions troubleshooting.

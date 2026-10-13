@@ -5,8 +5,7 @@ edit, run. Called from sideline/__init__.py BEFORE anything else is
 imported, because several modules read the environment at import time.
 
 PRECEDENCE, highest first:
-  1. a real environment variable (a shell `export`, a container's env, an
-     App Runner setting) - ALWAYS wins
+  1. a real environment variable (a shell `export`) - ALWAYS wins
   2. this file
   3. the built-in default
 
@@ -45,7 +44,7 @@ def load(path=None):
     """Returns the names it set. Never raises on a missing file."""
     if path is None:
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        path = os.environ.get("SIDELINE_ENV_FILE") or os.path.join(root, ".env")
+        path = os.path.join(root, ".env")
     try:
         with open(path, encoding="utf-8") as f:
             values = parse(f.read())

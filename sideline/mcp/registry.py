@@ -20,6 +20,8 @@ Every change here should be re-tested against the phrasings in
 tests/test_routing_phrases.py.
 """
 
+from .. import sports
+
 TOOLS = []
 
 
@@ -58,7 +60,8 @@ _fixture = {"type": "integer", "minimum": 1,
 tool(
     "follow_match",
     "Follow a match",
-    "Start following a football match for this listener so later questions "
+    "Start following a live match or game (football, basketball, or any sport "
+    "the server has a profile for) for this listener so later questions "
     "need no context. Use when they say they want to follow, watch or keep "
     "up with a team or a game - 'follow the Arsenal game', 'I'm watching "
     "Arsenal Spurs', 'keep me updated on City'. Also use to switch to a "
@@ -91,7 +94,7 @@ tool(
 tool(
     "get_lineups",
     "Line-ups and formation",
-    "Who is playing, in what formation, and who is on the bench. Use for "
+    "Who is playing, in what formation (or starting five), and who is on the bench. Use for "
     "'who's playing', 'what's the line-up', 'who's starting', 'who's on the "
     "bench', 'what formation are we in', 'is X playing today'. Broadcast "
     "shows this once as a graphic before kick-off and never reads it aloud, "
@@ -134,7 +137,8 @@ tool(
     "a clock, so they tell us what they just HEARD: use this whenever "
     "they say 'kick-off just went', 'that's half time', 'they've just "
     "scored', 'the whistle's gone', 'the second half has started' - pass "
-    "the moment in `heard`. Also use for 'you're ahead of my telly', 'you "
+    "the moment in `heard` ('goal' means the last score, a basket in "
+    "basketball). Also use for 'you're ahead of my telly', 'you "
     "spoiled that', 'are we in sync', and when somebody beside them reads "
     "the clock out.",
     _obj({"heard": {"type": "string",
@@ -159,8 +163,8 @@ tool(
 tool(
     "get_event_detail",
     "Detail of one moment",
-    "Full detail of a single thing that happened - a goal, a card, a "
-    "substitution, a VAR decision. Use for 'tell me about that goal', 'who "
+    "Full detail of a single thing that happened - a goal or basket, a card or "
+    "foul, a substitution, a VAR decision or replay review. Use for 'tell me about that goal', 'who "
     "assisted it', 'what was the card for', 'who came off', 'say that "
     "again'. Live commentary never lets a listener go back; this does.",
     _obj({"fixture_id": _fixture,
@@ -169,15 +173,17 @@ tool(
           "minute": {"type": "integer", "minimum": 0, "maximum": 130,
                      "description": "Minute the listener referred to."},
           "kind": {"type": "string",
-                   "enum": ["goal", "card", "substitution", "var", "any"],
-                   "description": "Narrow by type when the listener said 'that goal'."}}),
+                   "enum": sports.event_kinds() + ["score", "any"],
+                   "description": "Narrow by type when the listener said 'that goal' "
+                                  "or 'that basket'. 'score' means whatever scores "
+                                  "in this sport; kinds are per sport."}}),
     output_hint="one event, fully described, with the score before and after",
 )
 
 tool(
     "get_officials",
     "Referee and officials",
-    "The referee, the assistants, and how many cards have been shown. Use "
+    "The referee, the assistants, and how many cards (or fouls) have been shown. Use "
     "for 'who's refereeing', 'who's the ref', 'how many yellows', 'has "
     "anyone been sent off', 'who's on VAR'. Named once in a pre-match "
     "graphic and then almost never mentioned again, so listeners cannot "

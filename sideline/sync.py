@@ -153,6 +153,10 @@ def prior_for(locale):
 # `resolve` returns the real match time of that moment, in seconds from
 # kickoff, or None when we cannot place it.
 
+# The anchor names are the same for every sport; what they mean in seconds
+# is the sport's (SportProfile.period_anchors). The football values are
+# kept here as module constants for callers that predate sport profiles.
+#
 # Period anchors: no logged event, so minute arithmetic, +/- 60 seconds.
 PERIOD_ANCHORS = {
     "kickoff": 0,
@@ -161,7 +165,8 @@ PERIOD_ANCHORS = {
     "full_time": 90 * 60,
 }
 
-# Event anchors: measured on the wall clock, no rounding.
+# Event anchors: measured on the wall clock, no rounding. "goal" means the
+# last scoring event, whatever the sport calls it.
 EVENT_ANCHORS = {"goal"}
 
 ANCHORS = dict.fromkeys(list(PERIOD_ANCHORS) + list(EVENT_ANCHORS))
@@ -197,10 +202,13 @@ def estimate_from_anchor(ctx, fixture_id, anchor, real_now_seconds, now=None):
     if anchor not in ANCHORS:
         return None, "unknown_anchor"
 
+    from . import sports
+    sp = sports.for_fixture(ctx.store.fixture(fixture_id))
+
     if anchor in EVENT_ANCHORS:
         # Wall clock. No minute rounding anywhere on this path.
         goals = [e for e in ctx.store.events(fixture_id)
-                 if e["kind"] == "goal" and not e.get("superseded_by")]
+                 if sp.is_score(e) and not e.get("superseded_by")]
         if not goals:
             return None, "anchor_not_in_data"
         logged_at = goals[-1].get("at")
@@ -209,7 +217,7 @@ def estimate_from_anchor(ctx, fixture_id, anchor, real_now_seconds, now=None):
         raw = (now or time.time()) - logged_at - ANCHOR_REACTION_SECONDS
         note_kind = "anchor:goal"
     else:
-        at = PERIOD_ANCHORS[anchor]
+        at = sp.period_anchors[anchor]
         # Round towards a larger delay: the minute bucket could be hiding
         # up to 60 seconds, and we would rather be slow than early.
         raw = (real_now_seconds + MINUTE_BUCKET_SECONDS) - at - ANCHOR_REACTION_SECONDS

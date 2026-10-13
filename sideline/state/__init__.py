@@ -13,15 +13,12 @@ def _table_answers(table_name, region):
     Short timeouts and one attempt, because this runs at startup and a
     restricted network must not stall the server for a minute.
     """
-    import os
     import boto3
     from botocore.config import Config
-    kw = {"region_name": region,
-          "config": Config(connect_timeout=3, read_timeout=3,
-                           retries={"max_attempts": 1})}
-    if os.environ.get("SIDELINE_DYNAMO_ENDPOINT"):
-        kw["endpoint_url"] = os.environ["SIDELINE_DYNAMO_ENDPOINT"]
-    boto3.client("dynamodb", **kw).describe_table(TableName=table_name)
+    boto3.client("dynamodb", region_name=region,
+                 config=Config(connect_timeout=3, read_timeout=3,
+                               retries={"max_attempts": 1})
+                 ).describe_table(TableName=table_name)
 
 
 def build(kind, **kw):

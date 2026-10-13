@@ -16,7 +16,7 @@ def run(ctx, args, listener_id):
     lineups = ctx.provider.lineups(fx["fixture_id"])
     team = args.get("team")
 
-    spoken = ctx.lang.templates.say_lineups(lineups, team)
+    spoken = ctx.lang.templates.say_lineups(lineups, team, fx)
     ctx.store.mark_told(listener_id, fx.get("minute") or 0)
 
     structured = {"fixture_id": fx["fixture_id"], "lineups": lineups,

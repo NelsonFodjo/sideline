@@ -20,6 +20,91 @@ PORT = 8795
 BASE = "http://127.0.0.1:%d" % PORT
 
 
+def check_vad(page):
+    """The browser's speech detector, run under Node on realistic frame sequences.
+
+    Frames are the ~60 ms analysis ticks: (rms, harsh) where harsh is the share
+    of energy above 5 kHz. Speech is moderately loud and not harsh; a key press
+    is loud for a frame or two and very harsh; a thump is loud but low.
+    """
+    import json
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        print("skip  speech detector (node is not installed)")
+        return
+    start = page.index("/* VAD:begin */")
+    end = page.index("/* VAD:end */")
+    script = page[start:end] + """
+    function run(frames, st){
+      st = st || vadNew(); var out = [];
+      frames.forEach(function(f){ out.push(vadStep(st, f[0], f[1])); });
+      return {st: st, out: out};
+    }
+    var quiet = function(n){ var a=[]; for(var i=0;i<n;i++) a.push([0.004,0.1]); return a; };
+    var speech = function(n, rms){ var a=[]; for(var i=0;i<n;i++) a.push([rms||0.05,0.08]); return a; };
+    var click = [0.14, 0.62];
+    var res = {};
+
+    var r = run(quiet(10).concat(speech(12)));
+    res.speechSustained = r.out.slice(10).some(function(o){return o.sustained;});
+    res.speechFirstAt = r.out.slice(10).findIndex(function(o){return o.sustained;});
+
+    // typing: a key about every 125 ms, so a click every other frame
+    var typing = [];
+    for (var i = 0; i < 80; i++) typing.push(i % 2 === 0 ? click : [0.004, 0.1]);
+    r = run(quiet(10).concat(typing));
+    res.typingNeverSustained = !r.out.some(function(o){return o.sustained;});
+
+    // fast typing: clicks in consecutive frames
+    var fast = [];
+    for (var j = 0; j < 80; j++) fast.push(j % 5 === 4 ? [0.004, 0.1] : click);
+    r = run(quiet(10).concat(fast));
+    res.fastTypingNeverSustained = !r.out.some(function(o){return o.sustained;});
+
+    // a thump on the desk: loud, low, over in two frames
+    r = run(quiet(10).concat([[0.25, 0.04], [0.2, 0.04]], quiet(10)));
+    res.thumpNeverSustained = !r.out.some(function(o){return o.sustained;});
+
+    // speaking while typing: a key every 8th frame inside the speech
+    var mixed = [];
+    for (var k = 0; k < 40; k++) mixed.push(k % 8 === 7 ? click : [0.05, 0.08]);
+    r = run(quiet(10).concat(mixed));
+    res.speechOverTypingSustained = r.out.slice(10).some(function(o){return o.sustained;});
+
+    // the room: a long utterance must not raise the bar out of reach of the next one
+    var st = vadNew();
+    run(quiet(15).concat(speech(83, 0.1)), st);
+    res.floorAfterLongSpeech = st.noise * 3.2;
+    run(quiet(25), st);
+    res.noiseAfterSilence = st.noise;
+
+    // a steady hum is learned rather than treated as speech forever
+    st = vadNew();
+    var hum = []; for (var h = 0; h < 600; h++) hum.push([0.02, 0.2]);
+    r = run(quiet(10).concat(hum), st);
+    res.humStillActiveAtEnd = r.out[r.out.length - 1].active;
+
+    // nothing is judged before the room has been listened to
+    r = run(speech(6));
+    res.warmupHoldsBack = !r.out.some(function(o){return o.sustained;});
+    console.log(JSON.stringify(res));
+    """
+    out = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=20)
+    assert out.returncode == 0, out.stderr
+    res = json.loads(out.stdout.strip().splitlines()[-1])
+    assert res["speechSustained"] and res["speechFirstAt"] <= 5, res
+    assert res["typingNeverSustained"], "typing every ~125 ms must never count as speech"
+    assert res["fastTypingNeverSustained"], "fast typing must not either"
+    assert res["thumpNeverSustained"], "a desk thump is loud but short"
+    assert res["speechOverTypingSustained"], "talking while typing is still talking"
+    assert res["floorAfterLongSpeech"] < 0.05 and res["noiseAfterSilence"] < 0.008, res
+    assert not res["humStillActiveAtEnd"], "a steady hum is learned, then ignored"
+    assert res["warmupHoldsBack"], res
+    print("ok  speech detector: typing, fast typing and a thump never start a turn; speech does, even with keys in it")
+
+
 def main():
     ctx = make_ctx(start_minute=40)
     srv = mcp_server.serve("127.0.0.1", PORT,
@@ -31,16 +116,19 @@ def main():
     with urllib.request.urlopen(BASE + "/") as r:
         page = r.read().decode("utf-8")
         assert r.status == 200 and "text/html" in r.headers["Content-Type"]
-    assert "tools/call" in page and "Mcp-Session-Id" in page
-    assert '"/agent/chat"' in page and "LIVE_MODE" in page
+    # The page opens an MCP session and lists the tools; the agent it talks to
+    # (/agent/chat) makes every tools/call through sideline/mcp/client.py.
+    assert '"initialize"' in page and '"tools/list"' in page and "Mcp-Session-Id" in page
+    assert '"/agent/chat"' in page and "LIVE_MODE" not in page
     assert "webkitSpeechRecognition" in page and "startBrowserRecognition" in page
     assert "server speech recognition unavailable; switching to browser" in page
     assert "Please repeat." in page
+    assert "startLiveCaption" in page and 'caps.caption!=="browser"' in page
     print("ok  GET / serves the simulator, and it is an MCP client (initialize/tools/list/tools/call)")
 
-    with urllib.request.urlopen(BASE + "/?preview=what%20did%20I%20miss&pace=900") as r:
+    with urllib.request.urlopen(BASE + "/?anything=1") as r:
         assert r.status == 200 and "text/html" in r.headers["Content-Type"]
-    print("ok  a query string (?preview=...) does not change the route")
+    print("ok  a query string does not change the route")
 
     with urllib.request.urlopen(BASE + "/voice/capabilities") as r:
         caps = json.loads(r.read())
@@ -72,6 +160,7 @@ def main():
     assert post("https://evil.example", init)[0] == 403
     print("ok  Origin: null and foreign origins are still refused (the allow-list stays strict)")
 
+    check_vad(page)
     srv.shutdown()
     print("\nsimulator: all good")
 

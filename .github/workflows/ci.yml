@@ -11,16 +11,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      # The suite needs no network and no credentials. cryptography is
-      # installed so the RS256 auth test runs rather than skips.
-      - run: pip install cryptography
+      # The suite needs no network, no credentials and no install: the server is
+      # standard-library Python. (Node is preinstalled; it runs the browser-side
+      # speech detector's tests.)
       - run: make test
-  template:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install cfn-lint && cfn-lint deploy/sideline.yaml
-      - run: bash -n scripts/deploy_aws.sh

@@ -1,9 +1,10 @@
 """Match data providers.
 
-A provider turns somebody's football API into our internal Event shape.
-Nothing above this layer knows which vendor we are using, which is what
-makes the replay harness possible and what makes the open-source adapter
-in docs/OPEN_SOURCE.md reusable by anyone else.
+A provider turns somebody's sports API into our internal Event shape.
+The fixture it returns carries a `sport` key (absent means football); the
+event kinds it emits are that sport's (see sideline/sports/).
+Nothing above this layer knows which vendor we are using, so another feed
+(or a test double: tests/support.py) can stand in for it.
 
 Contract:
 
@@ -29,6 +30,13 @@ a different way:
 """
 
 from ..state.store import Event
+
+
+class ProviderUnavailable(Exception):
+    """The data feed refused or could not be reached (key, quota, plan, network).
+
+    Raised by providers; the MCP layer turns it into a spoken decline.
+    """
 
 
 class Provider:

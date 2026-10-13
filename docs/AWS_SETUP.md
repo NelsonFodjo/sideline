@@ -1,340 +1,158 @@
 # Setting up the AWS side
 
-Start to finish, in order, with a way to check each step worked before
-moving to the next.
+In order, each step with a way to check it worked. Console menu names and model availability change; where a
+step fails, trust the error and `make aws-check` over this page.
 
-> **Status: the Bedrock path was verified once against a real account on
-> 2026-10-13** using `make aws-check` (Nova Micro invocation, agent tool
-> use, and catch-up). This is not an end-to-end deployment test; DynamoDB
-> and speech were not exercised. Console menu names and model availability
-> change; where a step fails, trust the error and `make aws-check` over
-> this page.
+> **Status, 2026-10-13, one account.** Bedrock (Nova Micro), Nova 2 Sonic, Polly and DynamoDB were each run
+> against a real account and work. Nothing here has been run on a different account, so treat the permission lists
+> as what *this* code calls, not as a promise about yours.
 
-**You do not need any of this to run Sideline.** The default is
-in-memory state and deterministic templates, and `python3 -m sideline`
-works on a clean machine with nothing installed. This page is for
-turning on the two AWS integrations: Bedrock for language, DynamoDB for
-state.
+You do not need all of it. What each piece unlocks:
 
----
-
-## The fast path
-
-Everything is **environment variables**, which take priority; see
-[ENVIRONMENT.md](ENVIRONMENT.md). You can put the same values in a
-git-ignored `.env` (`cp .env.example .env`) instead. You do not need the
-`aws` command-line tool at all. With credentials present, Bedrock and
-DynamoDB switch on by themselves (`SIDELINE_BEDROCK=auto`,
-`SIDELINE_STATE=auto`).
-
-```bash
-export AWS_REGION=us-east-1
-export AWS_ACCESS_KEY_ID=AKIA...
-read -s -p "AWS secret key: " AWS_SECRET_ACCESS_KEY; echo; export AWS_SECRET_ACCESS_KEY
-
-make env            # what is set and what turns on; never prints a value
-make aws-check      # tells you which layer fails, and lists models you can use
-make run
-```
-
----
-
-## Step 0 — What you are turning on, and why
-
-| | What it does | Needed for |
+| | What it does | Without it |
 |---|---|---|
-| **Bedrock** | Compresses a window of match events into one spoken paragraph | AWS Builder mini challenge; the catch-up reads better |
-| **Polly** | Speech out for the simulator, with word-level speech marks | The reading animation being exact rather than approximate |
-| **Transcribe** | Speech in for the simulator | A speech-first demo at all |
-| **DynamoDB** | Listener state and the match event log | Nothing, for a demo. Memory works. Turn it on to show durable state |
+| **Bedrock (Nova Micro)** | writes the spoken catch-up; the voice agent chooses tools | the fast tools still answer in templated wording; the simulator's voice agent has no answer |
+| **Polly** | the voice, with word timings | the page uses the browser's own voice |
+| **Nova 2 Sonic** | speech in, when there is no Groq key | the browser's own recognition (the least accurate) |
+| **DynamoDB** | what a listener has heard survives a restart | state lives in memory |
 
-If you are short on time: **Bedrock, then Polly and Transcribe, and skip
-DynamoDB.** Bedrock qualifies the AWS Builder entry and is the piece a
-judge can see working. Polly and Transcribe are what make the simulator
-a speech-first demo instead of a typed one, and they need no setup
-beyond the credentials you already configured in step 2.
+If you are short on time: Bedrock first, then Polly, and skip DynamoDB.
 
-All four sit in the same account under the same credential chain, which
-is the point: there is no second vendor and no second key anywhere in
-the voice path.
+## Step 1: an AWS account
 
----
+An AWS account at aws.amazon.com (it needs a card; everything here costs cents). The hackathon form also asks
+for an **AWS Builder ID**, a separate free profile; create it early. Per the rules the AWS credit codes ran out
+on 7 October, so assume you pay for what you use.
 
-## Step 1 — An AWS account and a Builder ID
-
-Two different things, and the submission form asks for the second.
-
-1. An **AWS account** at aws.amazon.com, if you do not have one. Needs a
-   card; everything here sits inside or just above the free tier.
-2. An **AWS Builder ID** — a separate free profile, created at the AWS
-   Builder ID sign-up page. The Devpost form has a field for it.
-
-> Create the Builder ID early. It is free and takes two minutes, and it
-> is an annoying thing to discover you need at 11pm on submission day.
-
----
-
-## Step 2 — Credentials on your machine
+## Step 2: credentials on your machine
 
 ```bash
-pip3 install boto3 amazon-transcribe
-export AWS_REGION=us-east-1
-export AWS_ACCESS_KEY_ID=AKIA...
-read -s -p "AWS secret key: " AWS_SECRET_ACCESS_KEY; echo; export AWS_SECRET_ACCESS_KEY
+pip3 install boto3
+cp .env.example .env     # then fill in the AWS lines, or export them in your shell
 ```
 
-Region matters: **use `us-east-1`** unless you have a reason not to.
-Model availability is widest there, and a model that exists in one
-region simply is not there in another.
+Any one of: `AWS_ACCESS_KEY_ID` with `AWS_SECRET_ACCESS_KEY`, or `AWS_PROFILE`, or (Bedrock only)
+`AWS_BEARER_TOKEN_BEDROCK`. Region: **`us-east-1`** unless you have a reason not to, because model availability is
+widest there.
 
-**Check it worked:**
+A **Bedrock API key** (a bearer token) works for Bedrock but not for Polly or DynamoDB: it is backed by an IAM
+user that, on the account this was built on, could call Bedrock and Polly but was denied DynamoDB. Use IAM keys
+for the full set.
 
-```bash
-make env            # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY show "set"
-make aws-check      # first lines: "credentials resolve  account 1234..."
-```
+**Check it:** `make env` (shows which are set, never the values), then `make aws-check`; its first lines read
+"credentials resolve".
 
-`credentials resolve` prints your account id. If it fails with
-`Unable to locate credentials`, one of the two variables is unset in
-*this* terminal; variables do not carry across terminals.
+## Step 3: Bedrock model access
 
----
+Check that Amazon Nova Micro is available to your account in the region: console, Amazon Bedrock, Model catalog
+or Model access, and complete any first-use step shown. The default id is `amazon.nova-micro-v1:0`.
 
-## Step 3 — Enable Bedrock model access
+**Check it:** `make aws-check` runs a real call ("bedrock responds") and lists models you can use if the id is
+wrong. Set `SIDELINE_BEDROCK_MODEL` to change it.
 
-Check that Nova Micro is available to your account in the configured
-region. Model availability and first-use access requirements can vary.
+## Step 4: permissions
 
-1. AWS console → **Amazon Bedrock** → make sure you are in **us-east-1**
-2. Check **Model catalog** / **Model access** for Amazon Nova Micro
-3. Complete any model-specific first-use or access request shown there
-
-**Check it worked:**
-
-```bash
-aws bedrock list-foundation-models --region us-east-1 \
-  --query "modelSummaries[?contains(modelId,'nova-micro')].modelId" --output text
-```
-
-The default id is `amazon.nova-micro-v1:0`. If it is not listed or invoke
-fails, confirm the region, account access and IAM permissions. `make
-aws-check` checks the configured model id and attempts an actual call.
-
----
-
-## Step 4 — Permissions
-
-If you are using your own root or admin credentials, skip this; you
-already have them.
-
-For a scoped IAM user or role, this is the whole policy:
+If you use your own admin credentials, skip this. For a scoped IAM user, this is what the code calls, no more:
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
-    {"Effect": "Allow",
-     "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+    {"Sid": "Language",
+     "Effect": "Allow",
+     "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
+                "bedrock:InvokeModelWithBidirectionalStream"],
      "Resource": ["arn:aws:bedrock:*::foundation-model/amazon.nova-*",
-                  "arn:aws:bedrock:*:<your-account-id>:inference-profile/*"]},
-    {"Effect": "Allow",
+                  "arn:aws:bedrock:*:<account-id>:inference-profile/*"]},
+    {"Sid": "ListModels",
+     "Effect": "Allow",
      "Action": ["bedrock:ListFoundationModels", "bedrock:ListInferenceProfiles"],
-     "Resource": "*"}
+     "Resource": "*"},
+    {"Sid": "Voice",
+     "Effect": "Allow",
+     "Action": "polly:SynthesizeSpeech",
+     "Resource": "*"},
+    {"Sid": "State",
+     "Effect": "Allow",
+     "Action": ["dynamodb:CreateTable", "dynamodb:DescribeTable", "dynamodb:UpdateTimeToLive",
+                "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"],
+     "Resource": "arn:aws:dynamodb:us-east-1:<account-id>:table/sideline"}
   ]
 }
 ```
 
-The agent uses `InvokeModel`; the streaming catch-up uses
-`InvokeModelWithResponseStream`. The two `List` actions are used only by
-`scripts/verify_aws.py` to enumerate available models (they do not support
-resource-level permissions). The inference-profile resource is needed only
-if the model is invoked through a profile id. If `verify_aws.py` reports an
-access error, check the model, region and IAM resource before widening access.
+Replace `<account-id>`. Attach it as an inline policy (IAM, Users, your user, Add permissions, Create inline
+policy, JSON). The two `List` actions are used only by `make aws-check` to enumerate models; Polly's action
+supports no resource-level scoping; the DynamoDB list is exactly the operations in `sideline/state/dynamo.py` and
+`scripts/create_table.py`. Keep it scoped: not `bedrock:*`, not `"Resource": "*"` for DynamoDB.
 
-Nova Micro is the default, not a promise: model availability changes.
-`make aws-check` checks the selected id and suggests available ids. Not
-`bedrock:*`, not `"Resource": "*"` — keep the policy scoped.
-
----
-
-## Step 5 — Turn Bedrock on in Sideline
+## Step 5: check Bedrock and the voice
 
 ```bash
-export SIDELINE_BEDROCK=on
-export AWS_REGION=us-east-1
-python3 scripts/verify_aws.py
+make aws-check
 ```
 
-`verify_aws.py` checks each layer in turn and tells you exactly which
-one failed. Run it before the server, not after.
+It checks each layer in turn and names the one that failed: boto3, credentials, region, model access, a real
+Bedrock answer, **Nova calling a Sideline tool**, **a catch-up written by Bedrock**, speech in, speech out, and
+DynamoDB. It uses small synthetic inputs, so it needs no football key. Run it before the server, not after.
 
-Then:
+Polly needs no model-access step. The startup log then reads `voice: in=... out=polly (Amy)`; `out=browser` means it
+fell back to the browser's voice (no credentials). `SIDELINE_POLLY_VOICE` changes the voice: `Amy` and `Brian` are
+British, `Joanna` and `Matthew` American. A British voice reads European football names with less friction.
+
+## Step 6: Nova Sonic, for speech in
 
 ```bash
-python3 -m sideline
-python3 scripts/smoke_test.py       # in another terminal
+pip3 install aws-sdk-bedrock-runtime awscrt       # Python 3.12 or newer
 ```
 
-**How to tell it is actually running through Bedrock:** the catch-up
-response reports which path produced the words.
+It is not in boto3: the bidirectional streaming API needs its own SDK. With it installed, and no Groq key, speech
+in goes to Nova Sonic. It uses IAM credentials resolved through boto3. The comparison with Groq, and when each is
+used, is in [SPEECH.md](SPEECH.md). **Check it:** `make aws-check` reports "speech in (sonic, live call)".
 
-```
-(window 12' -> 64', 5 events, via bedrock)
-```
+## Step 7: DynamoDB, so state survives a restart
 
-`via bedrock` means the model ran. `via template` means it fell back and
-something above did not work. `via template-after-guard` means the model
-ran but produced a scoreline that disagreed with ours and we discarded
-it.
-
-That field is in `structuredContent.generated_by` on every tool, so it
-is visible in the raw response as well as the smoke test — which makes
-it easy to put on screen in the demo video.
-
----
-
-## Step 5b — Speech, for the simulator
-
-Nothing to enable. Polly and Transcribe need no model-access step, and
-the credentials from step 2 are enough.
+Optional. Memory is fine for trying it out.
 
 ```bash
-pip3 install amazon-transcribe        # if you have not already
-python3 -m sideline
+make create-table       # one table, pay-per-request, TTL on `expires_at`
+make aws-check          # the last line: "dynamodb table ... ACTIVE"
+make run                # SIDELINE_STATE=auto now uses it
 ```
 
-The startup log tells you what is in use:
+Follow a match and ask a question; in the console (DynamoDB, Tables, sideline, Explore items) you should see
+`LISTENER#` and `FIXTURE#` items. Restart the server and ask "what did I miss": it still knows where you were.
+Pay-per-request means a trial costs cents; delete the table afterwards with
+`aws dynamodb delete-table --table-name sideline`.
 
-```
-voice: in=transcribe out=polly (Amy, neural)
-```
-
-`in=browser out=browser` means it fell back to the browser's own speech recognition and voice. The simulator shows the
-same thing along the bottom of the screen.
-
-**Why these two specifically.** Transcribe keeps the whole voice path in
-one account under one credential chain. Polly is there for speech marks
-— it returns every word with its millisecond offset, which is what makes
-the reading animation land on the word rather than near it. No other
-option in the pipeline gives that.
-
-**Permissions**, if you are on a scoped role:
-
-```json
-{
-  "Effect": "Allow",
-  "Action": ["polly:SynthesizeSpeech", "transcribe:StartStreamTranscription"],
-  "Resource": "*"
-}
-```
-
-Neither action supports resource-level permissions, which is why these
-are the one place in the project with a `*`.
-
-**Voices.** `Amy` and `Brian` are British, `Joanna` and `Matthew` American. Set `SIDELINE_POLLY_VOICE`. A British voice reads European football names with less friction. (Voice availability and neural support were not checked against a live account.)
-
-## Step 6 — DynamoDB, locally, for nothing
-
-Optional. Use DynamoDB Local rather than a real table: same API calls,
-same code path, no cloud spend, no IAM.
-
-```bash
-docker run -d -p 8000:8000 amazon/dynamodb-local
-
-aws dynamodb create-table \
-  --table-name sideline \
-  --attribute-definitions AttributeName=PK,AttributeType=S \
-                          AttributeName=SK,AttributeType=S \
-  --key-schema AttributeName=PK,KeyType=HASH \
-                AttributeName=SK,KeyType=RANGE \
-  --billing-mode PAY_PER_REQUEST \
-  --endpoint-url http://localhost:8000
-
-export SIDELINE_STATE=dynamo
-export SIDELINE_DYNAMO_ENDPOINT=http://localhost:8000
-python3 -m sideline
-```
-
-**Check it worked:**
-
-```bash
-aws dynamodb scan --table-name sideline \
-  --endpoint-url http://localhost:8000 --max-items 5
-```
-
-Follow a match and ask a question first — you should see `LISTENER#` and
-`FIXTURE#` items come back.
-
-For a real table, drop `--endpoint-url` and unset
-`SIDELINE_DYNAMO_ENDPOINT`. The table design and TTL are in
-[DEPLOYMENT.md](DEPLOYMENT.md).
-
----
-
-## Step 7 — Hosting, only if you are connecting a real device
-
-Not needed for the demo video or for a judge running the repo. Needed
-only to deploy the Alexa+ add-on against a real Echo.
-
-For development, a tunnel is enough and is the documented approach:
-
-```bash
-cloudflared tunnel --url http://localhost:8765
-```
-
-That gives you an HTTPS URL to hand to `alexa-ai`. For something
-longer-lived, App Runner is in [DEPLOYMENT.md](DEPLOYMENT.md) — chosen
-over Lambda behind API Gateway because Streamable HTTP wants a
-long-lived endpoint and App Runner gives you one with no load balancer
-to configure.
-
----
+`SIDELINE_STATE=auto` (the default) uses DynamoDB when credentials are present and the table answers, and falls
+back to memory with a warning otherwise. Set `dynamo` to insist (a failure is then loud), or `memory` to opt out.
 
 ## What it costs
 
-Not measured. Set a billing alarm before turning anything on. The main
-risk is a runaway poll loop calling a paid service; a budget catches it:
-
-```bash
-aws budgets create-budget --account-id <your-id> \
-  --budget '{"BudgetName":"sideline","BudgetLimit":{"Amount":"10","Unit":"USD"},
-             "TimeUnit":"MONTHLY","BudgetType":"COST"}'
-```
-
-(That command needs the `aws` CLI; the console's Billing → Budgets does the
-same.) Per the hackathon FAQ you do not need AWS running during judging, so
-tear things down when you are not testing.
+Not measured. Set a billing alarm before turning anything on (console, Billing, Budgets). The main risk is a
+runaway loop calling a paid service. Nothing here runs when the server is stopped, and the hackathon FAQ says you
+do not need AWS running during judging, so tear things down when you are not testing.
 
 ## When it does not work
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `local routing` in the simulator | Nova agent was unavailable; simulator used its offline keyword fallback | `python3 scripts/verify_aws.py` and inspect the server log |
-| `via template` | Demo-mode catch-up used its deterministic fallback | `python3 scripts/verify_aws.py`; live mode surfaces the Bedrock failure instead |
-| `AccessDeniedException` on invoke | Model access or IAM permission is missing | Steps 3–4 |
-| `ValidationException: model not found` | Wrong region, or wrong model id | `AWS_REGION=us-east-1` |
-| `Unable to locate credentials` | The two key variables are not set in this terminal | Step 2, then `make env` |
-| `ThrottlingException` | Account quota or burst limit | Demo mode may use templates; live mode reports the failure. Request a quota increase if it persists |
-| First call slow, later ones fine | Cold start after idle — known, logged as FL-05 | Nothing to fix; the 3 s ceiling catches it |
-| `ResourceNotFoundException` on DynamoDB | Table not created, or wrong endpoint | Step 6 |
-| `ImportError: boto3` | Not installed | `pip3 install boto3` |
-| `in=browser` in the startup log | Transcribe SDK missing or no credentials | `pip3 install amazon-transcribe`, then `aws sts get-caller-identity` |
-| `out=browser` in the startup log | No credentials for Polly | Step 2 |
-| Robotic voice in the simulator | It fell back to the browser | Check the strip along the bottom of the page |
+| `Unable to locate credentials` | the key variables are not set in this terminal | step 2, then `make env` |
+| `AccessDeniedException` on Bedrock | model access or IAM permission missing | steps 3 and 4 |
+| `ValidationException: model not found` | wrong region or model id | `AWS_REGION=us-east-1`; `make aws-check` lists what you can use |
+| `AccessDeniedException` on DynamoDB, Polly | the IAM user lacks the permission (often a Bedrock API key's user) | step 4 |
+| `ResourceNotFoundException` on DynamoDB | the table does not exist | `make create-table` |
+| `ThrottlingException` | an account quota or burst limit | with Bedrock on, the failure is reported to the listener; request a quota increase if it persists |
+| a slow first answer, quick ones after | a cold connection | the server warms Polly and Bedrock at startup; the first question after a long idle is still slower |
+| `CERTIFICATE_VERIFY_FAILED` on any HTTPS call | python.org Python on macOS has no CA bundle | handled in `sideline/tls.py`, which never disables verification; or run "Install Certificates.command" |
+| `ImportError: boto3` | not installed | `pip3 install boto3` |
+| `out=browser` in the startup log | no AWS credentials for Polly | step 2 |
+| `in=browser` in the startup log | no Groq key and no Nova Sonic SDK | step 6, or [SPEECH.md](SPEECH.md) |
+| `SubscriptionRequiredException` | the account is not subscribed to that service. **Not** an IAM problem | see below |
 
-In demo mode, the product uses deterministic templates when Bedrock is
-unreachable. In live mode the failure is surfaced and no canned answer
-is returned.
-
----
-
-## The short version
-
-```bash
-pip3 install boto3 amazon-transcribe
-export AWS_REGION=us-east-1 AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
-# console -> Bedrock -> check Nova Micro availability / access
-export SIDELINE_BEDROCK=on
-python3 scripts/verify_aws.py       # must pass before the next line
-python3 -m sideline                # expect: voice: in=transcribe out=polly
-```
+**Amazon Transcribe is not used.** On the account this was built on, Transcribe streaming returned
+`SubscriptionRequiredException` ("The AWS Access Key Id needs a subscription for the service") even with full IAM
+permissions, and nothing on the console offers an "activate" button; the reports of this error on AWS re:Post
+point at an account-level state fixed through an Account and billing support case. Rather than wait on that,
+speech in uses Nova Sonic and Groq. The friction is recorded in [FRICTION_LOG.md](FRICTION_LOG.md) (FL-08).

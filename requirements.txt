@@ -1,18 +1,13 @@
-# The MCP server itself needs nothing. It is standard library Python, so
-# the repository clones and runs with no install step - which matters
-# during the judging window, where a reviewer who cannot run the project
-# scores nothing. See docs/ARCHITECTURE.md, "No dependencies".
+# The MCP server itself needs nothing: it is standard-library Python, so the
+# repository clones and imports with no install step. These enable the AWS and
+# speech integrations, and each degrades cleanly when absent:
 #
-# These enable the AWS integrations:
+#   no boto3                   -> no Bedrock, Polly or DynamoDB (the simulator
+#                                 uses the browser's voice; state is in memory)
+#   no aws-sdk-bedrock-runtime -> speech in uses Groq (if a key is set), then the
+#                                 browser's own recognition
+#   no GROQ_API_KEY            -> nothing leaves AWS
 
-boto3>=1.34               # Bedrock Converse, Polly, DynamoDB
-amazon-transcribe>=0.6    # Transcribe streaming, for the simulator's speech in
-
-# Everything degrades cleanly without them:
-#   no boto3             -> language falls back to deterministic templates,
-#                           and the simulator uses the browser's own speech
-#   no amazon-transcribe -> speech in falls back to Groq, or to the browser
-#   SIDELINE_STATE=memory (the default) -> no DynamoDB needed
-# Only for SIDELINE_AUTH=required with RS256 tokens (sideline/auth.py).
-# Without it, HS256 tokens still verify using the standard library.
-cryptography>=42
+boto3>=1.34                                                  # Bedrock, Polly, DynamoDB
+aws-sdk-bedrock-runtime>=0.12 ; python_version >= "3.12"     # Nova Sonic speech in
+awscrt>=0.26 ; python_version >= "3.12"                      #   its duplex streaming transport

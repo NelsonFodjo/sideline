@@ -16,7 +16,7 @@
    microphone without a gesture. After that nothing is clicked and
    nothing is typed - the listener cannot see the screen.
 
-   The screen is for a sighted person in the room, and for the demo.
+   The screen is for a sighted person in the room.
    Nothing on it is required: every fact is also spoken, and is in the
    screen-reader live region below.
 
@@ -357,21 +357,11 @@ body[data-mode="thinking"] .bg{filter:hue-rotate(8deg) brightness(.95)}
 (function(){
 "use strict";
 var $=function(i){return document.getElementById(i)};
-var BASE=(location.protocol==="file:")?"http://127.0.0.1:8765"
-        :location.origin.replace(/:\d+$/,":8765");
+var BASE=location.origin;   // the page is served by the server it talks to
 var REDUCED=!!(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches);
-
-/* ?preview=follow the Arsenal game|what did I miss
-   A developer/demo affordance, not part of the product UI: runs the same
-   MCP calls and the same animation with no microphone and no voice, using
-   the speech's estimated timing. Pace between phrases: &pace=ms. */
-var QS=new URLSearchParams(location.search);
-var PREVIEW=QS.get("preview");
-var PACE=+(QS.get("pace")||1400);
 
 /* ================================================================ MCP */
 var id=0,sid=null;
-var LIVE_MODE=false;
 async function rpc(method,params){
   var h={"Content-Type":"application/json"};
   if(sid)h["Mcp-Session-Id"]=sid;
@@ -518,8 +508,8 @@ function drawCore(now){
     amp=Math.sqrt(sum/buf.length);
     an.getByteFrequencyData(freq);
   }
-  // Browser speech cannot be tapped by Web Audio, so while it speaks (or
-  // in preview) the word timings drive the backdrop instead: each spoken
+  // Browser speech cannot be tapped by Web Audio, so while it speaks the
+  // word timings drive the backdrop instead: each spoken
   // word kicks an envelope that decays. Still the speech's own timing.
   env*=Math.pow(.90,k60);
   var live=Math.max(amp, env*.42);
@@ -704,15 +694,59 @@ function level(an,buf){
 /* Energy-gated. Speech raises the level above a floor measured from the
    room itself; a pause below it for long enough ends the turn. No wake
    word, no button, no hold - the listener is not looking at anything. */
-var FLOOR=0.012, SILENCE_MS=850, MIN_MS=380, MAX_MS=12000;
+var FLOOR=0.012, SILENCE_MS=700, MIN_MS=380, MAX_MS=12000;
 var speaking=false, armed=false;
 var sawVoice=false, lastVoice=0, startedAt=0, watch=null;
 
+/* ---- is that speech? ---------------------------------------------------
+   A fixed loudness gate cannot tell a voice from a key press: both are loud for
+   a moment. They differ in two ways. Speech is SUSTAINED (a word is tens to
+   hundreds of ms of continuous sound; a keystroke is under 30 ms, a mug on the
+   desk under 100). And a click is BROADBAND and harsh: much of its energy sits
+   above 4 kHz, where speech has little. So a frame counts as speech only if it
+   is louder than this room's own noise, is not harsh, and the same holds for
+   several frames in a row. The room's noise level is learned continuously, so a
+   fan or a loud keyboard raises the bar instead of triggering it.
+   (Pure functions, so tests/test_simulator.py runs them under Node.) */
+/* VAD:begin */
+var VAD_FLOOR=0.012, VAD_RUN=4, VAD_HARSH=0.35, VAD_WARM=7, VAD_NOISE_CAP=0.02;
+function vadNew(){ return {noise:0.004, run:0, warm:VAD_WARM}; }
+/* Share of energy above 5 kHz against 300 Hz to 3.4 kHz, from dB spectrum bins. */
+function vadHarsh(db, binHz){
+  var lo=Math.max(1,Math.floor(300/binHz)), mid=Math.floor(3400/binHz);
+  var hi=Math.floor(5000/binHz), top=Math.min(db.length-1,Math.floor(12000/binHz));
+  var sp=0, hf=0, i;
+  for(i=lo;i<=mid&&i<db.length;i++) sp+=Math.pow(10,db[i]/10);
+  for(i=hi;i<=top;i++) hf+=Math.pow(10,db[i]/10);
+  return hf/(sp+hf+1e-18);
+}
+/* One analysis frame (about 60 ms). rms is 0..1; harsh is vadHarsh(). */
+function vadStep(st, rms, harsh){
+  var floor=Math.max(VAD_FLOOR, st.noise*3.2);
+  var active=rms>floor;
+  var speechy=active && harsh<VAD_HARSH;
+  st.run=speechy?st.run+1:0;
+  // Learn the room: quiet frames pull the estimate in quickly, loud ones only
+  // slowly (a fan), and never past a cap, so speech cannot raise its own bar.
+  st.noise+=(rms-st.noise)*(active?0.001:0.06);
+  if(st.noise>VAD_NOISE_CAP) st.noise=VAD_NOISE_CAP;
+  if(st.warm>0){ st.warm--; st.run=0; }          // listen to the room before judging it
+  return {active:active, speechy:speechy, sustained:st.run>=VAD_RUN, floor:floor};
+}
+/* VAD:end */
+var vad=vadNew(), specBuf=null;
+function harshNow(an){
+  if(!an||!ctx) return 0;
+  if(!specBuf||specBuf.length!==an.frequencyBinCount) specBuf=new Float32Array(an.frequencyBinCount);
+  an.getFloatFrequencyData(specBuf);
+  return vadHarsh(specBuf, ctx.sampleRate/an.fftSize);
+}
+
 /* Raw PCM capture, not MediaRecorder.
 
-   Transcribe streaming wants 16 kHz mono PCM, and capturing it directly
+   Speech recognition wants 16 kHz mono PCM, and capturing it directly
    sidesteps the container problem entirely: MediaRecorder gives WebM in
-   Chrome and MP4 in Safari, and Transcribe accepts neither. Groq takes
+   Chrome and MP4 in Safari, and the providers accept neither. Groq takes
    a file, so PCM gets a 44-byte WAV header server-side.
 
    ScriptProcessor rather than AudioWorklet: deprecated, but it works
@@ -725,7 +759,7 @@ function downsample(input, inRate){
   for(var i=0,j=0;i<out.length;i++){
     var next=Math.round((i+1)*ratio), sum=0, n=0;
     // Average across the window rather than picking one sample, or the
-    // downsample aliases and Transcribe hears a buzz.
+    // downsample aliases and the recogniser hears a buzz.
     for(;j<next&&j<input.length;j++){ sum+=input[j]; n++; }
     out[i]=n?sum/n:0;
   }
@@ -769,6 +803,31 @@ function endCapture(){
   return all.buffer;
 }
 
+/* Live caption. Server recognition returns text only after the clip ends, so
+   while you speak the browser's recognition types interim words on the side
+   (display only: it never asks anything). The server's transcript replaces
+   them. SIDELINE_LIVE_CAPTION=off turns this off, which also keeps your audio
+   from the browser vendor. */
+var CAP=null;
+function startLiveCaption(){
+  if(!SR||caps.caption!=="browser"||CAP) return;
+  try{
+    var r=new SR();
+    r.lang=navigator.language||"en-GB"; r.interimResults=true; r.continuous=true; r.maxAlternatives=1;
+    r.onresult=function(e){
+      var t="";
+      for(var i=0;i<e.results.length;i++) t+=e.results[i][0].transcript;
+      t=t.trim(); if(t) liveSaid(t,true);
+    };
+    r.onerror=function(){};                 // best effort: the clip path does the real work
+    r.onend=function(){ if(CAP===r) CAP=null; };
+    CAP=r; r.start();
+  }catch(e){ CAP=null; }
+}
+function stopLiveCaption(){
+  if(CAP){ var r=CAP; CAP=null; try{r.abort()}catch(e){} }
+}
+
 function listen(){
   if(!armed||speaking||!mic)return;
   if(useBrowserSTT){ startBrowserRecognition(); return; }
@@ -776,17 +835,22 @@ function listen(){
                              // answer stays on screen until you speak again
   sawVoice=false; startedAt=performance.now(); lastVoice=0;
   startCapture();
+  startLiveCaption();
 
   clearInterval(watch);
   watch=setInterval(function(){
     var a=level(micAn,micBuf), now=performance.now();
-    if(a>FLOOR){
+    var hs=harshNow(micAn), v=vadStep(vad,a,hs);
+    // Voice begins only when sound is sustained and not click-like; once it has,
+    // any loud frame that is not very harsh keeps the turn open.
+    if(v.sustained || (sawVoice && v.active && hs<0.6)){
       if(!sawVoice) answer.classList.add("stale");   // you are speaking: dim the last answer
       sawVoice=true; lastVoice=now;
     }
     var elapsed=now-startedAt, quietFor=now-(lastVoice||startedAt);
     if((sawVoice && elapsed>MIN_MS && quietFor>SILENCE_MS) || elapsed>MAX_MS){
       clearInterval(watch); watch=null;
+      stopLiveCaption();
       var pcm=endCapture();
       if(sawVoice && pcm.byteLength>6000) handleClip(pcm);
       else if(armed) listen();
@@ -795,6 +859,7 @@ function listen(){
 }
 
 function stopListening(){
+  stopLiveCaption();
   if(REC){ try{REC.abort()}catch(e){} REC=null; }
   clearInterval(watch); watch=null;
   if(capturing) endCapture();
@@ -809,8 +874,10 @@ function watchForBargeIn(){
   var over=0;
   bargeTimer=setInterval(function(){
     if(!speaking){clearInterval(bargeTimer);return;}
-    over = level(micAn,micBuf)>FLOOR*2.6 ? over+1 : 0;
-    if(over>4){                       // ~240ms of real speech
+    // Louder than the room, and not click-like: typing while it talks must not
+    // cut it off. ~300 ms of sustained speech.
+    over = (level(micAn,micBuf)>Math.max(FLOOR,vad.noise*3.2)*2.6 && harshNow(micAn)<VAD_HARSH) ? over+1 : 0;
+    if(over>4){
       clearInterval(bargeTimer);
       stopSpeaking();
       listen();
@@ -819,8 +886,8 @@ function watchForBargeIn(){
 }
 
 /* ===================================== speech in: the browser's own ears */
-/* When the server has no speech-to-text configured (no Transcribe, no
-   Groq key), the browser's SpeechRecognition does it, and shows the words
+/* When the server has no speech-to-text configured (no Groq key, no Nova
+   Sonic), the browser's SpeechRecognition does it, and shows the words
    AS YOU SPEAK them. Chrome and Edge send the audio to their vendor's
    recognition service to do this, which is not Amazon's; Safari support
    varies; Firefox has none. With server transcription the words appear
@@ -881,16 +948,17 @@ async function handleClip(pcm){
       text=(await r.json()).text;
     }catch(e){
       console.warn("server speech recognition unavailable; switching to browser",e);
+      var failed={groq:"Groq speech recognition",sonic:"Nova Sonic speech recognition"}[caps.stt]||"Speech recognition";
       caps.stt=null;
       useBrowserSTT=!!SR;
       $("stack").innerHTML="in <b>"+(useBrowserSTT?"browser":"unavailable")+
         "</b> · out <b>"+(caps.tts?("polly "+(caps.voice||"")):"browser")+"</b>";
       if(useBrowserSTT){
-        setQuiet("Amazon Transcribe unavailable; switching to browser speech recognition. Please repeat.");
+        setQuiet(failed+" unavailable; switching to browser speech recognition. Please repeat.");
         if(armed) listen();
       }else{
         armed=false;
-        setQuiet("Amazon Transcribe unavailable and this browser has no speech recognition.");
+        setQuiet(failed+" unavailable and this browser has no speech recognition.");
       }
       return;
     }
@@ -1044,8 +1112,6 @@ async function say(text){
   var spans=layout(text);
   speaking=true; setMode("speaking");
 
-  if(PREVIEW!==null){ timedReveal(spans); return; }
-
   if(caps.tts){
     try{
       var r=await fetch(BASE+"/voice/tts",{method:"POST",
@@ -1117,44 +1183,6 @@ function finishSpeaking(spans,done){
   if(done)done();
   // Hands-free: go straight back to listening. No button, no wake word.
   setTimeout(function(){ if(armed) listen(); }, 180);
-  if(PREVIEW!==null && previewResolve){ var r=previewResolve; previewResolve=null; r(); }
-}
-
-/* ============================================================ routing */
-/* Local keyword routing. The real router is Alexa's; this mirrors the
-   phrasings in the tool descriptions on purpose, so a miss here hints
-   at a miss there. */
-function heardWhich(t){
-  return /kick.?off/i.test(t)?"kickoff"
-       : /half.?time/i.test(t)?"half_time"
-       : /second half|restart/i.test(t)?"second_half"
-       : /full.?time|final whistle/i.test(t)?"full_time":"goal";
-}
-var ROUTES=[
-  [/kick.?off just|whistle.{0,14}gone|that'?s half.?time|second half|just scored/i,
-    function(t){return ["sync_broadcast_delay",{heard:heardWhich(t)}]}],
-  [/spoil|ahead of my|in sync|are you behind/i,
-    function(){return ["sync_broadcast_delay",{check:true}]}],
-  [/miss|happen|catch me up|fill me in|just got back|the rest|everything|yes please/i,
-    function(t){return ["what_did_i_miss",/rest|everything|yes/i.test(t)?{full:true}:{}]}],
-  [/score|winning|how long|finished|still/i, function(){return ["get_match_state",{}]}],
-  [/playing|line.?up|bench|formation|starting/i, function(){return ["get_lineups",{}]}],
-  [/ref|official|yellow|red card|booking/i, function(){return ["get_officials",{}]}],
-  [/that goal|assist|say that again|tell me about/i,
-    function(){return ["get_event_detail",{kind:"goal"}]}],
-  [/beaten|last time|record against|head to head/i, function(){return ["get_head_to_head",{}]}],
-  [/follow|watch|keep me updated|put on/i, function(t){
-    var m=t.match(/(?:follow|watch|put on)(?: the)? ([a-z\s]+?)(?: game| match|\.|$)/i);
-    return ["follow_match",{team:(m?m[1]:"Arsenal").trim(),locale:navigator.language}];
-  }],
-];
-function route(t){
-  for(var i=0;i<ROUTES.length;i++) if(ROUTES[i][0].test(t)) return ROUTES[i][1](t);
-  if(/who(?:'?s| is| was)\s+(he|that|him)\b/i.test(t))
-    return ["get_player_context",{player:"he"}];
-  var n=t.match(/who(?:'?s| is)\s+([a-z\s]{2,28})/i);
-  if(n) return ["get_player_context",{player:n[1].trim()}];
-  return ["get_match_state",{}];
 }
 
 /* =============================================================== match */
@@ -1238,6 +1266,8 @@ async function ask(text){
       body:JSON.stringify({text:text})});
     if(!response.ok) throw new Error("agent unavailable");
     var result=await response.json();
+    // Said "gamma osaka", meant "Gamba Osaka": show what we acted on.
+    if(result.understood) showSaid(result.understood);
     var dot=$("dot"); dot.className="dot ok";
     void dot.offsetWidth; dot.classList.add("ping");
     var names=(result.tool_results||[]).map(function(item){return item.name});
@@ -1249,32 +1279,11 @@ async function ask(text){
     paint();
     say(result.text||"I couldn't get an answer.");
   }catch(e){
-    if(LIVE_MODE){
-      $("dot").className="dot err"; $("tool").textContent="Nova unavailable";
-      $("via").textContent="live mode · no fallback";
-      $("via").className="via";
-      say("I can't get a live answer from Nova right now. Please try again shortly.");
-      return;
-    }
-    // Preserve the dependency-free demo path when AWS credentials, model
-    // access, or the selected Nova model are not available.
-    try{
-      var pair=route(text),tool=pair[0],args=pair[1];
-      var doc=await rpc("tools/call",{name:tool,arguments:args});
-      var res=(doc&&doc.result)||{}, sc=res.structuredContent||{};
-      $("dot").className="dot "+(res.isError?"err":"ok");
-      $("tool").textContent=tool;
-      $("ms").textContent=Math.round(performance.now()-t0)+" ms";
-      $("via").textContent="local routing";
-      $("via").className="via";
-      applyToolResult({name:tool,spoken:(res.content||[{}])[0].text,structured:sc});
-      paint();
-      say(((res.content||[{}])[0].text)||"Sorry, nothing came back.");
-    }catch(fallbackError){
-      $("dot").className="dot err"; $("tool").textContent="no server";
-      $("via").textContent="Nova unavailable";
-      say("I can't reach Nova or the match server right now.");
-    }
+    // There is no offline fallback: the answer comes from Nova and the live
+    // feed, or the listener is told it did not.
+    $("dot").className="dot err"; $("tool").textContent="no answer";
+    $("via").textContent="unavailable"; $("via").className="via";
+    say("I can't get an answer right now. Please try again shortly.");
   }
 }
 
@@ -1293,7 +1302,6 @@ async function connect(){
   try{
     var health=await fetch(BASE+"/health");
     if(!health.ok) throw new Error("health check failed");
-    LIVE_MODE=(await health.json()).mode==="live";
     var init=await rpc("initialize",{protocolVersion:"2025-11-25",
       clientInfo:{name:"sideline-simulator",version:"3"}});
     await rpc("notifications/initialized");
@@ -1326,24 +1334,6 @@ $("begin").onclick=async function(){
   say("Tell me which match to follow.");
 };
 
-/* Preview: no microphone, no voice. Same MCP calls, same animation. */
-var previewResolve=null;
-async function runPreview(){
-  $("gate").classList.add("gone");
-  if(!(await connect())) return;
-  var phrases=PREVIEW.split("|").map(function(s){return s.trim()}).filter(Boolean);
-  setQuiet(""); setMode("listening");
-  await new Promise(function(r){ setTimeout(r,900); });
-  for(var i=0;i<phrases.length;i++){
-    showSaid(phrases[i]);
-    await new Promise(function(r){ setTimeout(r,500); });
-    var waited=new Promise(function(r){ previewResolve=r; });
-    ask(phrases[i]);
-    await waited;
-    await new Promise(function(r){ setTimeout(r,PACE); });
-  }
-}
-
 /* Ask the server what it can do, so the gate can say so before anyone
    commits a microphone to it. */
 (async function(){
@@ -1360,10 +1350,9 @@ async function runPreview(){
     try{ console.info("sideline voice:", caps.stt_hint||"", caps.tts_hint||""); }catch(e){}
   }
   useBrowserSTT=(!caps.stt && !!SR);
-  if(!caps.stt && !SR && PREVIEW===null){
+  if(!caps.stt && !SR){
     $("gatenote").textContent="this browser can’t turn speech into text — try Chrome";
   }
-  if(PREVIEW!==null) runPreview();
 })();
 })();
 </script>

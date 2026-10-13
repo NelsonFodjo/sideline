@@ -1,89 +1,104 @@
-"""Configuration. Environment variables first.
+"""Configuration, from environment variables.
 
-Configuration comes from environment variables, which take priority over
-everything. An optional .env file in the repo root fills in whatever you
-have not exported (sideline/envfile.py); it is git-ignored. See
-docs/ENVIRONMENT.md for every variable, and `make env` to see which are
-set (it never prints a value).
+Environment variables win. An optional `.env` file in the repository root fills
+in whatever is not exported (sideline/envfile.py); it is git-ignored. Every
+variable is documented in docs/ENVIRONMENT.md, and tests/test_environment.py
+fails if the code, `.env.example` and that page ever disagree.
 
-Integrations default to "auto": present credentials switch them on
-(sideline/autodetect.py), an explicit value always wins.
-
-Defaults are chosen so that `python -m sideline` with no environment at
-all starts a working server against a recorded match. A judge should be
-able to clone this and hear a real answer in under a minute, with no
-AWS account and no API key. Anything that would break that is opt-in.
+There is no demo mode and no recorded data: the server needs a football feed key
+(SIDELINE_FOOTBALL_KEY) and says so at startup if it is missing.
 """
 
 import os
 
-from . import autodetect
+# Every environment variable the code reads, and nothing else. This is the one
+# source of truth: `make env` prints from it, and tests/test_environment.py fails
+# if the code, this list, `.env.example` and docs/ENVIRONMENT.md ever disagree.
+# (name, secret?, default, what it does)
+VARIABLES = [
+    # The live football feed
+    ("SIDELINE_FOOTBALL_KEY", True, "", "API-Football key. Required: there is no recorded or demo data"),
+    ("SIDELINE_POLL_SECONDS", False, "60", "Seconds between polls of a followed match (free plan: 100 requests a day)"),
+    # The server
+    ("SIDELINE_HOST", False, "127.0.0.1", "Interface to bind"),
+    ("SIDELINE_PORT", False, "8765", "Port"),
+    ("SIDELINE_LOG", False, "INFO", "Log level"),
+    ("SIDELINE_ALLOWED_ORIGINS", False, "localhost,127.0.0.1", "Browser origins allowed (DNS-rebinding guard)"),
+    # AWS: credentials, then what uses them
+    ("AWS_REGION", False, "us-east-1", "Region for Bedrock, DynamoDB and Polly"),
+    ("AWS_ACCESS_KEY_ID", True, "", "AWS credentials (with the secret below)"),
+    ("AWS_SECRET_ACCESS_KEY", True, "", "AWS credentials (with the key id above)"),
+    ("AWS_PROFILE", False, "", "A named AWS profile, instead of keys"),
+    ("AWS_BEARER_TOKEN_BEDROCK", True, "", "A Bedrock API key (Bedrock only, not Polly or DynamoDB)"),
+    ("SIDELINE_BEDROCK", False, "auto", "auto (on when AWS credentials are present), on, or off"),
+    ("SIDELINE_BEDROCK_MODEL", False, "amazon.nova-micro-v1:0", "Bedrock model or inference-profile id"),
+    ("SIDELINE_STATE", False, "auto", "auto (DynamoDB if it answers, else memory), memory, or dynamo"),
+    ("SIDELINE_TABLE", False, "sideline", "DynamoDB table name"),
+    # Voice, for the simulator
+    ("SIDELINE_POLLY_VOICE", False, "Amy", "Polly voice (speech out)"),
+    ("SIDELINE_STT", False, "auto", "Speech in: auto, groq, sonic, or off"),
+    ("GROQ_API_KEY", True, "", "Turns on Groq Whisper for speech in. Audio then leaves AWS"),
+    ("SIDELINE_LIVE_CAPTION", False, "browser", "browser types interim words while you speak (audio also reaches the browser vendor); off does not"),
+]
 
-# Paths in this file resolve against the repository, not against whatever
-# directory you happen to be standing in. Without this, `python3 run.py`
-# from anywhere but the repo root fails to find the replay data - which
-# is a confusing error for something that has nothing to do with the
-# user's mistake.
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ON = ("1", "true", "yes", "on")
+_OFF = ("0", "false", "no", "off")
 
 
-def _path(value):
-    return value if os.path.isabs(value) else os.path.join(_ROOT, value)
+def aws_credentials(env=None):
+    """Is there a way to authenticate to AWS in this environment?
+
+    Static keys, a named profile, or a Bedrock API key. Anything else (an
+    instance role, say) is not detected here: set SIDELINE_BEDROCK=on and
+    SIDELINE_STATE=dynamo explicitly.
+    """
+    env = os.environ if env is None else env
+    if env.get("AWS_ACCESS_KEY_ID") and env.get("AWS_SECRET_ACCESS_KEY"):
+        return True
+    return bool(env.get("AWS_PROFILE") or env.get("AWS_BEARER_TOKEN_BEDROCK"))
 
 
-def _bool(name, default=False):
-    v = os.environ.get(name)
-    if v is None:
-        return default
-    return v.strip().lower() in ("1", "true", "yes", "on")
+def bedrock_enabled(env=None):
+    """SIDELINE_BEDROCK: auto (on when AWS credentials are present), on, or off."""
+    env = os.environ if env is None else env
+    v = (env.get("SIDELINE_BEDROCK") or "auto").strip().lower()
+    if v in _ON:
+        return True
+    if v in _OFF:
+        return False
+    return aws_credentials(env)
+
+
+def state_kind(env=None):
+    """SIDELINE_STATE: memory, dynamo, or auto (try DynamoDB, else memory)."""
+    env = os.environ if env is None else env
+    v = (env.get("SIDELINE_STATE") or "auto").strip().lower()
+    if v != "auto":
+        return v
+    return "auto" if aws_credentials(env) else "memory"
 
 
 class Config:
     host = os.environ.get("SIDELINE_HOST", "127.0.0.1")
     port = int(os.environ.get("SIDELINE_PORT", "8765"))
+    log_level = os.environ.get("SIDELINE_LOG", "INFO")
 
-    # live | demo. Live switches to real API data and real-time Bedrock queries.
-    mode = autodetect.sideline_mode(os.environ)
-    catchup_mode = autodetect.catchup_mode(os.environ)
-
-    # auto (default) | replay | apifootball. Auto = live when a key is present.
-    provider = autodetect.provider_kind(os.environ)
-    replay_path = _path(os.environ.get("SIDELINE_REPLAY",
-                                       "data/replay/spurs-arsenal-2016.json"))
-    replay_speed = float(os.environ.get("SIDELINE_REPLAY_SPEED", "1.0"))
-    replay_start = int(os.environ.get("SIDELINE_REPLAY_START", "0"))
+    # The live football feed (API-Football). Required to start the server.
     football_key = os.environ.get("SIDELINE_FOOTBALL_KEY", "")
-    # Secrets Manager name or ARN; read at startup if no key is set above.
-    football_secret = os.environ.get("SIDELINE_FOOTBALL_SECRET", "")
+    # Seconds between polls of each followed match. A free plan allows 100
+    # requests a day, which one match at 15 s burns in under half an hour: 60.
+    poll_seconds = int(os.environ.get("SIDELINE_POLL_SECONDS", "60"))
 
-    # auto (default) | memory | dynamo. See autodetect.py; table: docs/AWS_SETUP.md
-    state = autodetect.state_kind(os.environ)
+    # Listener state: DynamoDB, or memory. Table: docs/AWS_SETUP.md.
+    state = state_kind()
     table = os.environ.get("SIDELINE_TABLE", "sideline")
     region = os.environ.get("AWS_REGION", "us-east-1")
 
-    bedrock = autodetect.bedrock_enabled(os.environ)
-
-    poll_seconds = int(os.environ.get("SIDELINE_POLL_SECONDS", "15"))
-
-    # Origin allow-list. Alexa+ sends no Origin header, so this only
-    # affects browsers - which is the point: it closes the DNS-rebinding
-    # hole the MCP spec warns about for locally bound servers.
+    # Origin allow-list. Alexa+ sends no Origin header, so this only affects
+    # browsers: it closes the DNS-rebinding hole the MCP spec warns about for
+    # locally bound servers.
     allowed_origins = [o.strip() for o in os.environ.get(
         "SIDELINE_ALLOWED_ORIGINS", "localhost,127.0.0.1").split(",") if o.strip()]
-
-    # off (default) | required. See sideline/auth.py and docs/ALEXA_SETUP.md.
-    auth = os.environ.get("SIDELINE_AUTH", "off").strip().lower()
-    auth_issuer = os.environ.get("SIDELINE_AUTH_ISSUER", "")
-    # Optional: enforce this `aud`. Alexa's docs do not say tokens carry one.
-    auth_audience = os.environ.get("SIDELINE_AUTH_AUDIENCE", "")
-    auth_scopes = os.environ.get("SIDELINE_AUTH_SCOPES", "")
-    auth_jwks_url = os.environ.get("SIDELINE_AUTH_JWKS_URL", "")
-    auth_hs256_secret = os.environ.get("SIDELINE_AUTH_HS256_SECRET", "")
-    # Canonical HTTPS URL of this server's MCP endpoint, exactly as in the
-    # Alexa+ add-on manifest. Published as `resource` in the RFC 9728 metadata.
-    public_url = os.environ.get("SIDELINE_PUBLIC_URL", "")
-
-    log_level = os.environ.get("SIDELINE_LOG", "INFO")
 
 
 CONFIG = Config()

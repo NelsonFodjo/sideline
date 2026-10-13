@@ -1,82 +1,46 @@
 """Amazon Bedrock - where language has to be composed rather than stated.
 
-LIVE. boto3 is imported and the runtime client is initialised below. This
-is a real integration, not a reference: it is what qualifies the project
-for the AWS Builder mini challenge, which asks for AWS services used in
-the project with documented integrations.
+Alexa+ only ever sees what we return, so any reasoning that has to happen
+BEFORE the response leaves this server has to happen here. The catch-up is the
+case: eleven minutes of a match can hold nine raw events, and returning nine
+lines gives Alexa+ a list that sounds like a spreadsheet read aloud. Deciding
+what mattered and leading with the goal is a judgement made here.
 
-In demo mode, if boto3 is absent or no credentials are configured, calls
-fall back to deterministic templates in templates.py so the repository
-runs end to end with nothing installed. Strict live mode surfaces Bedrock
-failures; it never substitutes a canned language response.
+One rule governs failure: if Bedrock is on, a failure is reported to the caller
+(BedrockUnavailable) and never papered over with canned wording; if Bedrock is
+off (SIDELINE_BEDROCK=off, or no AWS credentials), the deterministic templates
+in templates.py are used and the response says `generated_by: template`.
 
-------------------------------------------------------------------------
-WHY BEDROCK AT ALL, GIVEN ALEXA+ ALREADY HAS A MODEL
-------------------------------------------------------------------------
-Alexa+ only ever sees what we return. Any reasoning that has to happen
-BEFORE the response leaves this server has to happen on this server.
+Where it is used:
+    catchup()     events since the listener last heard, as one spoken paragraph
+    milestones()  a long absence, reduced to headlines plus an offer
+    translate()   the same facts in another language or register
+and where it is not: a scoreline, the line-ups, the officials, one event. Those
+are facts, so they are templated (fast, and nothing to get wrong). The voice
+agent (agent.py) is separate: Nova there chooses which tool to call.
 
-The catch-up is exactly that case. Eleven minutes of a match can hold
-nine raw events. Returning nine lines gives Alexa+ a list, and a list
-read aloud sounds like a spreadsheet. Compressing nine events into one
-paragraph that leads with the goal is a judgement about what mattered,
-and it has to be made here, before the response exists.
+Nova Micro, not a larger model: this is compression under a voice deadline, not
+writing. max_attempts=1, because a retry costs another request timeout. A
+catch-up takes about two seconds, which misses Alexa+'s 500 ms target; that is
+stated in the README rather than hidden.
 
-------------------------------------------------------------------------
-WHERE IT IS USED - AND DELIBERATELY NOT USED
-------------------------------------------------------------------------
-USED:
-  simulator agent MCP tools Nova routes to registered tools and phrases the results
-  catchup()        the one that genuinely needs it
-  milestones()     long absences, compressed to headlines plus an offer
-  open_question()  questions that map to no single tool
-  translate()      same facts, another language or register
-
-DIRECT MCP RESULTS ARE DETERMINISTIC FACTS:
-  get_match_state   a scoreline is a fact; generating it adds risk and
-                    latency; the simulator agent uses it as tool data
-  get_officials     likewise
-  get_event_detail  one event, one sentence, already deterministic
-  get_lineups       a list of names; nothing to compose
-
-------------------------------------------------------------------------
-LATENCY BUDGET
-------------------------------------------------------------------------
-    fast tools (no model)        < 300 ms
-    catch-up (one model call)    < 2.5 s
-    timeout                      configurable; live mode reports failure
-
-Nova Micro rather than a larger model, because this is compression under a
-voice deadline, not writing. max_attempts=1 because a retry costs another
-request timeout.
-
-In demo mode a timeout can use a deterministic template. Strict live mode
-surfaces the failure rather than substituting a canned answer.
-
-------------------------------------------------------------------------
-SPOKEN LENGTH
-------------------------------------------------------------------------
-Voice answers have to fit inside the gap between two moments of play.
-SPOKEN_WORD_TARGET is the budget. It is a target rather than a hard
-truncation: cutting a sentence mid-clause to hit a word count produces
-something nobody can follow. For a gap too large to fit, we switch to
-milestones() and offer the detail instead - see what_did_i_miss.
+Spoken length is a target rather than a hard truncation: cutting a sentence
+mid-clause to hit a word count produces something nobody can follow. A gap too
+large to fit goes through milestones() instead.
 """
 
 import json
 import logging
 import os
 
+from .. import config, sports
 from . import templates
-from .prompts import (CATCHUP_SYSTEM, MILESTONE_SYSTEM, OPEN_QUESTION_SYSTEM,
-                      TRANSLATE_SYSTEM)
+from .prompts import CATCHUP_SYSTEM, MILESTONE_SYSTEM, TRANSLATE_SYSTEM
 
 LOG = logging.getLogger("sideline.bedrock")
 
-# --------------------------------------------------------------- imports
-# Imported at module level so the dependency is explicit and the AWS
-# integration is visible to anyone reading the file. Guarded so the
-# repository still runs on a machine with nothing installed.
+# Imported at module level so the dependency is visible, and guarded so the
+# repository still imports on a machine without boto3.
 try:
     import boto3
     from botocore.config import Config as BotoConfig
@@ -85,40 +49,37 @@ except ImportError:                                            # pragma: no cove
     boto3 = None
     BotoConfig = None
     HAVE_BOTO3 = False
-    LOG.info("boto3 not installed - Bedrock unavailable; demo mode can use templates")
 
-from .. import autodetect  # noqa: E402
-
-# "auto" (the default) means on whenever AWS credentials are present.
-ENABLED = autodetect.bedrock_enabled(os.environ)
-STRICT_LIVE = autodetect.sideline_mode(os.environ) == "live"
+# SIDELINE_BEDROCK: auto (on when AWS credentials are present), on, or off.
+ENABLED = config.bedrock_enabled()
 REGION = os.environ.get("AWS_REGION", "us-east-1")
-MODEL_ID = os.environ.get("SIDELINE_BEDROCK_MODEL",
-                          "amazon.nova-micro-v1:0")
+MODEL_ID = os.environ.get("SIDELINE_BEDROCK_MODEL", "amazon.nova-micro-v1:0")
 
-# Alexa+'s QuickStart sets a round-trip target of 500 ms. A model call can
-# take longer, so the ceiling is configurable. In live mode a timeout is
-# surfaced; demo mode may use templates. See docs/BEDROCK.md.
-TIMEOUT_SECONDS = float(os.environ.get(
-    "SIDELINE_BEDROCK_TIMEOUT",
-    "8.0" if autodetect.catchup_mode(os.environ) == "live" else "3.0"))
+TIMEOUT_SECONDS = 8.0
 MAX_TOKENS = 160
 MAX_EVENTS_IN_PROMPT = 12
-SPOKEN_WORD_TARGET = int(os.environ.get("SIDELINE_WORD_TARGET", "45"))
+SPOKEN_WORD_TARGET = 45
 
 _client = None
 
 
 class BedrockUnavailable(Exception):
-    """A live-mode answer cannot be completed by Bedrock."""
+    """Bedrock is on but could not produce a usable answer."""
+
+
+class _Refused(BedrockUnavailable):
+    """The model answered, but the text was not usable (empty, or a wrong score).
+
+    Unlike a failed request this is quick and often not repeated, so one retry is
+    worth it. A timeout or an error is not retried: that costs another timeout.
+    """
 
 
 def client():
     """Lazily initialise the Bedrock runtime client.
 
-    Lazy because constructing it resolves credentials, and we do not want
-    import of this module to touch the filesystem or the metadata service
-    on a machine that is only running the tests.
+    Lazy because constructing it resolves credentials, and importing this module
+    must not touch the filesystem or the metadata service.
     """
     global _client
     if _client is None:
@@ -127,8 +88,7 @@ def client():
         _client = boto3.client(
             "bedrock-runtime",
             region_name=REGION,
-            config=BotoConfig(read_timeout=TIMEOUT_SECONDS,
-                              connect_timeout=1.0,
+            config=BotoConfig(read_timeout=TIMEOUT_SECONDS, connect_timeout=1.0,
                               retries={"max_attempts": 1}))
         LOG.info("bedrock-runtime client ready: %s in %s", MODEL_ID, REGION)
     return _client
@@ -138,23 +98,12 @@ def available():
     return ENABLED and HAVE_BOTO3
 
 
-def _converse(system, user_text, max_tokens=MAX_TOKENS, on_token=None):
-    """Bedrock Converse call using real-time converse_stream.
-
-    Streams tokens sequentially as they arrive from the model. Calls
-    `on_token(text_chunk)` if provided, assembling the full generated
-    text while reducing memory pressure and time-to-first-token.
-    """
-    if not available():
-        if STRICT_LIVE:
-            raise BedrockUnavailable("Bedrock is disabled or boto3 is unavailable")
-        return None
+def _converse(system, user_text, max_tokens=MAX_TOKENS):
+    """One streamed Converse call. Returns the text, or raises BedrockUnavailable."""
+    import time
     c = client()
     if c is None:
-        if STRICT_LIVE:
-            raise BedrockUnavailable("Bedrock client is unavailable")
-        return None
-    import time
+        raise BedrockUnavailable("Bedrock client is unavailable")
     t0 = time.time()
     try:
         resp = c.converse_stream(
@@ -165,62 +114,39 @@ def _converse(system, user_text, max_tokens=MAX_TOKENS, on_token=None):
                              "temperature": 0.2,   # reporting, not writing
                              "topP": 0.9},
         )
-        stream = resp.get("stream")
         pieces = []
-        ttft = None
-        for event in stream:
-            if "contentBlockDelta" in event:
-                delta = event["contentBlockDelta"].get("delta", {})
-                txt = delta.get("text", "")
-                if txt:
-                    if ttft is None:
-                        ttft = (time.time() - t0) * 1000
-                    pieces.append(txt)
-                    if on_token:
-                        on_token(txt)
+        for event in resp.get("stream"):
+            delta = event.get("contentBlockDelta", {}).get("delta", {})
+            if delta.get("text"):
+                pieces.append(delta["text"])
         out = "".join(pieces).strip()
-        total_ms = (time.time() - t0) * 1000
-        LOG.info("bedrock %s streamed in %dms (ttft: %dms)",
-                 MODEL_ID, total_ms, ttft or total_ms)
-        return out or None
+        LOG.info("bedrock %s answered in %dms", MODEL_ID, (time.time() - t0) * 1000)
+        return out
     except Exception as e:                                     # noqa: BLE001
-        if STRICT_LIVE:
-            LOG.error("bedrock request failed in live mode: %s", e)
-            raise BedrockUnavailable("Bedrock request failed") from e
-        LOG.warning("bedrock unavailable, using template: %s", e)
-        return None
+        LOG.error("bedrock request failed: %s", e)
+        raise BedrockUnavailable("Bedrock request failed") from e
 
 
 # ----------------------------------------------------------- public API
-def template_catchup(events, fixture, from_minute, to_minute):
-    """The deterministic catch-up. No model, no network, instant."""
-    return templates.say_catchup(events, fixture, from_minute, to_minute)
+def _system(template, fixture):
+    return template.format(domain=sports.resolve(fixture).domain)
 
 
-def key_events(events):
-    """The headline events a long absence is reduced to: goals and reds."""
-    goals = [e for e in events if e["kind"] == "goal" and not e.get("superseded_by")]
-    reds = [e for e in events if e["kind"] == "card" and e.get("colour") == "red"]
-    return goals + reds
-
-
-def template_milestones(events, fixture, minutes_away):
-    return templates.say_milestones(key_events(events), events, fixture, minutes_away)
+def key_events(events, fixture=None):
+    """The headline events a long absence is reduced to: the sport's call
+    (goals and reds in football, threes and ejections in basketball)."""
+    return sports.resolve(fixture).headlines(events)
 
 
 def catchup(events, fixture, from_minute, to_minute):
-    """The call that earns its place.
+    """Events since the listener last heard, as one spoken paragraph.
 
-    Returns (text, generated_by) so the caller can report honestly in
-    structuredContent which path produced the words. A judge reading the
-    response should be able to see whether a model was involved.
+    Returns (text, generated_by): "bedrock", or "template" when Bedrock is off.
     """
-    fallback = templates.say_catchup(events, fixture, from_minute, to_minute)
+    if not available():
+        return templates.say_catchup(events, fixture, from_minute, to_minute), "template"
     if not events:
-        if STRICT_LIVE:
-            raise BedrockUnavailable("No events were supplied for a live catch-up")
-        return fallback, "template"
-
+        raise BedrockUnavailable("No events were supplied for a catch-up")
     payload = {
         "score": templates.say_score(fixture),
         "from_minute": from_minute,
@@ -228,105 +154,85 @@ def catchup(events, fixture, from_minute, to_minute):
         "word_budget": SPOKEN_WORD_TARGET,
         "events": [_slim(e) for e in events[:MAX_EVENTS_IN_PROMPT]],
     }
-    out = _converse(CATCHUP_SYSTEM, json.dumps(payload, ensure_ascii=False))
-    if not out:
-        if STRICT_LIVE:
-            raise BedrockUnavailable("Bedrock returned no catch-up")
-        return fallback, "template"
-    if not _score_consistent(out, fixture):
-        LOG.warning("bedrock output disagreed with the score; discarding")
-        if STRICT_LIVE:
-            raise BedrockUnavailable("Bedrock returned an inconsistent score")
-        return fallback, "template-after-guard"
-    return out, "bedrock"
+    return _write(_system(CATCHUP_SYSTEM, fixture), payload, fixture), "bedrock"
 
 
 def milestones(events, fixture, minutes_away):
     """A long absence, compressed to headlines plus an offer.
 
-    Forty minutes of match read back in full is a wall of text nobody can
-    follow by ear. We give the things that changed the game and let the
-    listener ask for the rest - which is what the friend on the sofa does.
+    Forty minutes of match read back in full is a wall of text nobody can follow
+    by ear: we give what changed the game and let the listener ask for the rest.
     """
-    goals = [e for e in events if e["kind"] == "goal" and not e.get("superseded_by")]
-    reds = [e for e in events if e["kind"] == "card" and e.get("colour") == "red"]
-    key = goals + reds
-
-    fallback = templates.say_milestones(key, events, fixture, minutes_away)
-    if not key:
-        if STRICT_LIVE:
-            if not events:
-                raise BedrockUnavailable("No events were supplied for live milestones")
-        else:
-            return fallback, "template"
-
+    key = key_events(events, fixture)
+    if not available():
+        return templates.say_milestones(key, events, fixture, minutes_away), "template"
+    if not events:
+        raise BedrockUnavailable("No events were supplied for milestones")
     payload = {"score": templates.say_score(fixture),
                "minutes_away": minutes_away,
                "other_event_count": len(events) - len(key),
                "word_budget": SPOKEN_WORD_TARGET,
-               "key_events": [_slim(e) for e in key[:6]]}
-    out = _converse(MILESTONE_SYSTEM, json.dumps(payload, ensure_ascii=False))
-    if not out or not _score_consistent(out, fixture):
-        if STRICT_LIVE:
-            raise BedrockUnavailable("Bedrock returned no valid milestone summary")
-        return fallback, "template"
-    return out, "bedrock"
-
-
-def open_question(question, events, fixture):
-    payload = {"question": question,
-               "score": templates.say_score(fixture),
-               "minute": fixture.get("minute"),
-               "recent_events": [_slim(e) for e in events[-MAX_EVENTS_IN_PROMPT:]]}
-    out = _converse(OPEN_QUESTION_SYSTEM, json.dumps(payload, ensure_ascii=False))
-    if not out:
-        if STRICT_LIVE:
-            raise BedrockUnavailable("Bedrock returned no answer")
-        return "I don't have that detail from the match data.", "template"
-    return out, "bedrock"
+               "key_events": [_slim(e) for e in key[:sports.MAX_HEADLINES]]}
+    return _write(_system(MILESTONE_SYSTEM, fixture), payload, fixture), "bedrock"
 
 
 def translate(text, language):
     """Render the same facts in another language or register.
 
-    Not only translation. 'pidgin' and 'sheng' are registers a listener
-    may genuinely prefer, and a match fact delivered in the voice people
-    actually use around them is a different experience from formal
-    broadcast English. Names are never translated.
+    'pidgin' and 'sheng' are registers a listener may genuinely prefer, and a
+    match fact in the voice people use around them is a different experience from
+    formal broadcast English. Names are never translated.
     """
-    if language in (None, "", "en"):
+    if language in (None, "", "en") or not available():
         return text, "template"
     out = _converse(TRANSLATE_SYSTEM.format(language=language), text)
-    if not out and STRICT_LIVE:
+    if not out:
         raise BedrockUnavailable("Bedrock could not translate the answer")
-    return (out or text), ("bedrock" if out else "template")
+    return out, "bedrock"
 
 
 # ------------------------------------------------------------- helpers
 _KEEP = ("minute", "stoppage", "kind", "player", "player_off", "team",
-         "assist", "detail", "colour", "reason", "decision")
+         "assist", "detail", "colour", "reason", "decision", "points")
 
 
 def _slim(e):
-    """Only the fields the model needs. Smaller prompt, lower latency,
-    and fewer fields it could be tempted to embellish."""
+    """Only the fields the model needs: a smaller prompt, lower latency, and
+    fewer fields it could be tempted to embellish."""
     return {k: v for k, v in e.items() if k in _KEEP and v not in (None, "")}
+
+
+def _write(system, payload, fixture):
+    """Ask the model, check what it said, and try once more if the text was refused."""
+    message = json.dumps(payload, ensure_ascii=False)
+    try:
+        return _checked(_converse(system, message), fixture)
+    except _Refused as first:
+        LOG.warning("bedrock text refused (%s); retrying once", first)
+        return _checked(_converse(system, message), fixture)
+
+
+def _checked(text, fixture):
+    """The model's text if it is usable, else _Refused (a BedrockUnavailable)."""
+    if not text:
+        raise _Refused("Bedrock returned no text")
+    if not _score_consistent(text, fixture):
+        LOG.warning("bedrock output disagreed with the score; discarding")
+        raise _Refused("Bedrock returned an inconsistent score")
+    return text
 
 
 def _score_consistent(text, fixture):
     """Does the generated text contradict the real score?
 
-    Prompting is necessary but not sufficient. A product whose entire
-    claim is that it knows what is happening right now is destroyed by
-    one invented scoreline, so there is a check as well as an
-    instruction.
-
-    Deliberately conservative: only rejects when the text states a
-    parseable scoreline AND it disagrees. Vague text passes.
+    Prompting is necessary but not sufficient. A product whose whole claim is that
+    it knows what is happening right now is destroyed by one invented scoreline,
+    so there is a check as well as an instruction. Conservative: only rejects when
+    the text states a parseable scoreline AND it disagrees.
     """
     import re
     h, a = fixture["score"]["home"], fixture["score"]["away"]
-    for x, y in re.findall(r"(\d+)\s*[-\u2013]\s*(\d+)", text):
+    for x, y in re.findall(r"(\d+)\s*[-–]\s*(\d+)", text):
         if {int(x), int(y)} != {h, a}:
             return False
     return True

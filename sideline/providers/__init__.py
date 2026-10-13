@@ -1,18 +1,9 @@
-from .base import Provider
+from .apifootball import ApiFootballProvider
+from .base import Provider, ProviderUnavailable
 
-__all__ = ["Provider", "build"]
+__all__ = ["ApiFootballProvider", "Provider", "ProviderUnavailable", "build"]
 
 
-def build(kind, **kw):
-    """SIDELINE_PROVIDER=replay|apifootball."""
-    if kind == "replay":
-        from .replay import ReplayProvider
-        return ReplayProvider(kw["path"], speed=kw.get("speed", 1.0),
-                              start_minute=kw.get("start_minute", 0))
-    if kind == "statsbomb":
-        from .statsbomb import StatsBombProvider
-        return StatsBombProvider(kw["events_path"], kw.get("lineups_path"))
-    if kind == "apifootball":
-        from .apifootball import ApiFootballProvider
-        return ApiFootballProvider(kw.get("api_key"))
-    raise ValueError("unknown provider: %s" % kind)
+def build(api_key):
+    """The live football feed. There is no recorded or demo provider."""
+    return ApiFootballProvider(api_key)

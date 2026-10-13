@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""Check the AWS setup, one layer at a time.
+"""Check the AWS integrations, one layer at a time.
 
-    python scripts/verify_aws.py
+    python3 scripts/verify_aws.py        # or: make aws-check
 
-Run this BEFORE the server, not after. The language layer degrades
-silently to templates by design, so a misconfigured Bedrock looks
-exactly like a working Sideline until you notice the answers are a bit
-flat. This tells you which layer actually failed.
+Run this BEFORE the server. It uses small synthetic inputs, not football data, so
+it needs no feed key and checks the integration, not the match. It makes a few
+tiny paid calls (a fraction of a cent). Exits 0 when everything required works.
 
-Exits 0 when everything needed is working, 1 otherwise. Nothing here
-writes, charges or creates anything except one tiny Bedrock call at the
-end, which costs a fraction of a cent.
+Required: boto3, credentials, a Bedrock model, a live Bedrock answer, Nova calling
+a Sideline tool, and a catch-up written by Bedrock. Reported but not required:
+speech in, speech out, DynamoDB (the server falls back to the browser's voice and
+to in-memory state).
 """
 
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import sideline  # noqa: E402,F401  (bridges AWS_REGION -> AWS_DEFAULT_REGION)
+import sideline  # noqa: E402,F401  (loads .env, bridges AWS_REGION)
 
 OK, BAD, SKIP = "  ok ", " FAIL", " skip"
 _failed = []
@@ -43,11 +43,9 @@ def _boto3():
 
 def _credentials():
     import boto3
-    bearer = os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
-    if bearer:
-        return "Bedrock API Key (bearer token configured)"
-    ident = boto3.client("sts").get_caller_identity()
-    return "account %s" % ident["Account"]
+    if os.environ.get("AWS_BEARER_TOKEN_BEDROCK"):
+        return "Bedrock API key (bearer token configured)"
+    return "account %s" % boto3.client("sts").get_caller_identity()["Account"]
 
 
 def _region():
@@ -55,8 +53,6 @@ def _region():
     r = boto3.session.Session().region_name
     if not r:
         raise RuntimeError("no region set - export AWS_REGION (e.g. us-east-1)")
-    if r != "us-east-1":
-        return "%s  (us-east-1 has the widest model availability)" % r
     return r
 
 
@@ -64,142 +60,137 @@ def _model_access():
     import boto3
     from sideline.language.bedrock import MODEL_ID, REGION
     bedrock = boto3.client("bedrock", region_name=REGION)
-    models = bedrock.list_foundation_models().get("modelSummaries", [])
-    ids = [m["modelId"] for m in models]
-    # Some models are invoked through inference profiles rather than their
-    # bare foundation-model ids.
+    ids = [m["modelId"] for m in bedrock.list_foundation_models().get("modelSummaries", [])]
     profiles = []
-    try:
+    try:    # some models are invoked through inference profiles, not bare ids
         profiles = [p["inferenceProfileId"] for p in
                     bedrock.list_inference_profiles().get("inferenceProfileSummaries", [])]
     except Exception:                                          # noqa: BLE001
-        pass                      # older boto3, or no permission: not fatal
+        pass
     if MODEL_ID not in ids and MODEL_ID not in profiles:
-        available = sorted(i for i in ids + profiles if "nova" in i.lower())
-        available = available or sorted(ids + profiles)
+        available = sorted(i for i in ids + profiles if "nova" in i.lower()) or sorted(ids)
         raise RuntimeError(
-            "%s not available in %s.\n"
-            "       Console -> Bedrock -> Model access -> enable the model, or\n"
-            "       pick one this account can see and export it:\n"
-            "%s\n"
-            "       export SIDELINE_BEDROCK_MODEL=<one of the above>\n"
-            "       check the model id, region, account access, and IAM permissions"
-            % (MODEL_ID, REGION,
-               "\n".join("         " + i for i in available[:8]) or
-               "         (none listed: access not granted yet)"))
+            "%s is not available in %s. Enable it in the Bedrock console, or pick one this "
+            "account can see and export SIDELINE_BEDROCK_MODEL=<id>:\n%s"
+            % (MODEL_ID, REGION, "\n".join("         " + i for i in available[:8])))
     return MODEL_ID
 
 
 def _invoke():
-    """One real call. The only thing that proves the whole chain."""
+    """One real call: the only thing that proves the whole chain."""
     import time
     from sideline.language import bedrock
-    if not bedrock.ENABLED:
-        raise RuntimeError("SIDELINE_BEDROCK is off - export SIDELINE_BEDROCK=on")
+    if not bedrock.available():
+        raise RuntimeError("Bedrock is off (SIDELINE_BEDROCK=off, or no AWS credentials)")
     t0 = time.time()
-    out = bedrock._converse(
-        "Reply with exactly the word: ready", "ready?", max_tokens=12)
-    if not out:
-        raise RuntimeError("call returned nothing - see the warning logged above")
-    return '"%s"  in %dms' % (out[:30], (time.time() - t0) * 1000)
+    out = bedrock._converse("Reply with exactly the word: ready", "ready?", max_tokens=12)
+    return '"%s" in %dms' % (out[:30], (time.time() - t0) * 1000)
+
+
+def _synthetic_match():
+    """A made-up fixture and events: this checks Bedrock, not the football feed."""
+    fixture = {"fixture_id": 1, "home": "Harbour FC", "away": "Reef United",
+               "minute": 64, "status": "live", "score": {"home": 2, "away": 1}}
+    events = [
+        {"id": "e1", "minute": 12, "kind": "goal", "player": "A. Vale", "team": "Harbour FC"},
+        {"id": "e2", "minute": 31, "kind": "card", "player": "B. Quill", "team": "Reef United",
+         "colour": "yellow"},
+        {"id": "e3", "minute": 58, "kind": "goal", "player": "C. Banner", "team": "Reef United"},
+        {"id": "e4", "minute": 61, "kind": "goal", "player": "A. Vale", "team": "Harbour FC"},
+    ]
+    return fixture, events
 
 
 def _catchup_path():
-    """End to end: does a real catch-up actually go through the model?"""
-    from tests.conftest import make_ctx
-    from sideline.poller import poll_once
-    from sideline.tools import REGISTRY
-    from sideline import summaries
-    summaries.MODE = "live"
-    ctx = make_ctx(start_minute=70)
-    REGISTRY["follow_match"](ctx, {"team": "Arsenal"}, "verify")
-    poll_once(ctx)
-    _, s, _ = REGISTRY["what_did_i_miss"](ctx, {}, "verify")
-    how = s["generated_by"]
+    """Does a catch-up actually go through the model, and pass the score guard?"""
+    from sideline.language import bedrock
+    fixture, events = _synthetic_match()
+    text, how = bedrock.catchup(events, fixture, 10, 64)
     if how != "bedrock":
-        raise RuntimeError(
-            "catch-up came back via '%s', not bedrock.\n"
-            "       'template' means it fell back; 'template-after-guard'\n"
-            "       means the model contradicted the score and we discarded it."
-            % how)
-    return "%d events compressed via bedrock" % s["event_count"]
+        raise RuntimeError("catch-up came back via '%s', not bedrock" % how)
+    return '%d events -> "%s"' % (len(events), text[:60])
 
 
 def _agent_path():
-    """End-to-end check that Nova can call a registered Sideline tool."""
-    from tests.conftest import make_ctx
+    """Can Nova choose and call a registered Sideline tool?"""
     from sideline.language.agent import run
-    from sideline.tools import REGISTRY
-    ctx = make_ctx(start_minute=70)
-    result = run(ctx, "Follow Arsenal and tell me the score.", "verify-agent",
-                 lambda name, args, listener: REGISTRY[name](ctx, args, listener))
-    names = [item["name"] for item in result["tool_results"]]
-    if "follow_match" not in names:
-        raise RuntimeError("Nova responded without calling follow_match; got %s" % names)
-    return "Nova called %s" % ", ".join(names)
+    calls = []
+
+    def stub(name, args, listener):
+        calls.append(name)
+        return "Following Harbour FC against Reef United. 2 1, 64 minutes in.", {}, None
+    run(None, "Follow Harbour FC and tell me the score.", "verify-aws", stub)
+    if "follow_match" not in calls:
+        raise RuntimeError("Nova answered without calling follow_match; it called %s" % calls)
+    return "Nova called %s" % ", ".join(calls)
+
+
+def _tts_live():
+    from sideline import voice
+    out = voice.synthesize("Sideline speech check.")
+    if not out or not out.get("audio"):
+        raise RuntimeError("Polly returned no audio")
+    return "polly %s: %d bytes of audio, %d word marks" % (
+        voice.POLLY_VOICE, len(out["audio"]), len(out.get("marks") or []))
+
+
+def _stt_round_trip():
+    """Polly says a phrase; the active provider (Groq or Nova Sonic) must hear it."""
+    import boto3
+
+    from sideline import voice
+    pcm = boto3.client("polly", region_name=voice.REGION).synthesize_speech(
+        Text="Who is refereeing the match?", OutputFormat="pcm", SampleRate="16000",
+        VoiceId="Joanna", Engine="neural")["AudioStream"].read()
+    out = voice.transcribe(pcm, "audio/pcm", voice._BASE_HINT)
+    if not out or "refereeing" not in out["text"].lower():
+        raise RuntimeError("%s returned %r" % (voice.capabilities()["stt"], out and out["text"]))
+    return "%s heard %r" % (out["provider"], out["text"])
 
 
 def _dynamo():
     import boto3
-    endpoint = os.environ.get("SIDELINE_DYNAMO_ENDPOINT")
-    table = os.environ.get("SIDELINE_TABLE", "sideline")
-    kw = {"region_name": os.environ.get("AWS_REGION", "us-east-1")}
-    if endpoint:
-        kw["endpoint_url"] = endpoint
-    t = boto3.resource("dynamodb", **kw).Table(table)
-    status = t.table_status
-    where = endpoint or kw["region_name"]
-    return "%s is %s at %s" % (table, status, where)
+    from sideline.config import CONFIG
+    status = boto3.resource("dynamodb", region_name=CONFIG.region).Table(CONFIG.table).table_status
+    return "%s is %s in %s" % (CONFIG.table, status, CONFIG.region)
 
 
 # ------------------------------------------------------------------ run
 def main():
     print("\nSideline - AWS check\n" + "-" * 56)
-
     if not check("boto3 installed", _boto3):
-        print("\n  pip install boto3\n")
+        print("\n  pip3 install boto3\n")
         return 1
     check("credentials resolve", _credentials)
     check("region set", _region)
 
-    bedrock_on = os.environ.get("SIDELINE_BEDROCK", "off").lower() == "on"
-    if not bedrock_on:
-        print("%s  %-34s SIDELINE_BEDROCK is off - templates only" % (SKIP, "bedrock"))
-        print("       export SIDELINE_BEDROCK=on to turn the language layer on")
-    else:
-        if check("bedrock model access", _model_access):
-            if check("bedrock responds", _invoke):
-                check("Nova MCP agent tool use", _agent_path)
-                check("catch-up runs through bedrock", _catchup_path)
+    if check("bedrock model access", _model_access):
+        if check("bedrock responds", _invoke):
+            check("Nova MCP agent tool use", _agent_path)
+            check("catch-up written by bedrock", _catchup_path)
 
-    # Voice: simulator only, but it is the difference between a
-    # speech-first demo and a typed one.
     from sideline.voice import capabilities
     caps = capabilities()
     if caps["stt"]:
-        print("%s  %-34s %s" % (OK, "speech in", caps["stt"]))
+        check("speech in (%s, live call)" % caps["stt"], _stt_round_trip, needed=False)
     else:
-        print("%s  %-34s %s" % (SKIP, "speech in",
-                                caps.get("stt_hint", "browser fallback")))
+        print("%s  %-34s %s" % (SKIP, "speech in", caps.get("stt_hint", "browser fallback")))
     if caps["tts"]:
-        print("%s  %-34s polly %s (%s)" % (OK, "speech out",
-                                           caps["voice"], caps["engine"]))
+        check("speech out (Polly, live call)", _tts_live, needed=False)
     else:
-        print("%s  %-34s %s" % (SKIP, "speech out",
-                                caps.get("tts_hint", "browser fallback")))
+        print("%s  %-34s %s" % (SKIP, "speech out", caps.get("tts_hint", "browser fallback")))
 
-    if os.environ.get("SIDELINE_STATE") == "dynamo":
-        check("dynamodb reachable", _dynamo)
+    from sideline.config import CONFIG
+    if CONFIG.state in ("dynamo", "auto"):
+        check("dynamodb table", _dynamo, needed=False)
     else:
-        print("%s  %-34s SIDELINE_STATE=memory (fine for a demo)"
-              % (SKIP, "dynamodb"))
+        print("%s  %-34s SIDELINE_STATE=memory" % (SKIP, "dynamodb"))
 
     print("-" * 56)
     if _failed:
-        print("failed: %s\n\nSee docs/AWS_SETUP.md - the table at the bottom maps\n"
-              "every error above to its cause.\n" % ", ".join(_failed))
+        print("failed: %s\n\nSee docs/AWS_SETUP.md.\n" % ", ".join(_failed))
         return 1
-    print("all good. `python -m sideline`\n")
+    print("all good: python3 -m sideline\n")
     return 0
 
 

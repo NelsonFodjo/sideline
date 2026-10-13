@@ -1,0 +1,227 @@
+{
+  "_comment": "INVENTED fixture. Not a real game and not real people: it exists only to exercise the sport profile seam (docs/SPORTS.md) with a second sport. Abridged: the score is whatever these listed events add up to, not a realistic box score.",
+  "fixture": {
+    "fixture_id": 9100001,
+    "sport": "basketball",
+    "home": "Harbour Hawks",
+    "away": "Reef Rockets",
+    "home_id": 101,
+    "away_id": 102,
+    "venue": "Invented Arena",
+    "kickoff": null
+  },
+  "events": [
+    {
+      "minute": 2,
+      "kind": "basket",
+      "player": "Marcus Vale",
+      "team": "Harbour Hawks",
+      "points": 2,
+      "stoppage": 0
+    },
+    {
+      "minute": 4,
+      "kind": "basket",
+      "player": "Dario Quill",
+      "team": "Reef Rockets",
+      "points": 3,
+      "stoppage": 0,
+      "detail": "from the corner"
+    },
+    {
+      "minute": 7,
+      "kind": "foul",
+      "player": "Tomas Reyes",
+      "team": "Harbour Hawks",
+      "detail": "personal",
+      "stoppage": 0
+    },
+    {
+      "minute": 9,
+      "kind": "basket",
+      "player": "Marcus Vale",
+      "team": "Harbour Hawks",
+      "points": 3,
+      "stoppage": 0
+    },
+    {
+      "minute": 11,
+      "kind": "timeout",
+      "team": "Reef Rockets",
+      "stoppage": 0
+    },
+    {
+      "minute": 13,
+      "kind": "basket",
+      "player": "Leo Banner",
+      "team": "Reef Rockets",
+      "points": 2,
+      "stoppage": 0,
+      "detail": "dunk",
+      "assist": "Dario Quill"
+    },
+    {
+      "minute": 15,
+      "kind": "substitution",
+      "player": "Jules Okoro",
+      "player_off": "Tomas Reyes",
+      "team": "Harbour Hawks",
+      "stoppage": 0
+    },
+    {
+      "minute": 18,
+      "kind": "basket",
+      "player": "Sam Ito",
+      "team": "Harbour Hawks",
+      "points": 2,
+      "stoppage": 0
+    },
+    {
+      "minute": 20,
+      "kind": "foul",
+      "player": "Dario Quill",
+      "team": "Reef Rockets",
+      "detail": "technical",
+      "stoppage": 0
+    },
+    {
+      "minute": 21,
+      "kind": "basket",
+      "player": "Sam Ito",
+      "team": "Harbour Hawks",
+      "points": 1,
+      "stoppage": 0
+    },
+    {
+      "minute": 24,
+      "kind": "period",
+      "detail": "half time",
+      "stoppage": 0
+    },
+    {
+      "minute": 27,
+      "kind": "basket",
+      "player": "Dario Quill",
+      "team": "Reef Rockets",
+      "points": 3,
+      "stoppage": 0
+    },
+    {
+      "minute": 29,
+      "kind": "basket",
+      "player": "Leo Banner",
+      "team": "Reef Rockets",
+      "points": 2,
+      "stoppage": 0
+    },
+    {
+      "minute": 31,
+      "kind": "basket",
+      "player": "Marcus Vale",
+      "team": "Harbour Hawks",
+      "points": 3,
+      "stoppage": 0
+    },
+    {
+      "minute": 32,
+      "kind": "review",
+      "player": "Marcus Vale",
+      "team": "Harbour Hawks",
+      "decision": "basket waved off, foot on the line",
+      "stoppage": 0
+    },
+    {
+      "minute": 35,
+      "kind": "ejection",
+      "player": "Leo Banner",
+      "team": "Reef Rockets",
+      "stoppage": 0
+    },
+    {
+      "minute": 38,
+      "kind": "basket",
+      "player": "Marcus Vale",
+      "team": "Harbour Hawks",
+      "points": 3,
+      "stoppage": 0
+    },
+    {
+      "minute": 41,
+      "kind": "basket",
+      "player": "Dario Quill",
+      "team": "Reef Rockets",
+      "points": 2,
+      "stoppage": 0
+    },
+    {
+      "minute": 44,
+      "kind": "basket",
+      "player": "Sam Ito",
+      "team": "Harbour Hawks",
+      "points": 2,
+      "stoppage": 0
+    },
+    {
+      "minute": 46,
+      "kind": "basket",
+      "player": "Jules Okoro",
+      "team": "Harbour Hawks",
+      "points": 3,
+      "stoppage": 0
+    }
+  ],
+  "lineups": {
+    "Harbour Hawks": {
+      "formation": null,
+      "xi": [
+        "Marcus Vale",
+        "Tomas Reyes",
+        "Sam Ito",
+        "Ola Brandt",
+        "Kip Navarro"
+      ],
+      "bench": [
+        "Jules Okoro",
+        "Wes Hale"
+      ],
+      "numbers": {
+        "Marcus Vale": 7,
+        "Tomas Reyes": 12,
+        "Sam Ito": 3,
+        "Ola Brandt": 21,
+        "Kip Navarro": 9,
+        "Jules Okoro": 15,
+        "Wes Hale": 30
+      }
+    },
+    "Reef Rockets": {
+      "formation": null,
+      "xi": [
+        "Dario Quill",
+        "Leo Banner",
+        "Rafe Okon",
+        "Mia Strand",
+        "Theo Lund"
+      ],
+      "bench": [
+        "Cass Arden"
+      ],
+      "numbers": {
+        "Dario Quill": 1,
+        "Leo Banner": 23,
+        "Rafe Okon": 5,
+        "Mia Strand": 14,
+        "Theo Lund": 8,
+        "Cass Arden": 22
+      }
+    }
+  },
+  "officials": {
+    "referee": "Ines Calloway",
+    "assistants": [
+      "Paul Dray",
+      "Wen Tse"
+    ]
+  },
+  "head_to_head": []
+}

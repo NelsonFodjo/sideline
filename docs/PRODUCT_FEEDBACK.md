@@ -5,8 +5,8 @@ it for, what worked well, what needs work, how onboarding felt (zero to
 hello world), and whether you would build with it again, and why.
 
 **How to read this page.** Every statement here is either
-(a) something a test or a measurement in [EVIDENCE.md](EVIDENCE.md)
-backs, (b) something read in the cited documentation on the stated date,
+(a) something a test or a measurement in this repository backs (the README's
+verification table, [SPEECH.md](SPEECH.md), `make aws-check`), (b) something read in the cited documentation on the stated date,
 or (c) marked **`TODO(you)`**, which only a hands-on run can answer.
 Nothing here claims experience that has not happened. **Do not submit
 while any `TODO(you)` remains**: answer it from a real run, or delete the
@@ -57,8 +57,8 @@ written with the standard library, no SDK.
 **Evidence** `tests/test_mcp_protocol.py` passes nine checks: initialize
 and session id, notification gets 202 with no body, `tools/list`, a tool
 call, invalid-params rejection, method-not-found, unknown session gets 404,
-batch requests, and DELETE ends the session. EVIDENCE.md records the
-negotiated version and the nine tools. These are *our own* conformance
+batch requests, and DELETE ends the session. `tests/test_mcp_client.py` adds
+that the voice agent's tool calls really cross the endpoint. These are *our own* conformance
 tests, written from our reading of the spec; no official suite was run
 (none was found).
 
@@ -70,18 +70,34 @@ tests, written from our reading of the spec; no official suite was run
 ## 3. Amazon Bedrock, Converse API, Nova Micro
 
 **Used for** Composing the catch-up paragraph, long-absence milestones and
-translation ([sideline/language/bedrock.py](../sideline/language/bedrock.py)).
-Guarded: a generated scoreline that disagrees with the real one is
-discarded (tested in `tests/test_language.py`).
+translation ([sideline/language/bedrock.py](../sideline/language/bedrock.py)), and
+as the voice agent that chooses tools through Converse tool use
+([sideline/language/agent.py](../sideline/language/agent.py)). Guarded: a generated
+scoreline that disagrees with the real one is refused (tested in
+`tests/test_language.py`).
 
-**Status: verified once, not exhaustively.** `make aws-check` on
+**Status: verified on one account, not exhaustively.** `make aws-check` on
 2026-10-13 confirmed a Nova Micro response, agent tool use and a live
-catch-up. One verification invocation took about 2.1 s; this is not a
-latency guarantee or a user-quality evaluation.
+catch-up. Two runs took about 2.1 s and about 1.5 s for the "ready" call;
+this is not a latency guarantee or a user-quality evaluation.
+
+**Observed, hands-on:** the credentials in use were a Bedrock **API key**,
+which AWS backs with an IAM user (`BedrockAPIKey-...`). That user could
+call Bedrock and Polly but was denied DynamoDB, Secrets Manager,
+CloudFormation, ECR, Lambda and CloudWatch, and the account returned
+`SubscriptionRequiredException` for Transcribe and App Runner. So a
+Bedrock API key gets you to a first answer quickly, but it is not a
+credential for the rest of an AWS build. `TODO(you)`: whether that was
+documented clearly where you created the key.
 
 **What worked well** `TODO(you)`: after `make aws-check`.
 **What needs work** `TODO(you)`: cold-start latency, model access flow,
 error clarity. Record the real `latencyMs` figures the server logs.
+**Also tried (2026-10-13), speech models on Bedrock.** Mistral Voxtral accepts
+audio through Converse, but as a chat model it answered a spoken question with
+an invented score instead of transcribing it (2 of 4 phrases correct on Small).
+A dedicated transcription mode for these models would make them usable.
+
 **Onboarding** `TODO(you)`: account to first successful call.
 **Would you build with it again?** `TODO(you)`.
 
@@ -89,73 +105,119 @@ error clarity. Record the real `latencyMs` figures the server logs.
 
 **Used for** Listener state and the match event log, single table
 ([sideline/state/dynamo.py](../sideline/state/dynamo.py), table definition in
-`scripts/create_table.py` and `deploy/sideline.yaml`).
+`scripts/create_table.py`).
 
-**Status: written, not run.** The store logic is exercised through the
-in-memory implementation that shares its base class (`gap_for`,
-`mark_told`); DynamoDB itself, and DynamoDB Local, have not been run.
+**Status: verified on a real table, 2026-10-13** (`us-east-1`, on-demand,
+TTL on). After following a match and being told things at minute 12, a
+brand-new process read the same marker back; the next catch-up covered
+exactly 12' to 64', and re-polling twice added no duplicates. The first
+real run also failed in two ways the in-memory store and our tests had
+hidden, now fixed and pinned by `tests/test_dynamo.py`:
+1. boto3 rejects Python floats (`Float types are not supported. Use Decimal
+   types instead.`), and every event carries a float timestamp, so the poller
+   logged **zero** events. Reads come back as `Decimal`, which JSON cannot
+   encode.
+2. The conditional write that dedupes events keyed on an id that live
+   providers mint fresh on every read, so it would never have fired.
 
-`TODO(you)`: all five answers, after `make create-table` and a real run.
+Setup note: before this, the IAM user was denied `ListTables`; a policy
+([AWS_SETUP.md](AWS_SETUP.md), Step 4) fixed that.
 
-## 5. Amazon Polly and Amazon Transcribe (simulator voice)
+`TODO(you)`: what worked well, what needs work, onboarding, and build-again yes or no.
 
-**Used for** Speech out with word-level speech marks, and streaming speech
-in ([sideline/voice.py](../sideline/voice.py)).
+## 5. Amazon Polly (speech out), and Amazon Transcribe (tried, not used)
 
-**Status: written, not run** against a live account.
+**Used for** Polly: speech out with word-level speech marks
+([sideline/voice.py](../sideline/voice.py)). Transcribe was tried for speech in and
+removed.
 
-`TODO(you)`: all five answers, after trying the simulator with credentials.
+**Status: Polly verified, Transcribe blocked.** On 2026-10-13 a real Polly
+call (Amy, neural) returned 14 KB of audio and word-level speech marks.
+Transcribe streaming returned `SubscriptionRequiredException`: "The AWS
+Access Key Id needs a subscription for the service", even though Polly
+worked from the same credentials, so it is an account state and not an IAM
+gap (see FL-08). App Runner returned the same error on the same account.
+Rather than wait on a support case, speech in now uses Nova Sonic and Groq
+(5b below). Our own `make aws-check` had been reporting "speech in: ok" from a
+capability check alone; it now makes a real round trip through the provider in use.
 
-## 6. AWS Secrets Manager, CloudWatch (Embedded Metric Format), App Runner, ECR, CloudFormation
+`TODO(you)`: Polly: what worked well, what needs work, onboarding, and build-again.
+Transcribe: whether you would build with it again, and why.
 
-**Used for** Football-key retrieval; per-tool latency metrics; hosting;
-the stack that creates them.
+### 5b. Amazon Bedrock, Nova 2 Sonic (speech in)
 
-**Status.** Secrets retrieval is unit-tested with a fake client. The metric
-line format is unit-tested (`tests/test_aws_helpers.py`) but never viewed in
-CloudWatch. `deploy/sideline.yaml` passes `cfn-lint` and has **never been
-deployed**. Per the FAQ, hosting is not required for judging, so deploying
-is optional.
+**Used for** Hearing the listener: audio streamed in, transcript read back
+([sideline/voice.py](../sideline/voice.py)). It is the in-account fallback when
+no Groq key is set. Full numbers and method: [SPEECH.md](SPEECH.md).
 
-`TODO(you)`: answer only for the services you actually use; delete the rest.
+**Status: verified with real calls, 2026-10-13.** From the Polly-spoken test
+set, 17 of 24 clips exact on a first run; in the later head-to-head 8.5% word
+error in noise and 4.2 s per clip, behind Groq's 3.7% and 1.1 s on the same
+clips. Names it got right included Ødegaard and Bellerín; it misheard
+Alderweireld and, in noise, Saka.
 
-## 7. StatsBomb Open Data (third-party data) — hands-on findings
+**What worked well** It transcribes: the user's words come back as text events
+before it answers, which is what made it usable as an ear. Access needed no
+model-enable step on this account, and it uses the same IAM credentials as the
+rest of Bedrock.
 
-**Used for** The bundled real match, Tottenham 2-2 Arsenal, 5 March 2016,
-built with `scripts/build_statsbomb_replay.py`.
+**What needs work** Found only by building it:
+1. It is **not in boto3**. It needs a separate package
+   (`aws-sdk-bedrock-runtime`, Python 3.12+) and `awscrt`; the default
+   transport fails with a clear `UnsupportedTransportError`, which helped.
+2. The Python config cannot be built directly (`ConfigError: ... Use await
+   AsyncBedrockRuntimeConfig.resolve(...)`), and the transport option is
+   `transport=`, not `http_client=`; neither is obvious from the type names.
+3. Closing the prompt right after the audio silently returns nothing. It waits
+   to hear silence, so a trailing 2 s of silence is needed, which is also most
+   of its latency for a short question.
+4. It always tries to answer; for transcription only, you must tell it to say
+   one word and stop reading. A plain transcription mode would be simpler.
+5. A Bedrock **API key** alone was not used here: IAM credentials were.
+   `TODO(you)`: whether bearer-token auth works for streaming.
 
-**What worked well** The data is public, structured and complete enough to
-replay a match with goals, cards, substitutions, a VAR event and line-ups.
+**Onboarding** A first transcript took a few attempts, mostly the points above.
+`TODO(you)`: account to first success, in your own words.
 
-**What needs work** Three things were found by replaying a real match and
-are pinned by `tests/test_statsbomb.py`:
-1. A second yellow card is a distinct card name ("Second Yellow"), not a
-   red, so a naive mapping reports a sending-off as a booking.
-2. Some bookings are filed under "Bad Behaviour" rather than "Foul
-   Committed", so a mapping that only reads fouls drops them.
-3. Line-up files are in no positional order, so reading them as listed
-   puts a forward in goal. Position ids (1 = goalkeeper) fix the order.
-Also, the events file does not carry the referee; it is in the matches file.
+**Would you build with it again?** `TODO(you)`.
 
-**Onboarding** The repository layout (competitions, matches, events,
-lineups) is simple to navigate.
+**Also tried:** Mistral Voxtral through Converse. It accepts audio but is a chat
+model: it answered a spoken question with an invented score instead of
+transcribing it. A transcription mode for these models would make them usable.
 
-**Terms** Attribution to StatsBomb **and use of their logo** is requested
-when publishing. We attribute in text and do not include the logo (the
-video rules forbid third-party trademarks without permission).
+## 6. API-Football (live data): hands-on findings
+
+**Used for** Today's fixtures, live events, line-ups, the referee and
+head-to-head ([sideline/providers/apifootball.py](../sideline/providers/apifootball.py)).
+Run against the live service on 2026-10-13 on a **Free plan** (100
+requests a day).
+
+**What worked well** One `fixtures?id=` response embeds events and line-ups,
+so a followed match costs about one request per poll. Scores, cards,
+substitutions and own goals came through for a finished match and a live
+one (minute 89).
+
+**What needs work** Found only by running against real data, and pinned by
+tests:
+1. The vendor labels an ordinary goal "Normal Goal"; read aloud it sounds
+   like a fault.
+2. Own goals are credited to the benefiting team, so "X scored" is wrong.
+3. Head-to-head with `last=` is refused on the Free plan, and the response
+   includes the match being watched.
+4. A bad key is HTTP 200 with an `errors` field, which reads as "no such
+   match" unless handled.
+5. Line-ups and referee can be absent on a live fixture.
+
+**Onboarding** Slower than it should have been: the first key was rejected
+(`Error/Missing application key`) and a replacement worked; the error does
+not say whether the key is wrong, revoked or for another host.
+
+**Terms** The hackathon requires authorisation to use any third-party data;
+the vendor's terms were not retrievable here, so confirm yours.
 
 **Would you use it again?** `TODO(you)`.
 
-## 8. API-Football (live data) — not used yet
-
-The provider is written against its documented response shape
-(`sideline/providers/apifootball.py`) and tested with canned responses
-(`tests/test_apifootball.py`). Its vendor site blocked automated reading, so
-its free-tier limits and update frequency are **unverified**. Answer the
-five questions only after `make verify-data` with a real key; otherwise
-delete this section.
-
-## 9. Devpost and the hackathon materials
+## 7. Devpost and the hackathon materials
 
 **What worked well** The rules page is specific about submission
 requirements, judging stages and criteria, and the FAQ answers the

@@ -1,120 +1,66 @@
 # Match data
 
-## What is and is not established about live data
+Sideline reads one live feed, [API-Football](https://www.api-football.com) (api-sports.io), and ships **no recorded or
+demo data**. This page records what was observed about that feed, and how to write another provider.
 
-The product needs structured match data. What this project can and cannot
-support:
+## What is and is not established
+
+Observed on 2026-10-13 on a **Free plan** with the key the project was built with.
 
 | Claim | Status |
 |---|---|
-| StatsBomb Open Data can drive a faithful replay (goals, cards, substitutions, a VAR event, line-ups) | **Verified**: the bundled match, `tests/test_statsbomb.py`, `docs/EVIDENCE.md` |
-| The API-Football provider parses its documented response shape, and errors surface rather than reading as "no match" | **Verified against canned responses only**: `tests/test_apifootball.py` |
-| API-Football's free plan allows about 100 requests a day; live data refreshes about every 15 s | **Unverified.** The vendor's site blocked automated reading (HTTP 403 bot challenge) and was not worked around. Check their pricing and documentation by hand before relying on either figure. |
-| Any other free tier is delayed or capped | **Unverified**; none was examined here. |
-| A provider's data arrives before a streamed broadcast shows the event | Plausible, **not measured**: no live match was observed. `sync_broadcast_delay` exists for it. |
+| The provider parses the vendor's response shape, and errors surface rather than reading as "no match" | **Verified**: against canned responses (`tests/test_apifootball.py`) **and on the live service**: 292 fixtures listed, a live match and a finished one read through all nine tools. `make verify-data ARGS=--tools` |
+| The free plan allows 100 requests a day | **Observed**: `/status` reported `limit_day: 100`. The refresh rate of live data is **unmeasured** |
+| The free plan refuses some parameters | **Observed**: head-to-head with `last=` is refused, so the provider no longer sends it |
+| Referee and line-ups are available | **Depends on the match**: a live women's international had neither. The tools say so rather than guess |
+| Basketball has a live feed | **Same vendor, same key**: the basketball API listed 71 games, but is believed to give scores and status, not play-by-play, so it could not produce "X hit a three". **Not built, not verified** |
+| The feed's data arrives before a streamed broadcast shows the event | Plausible, **not measured**. `sync_broadcast_delay` exists for it |
+| Any other feed's free tier is delayed or capped | **Unverified**: none was examined |
 
-Run `make verify-data` with a real key to see your own plan's quota; it
-reads the figures from the API's `/status` endpoint rather than from this page.
+`make verify-data` reads your own plan's quota from the API's `/status` endpoint rather than from this page.
 
-## The replay harness
-
-`providers/replay.py` plays a recorded match back at real speed through
-the identical code path the live provider uses.
-
-It goes through the same provider interface, normalising and dedupe as a
-live provider; what differs is where the events come from. It replays real
-events, so it is a recording, not live.
-
-Two reasons it exists, both practical:
-
-1. Development does not have to wait for a fixture.
-2. The demo is repeatable: a live match could be dull or unavailable.
+## Running against it
 
 ```bash
-SIDELINE_REPLAY_SPEED=20 python3 -m sideline    # a match in 4.5 minutes
-SIDELINE_REPLAY_START=60 python3 -m sideline    # start on the hour mark
-```
-
-### The honesty rule
-
-Anything shown from replay is described as **"a recorded real match,
-replayed"**. Never implied to be live.
-
-The data is genuine; the clock is ours. Saying so costs nothing and
-protects everything. See DEMO_SCRIPT.md.
-
-> `data/replay/spurs-arsenal-2016.json` is the genuine default.
-> `data/replay/arsenal-spurs.json` is an invented fixture used by the
-> tests and labelled as such; never show it in a demo.
-
-## Live data
-
-```bash
-# SIDELINE_PROVIDER=auto (the default) goes live as soon as a key is present
-read -s -p "API-Football key: " SIDELINE_FOOTBALL_KEY; echo; export SIDELINE_FOOTBALL_KEY
-make verify-data          # checks the key, shows your daily quota and today's fixtures
+cp .env.example .env              # put the key in SIDELINE_FOOTBALL_KEY
+make verify-data                  # the key, your daily quota, today's fixtures
+make verify-data ARGS=--tools     # every tool, against a live match if there is one
 make run
 ```
 
-Notes, so there are no surprises:
+- **Quota.** One followed match costs about one request per poll (the fixture response embeds its events and
+  line-ups), so at the default 60 s it spends a free day in about an hour and a half. Use a paid plan for more.
+  The provider caches for 12 seconds, so several tools in one breath share a request.
+- **Errors are surfaced.** API-Football reports a bad key or an exhausted quota as HTTP 200 with an `errors`
+  field; the provider raises `ProviderUnavailable` rather than reading it as "no such match", and the tool
+  answers "I can't get that from the match data right now".
+- **Real data found bugs that canned responses hid**, all fixed and pinned by tests: the vendor's "Normal Goal"
+  filler was read aloud; an own goal read as an ordinary goal; head-to-head crashed on the free plan and listed
+  the live match as a past meeting; a long-absence catch-up named three goals of five and marked all five as
+  told (two were lost); a provider outage reached the listener as a protocol error; and a player lookup said "I
+  can't find him" when line-ups simply were not published yet.
+- **TLS on macOS.** The python.org Python ships without a CA bundle until "Install Certificates.command" is run,
+  so every HTTPS call fails with `CERTIFICATE_VERIFY_FAILED`. `sideline/tls.py` finds a real bundle and always
+  verifies; it never disables verification.
+- **Rules.** The hackathon requires authorisation to use any third-party API or data under its terms. The
+  vendor's terms were not read by the authors (its site blocked automated reading); check yours.
 
-- **No key, no problem:** `SIDELINE_PROVIDER=apifootball` with no key logs a
-  warning and serves the recorded match, so the server still works.
-- **Quota.** A free plan allows about a hundred requests a day. The poller
-  makes about one request per followed match per poll (the fixture
-  response embeds its events and line-ups), so at the default 15 s a
-  match burns the free day in under half an hour. Use
-  `SIDELINE_POLL_SECONDS=60` or a paid plan.
-- **Errors are surfaced.** API-Football reports a bad key or an exhausted
-  quota as HTTP 200 with an `errors` field; the provider raises
-  `ProviderUnavailable` rather than reading it as "no such match".
-- **Not tested against the live service.** The provider is tested against
-  canned responses in API-Football's shape (`tests/test_apifootball.py`),
-  not a real key. First live run: expect to look at one log line.
-- **Rules.** The hackathon requires you to be authorised to use any third
-  party API or data under its terms, and judges must be able to run the
-  project free of charge, which is why the default is the recorded match
-  and live data is opt-in.
+## Tests do not use the feed
 
-## The bundled match
-
-`data/replay/spurs-arsenal-2016.json` is **Tottenham 2-2 Arsenal, 5 March
-2016**, built from StatsBomb Open Data with
-`scripts/build_statsbomb_replay.py` (referee from StatsBomb's matches
-file). It is real, and it is the default. `arsenal-spurs.json` is a small
-invented fixture used only by the tests.
-
-StatsBomb's terms ask that anything you publish based on the data
-"state the data source as StatsBomb and use our logo". We attribute in
-text. **The logo is not included, and the video rules forbid third-party
-trademarks without permission**, so before filming either get their
-permission or keep the on-screen attribution to text, and say
-"data from StatsBomb Open Data".
-
-## Capturing a real match
-
-```bash
-export SIDELINE_FOOTBALL_KEY=...
-python3 scripts/record_match.py --fixture 1208341 --out data/replay/real.json
-```
-
-Run it live and it polls to full time. Run it after the match and it
-captures the finished record in one pass, which is usually what you want.
+`tests/support.py` holds a test double that plays back small **invented** fixtures (`tests/fixtures/`: made-up
+teams, players and events, labelled as such) on a clock the test controls. They exist so the suite runs offline
+and deterministically. Nothing in `sideline/` ships data files, and a test enforces that.
 
 ## Writing another provider
 
-Subclass `providers/base.Provider`. Six methods. The normalising rules
-are in that file and exist because every vendor gets these wrong in a
-different way:
+Subclass `providers/base.Provider`. Six methods. The normalising rules are in that file and exist because every
+vendor gets these wrong in a different way:
 
-- **Minute is an integer.** `45+2` becomes minute 45 with `stoppage: 2`.
-  A listener wants "just before half time", not "forty five plus two".
-- **An overturned goal is not deleted.** It gets a `var` event and the
-  original is marked superseded. Someone who heard the crowd needs to be
-  told it was chalked off.
-- **Penalties and own goals are goals with a `detail`.** Otherwise every
-  consumer has to know that three kinds all mean "the score changed".
-
-That adapter is the piece we extract for the Open Source mini challenge —
-it is useful to anyone putting a sports feed behind MCP, not just us. See
-MINI_CHALLENGES.md.
+- **Minute is an integer.** `45+2` becomes minute 45 with `stoppage: 2`. A listener wants "just before half
+  time", not "forty five plus two".
+- **An overturned goal is not deleted.** It gets a review event (`var` in football) and the original is marked
+  superseded. Someone who heard the crowd needs to be told it was chalked off.
+- **Penalties and own goals are goals with a `detail`.** Otherwise every consumer has to know that three kinds
+  all mean "the score changed".
+- **A fixture says which sport it is** with a `sport` key (absent means football), and emits that sport's event
+  kinds: see [SPORTS.md](SPORTS.md).

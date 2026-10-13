@@ -36,8 +36,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-from .. import metrics
-from ..auth import AuthError
+from ..providers.base import ProviderUnavailable
 from .errors import (InvalidParams, InvalidRequest, MethodNotFound, ParseError,
                      RpcError, ToolError)
 from .registry import by_name, public_tools
@@ -51,12 +50,16 @@ SERVER_INFO = {"name": "sideline", "version": "1.0.0",
 
 SESSION_TTL_SECONDS = 60 * 60 * 6
 
+# Set per request from the X-Sideline-Agent header (see mcp/client.py): the voice
+# agent asks tools for facts, not for model-written paragraphs.
+_REQUEST = threading.local()
+
 
 class Sessions:
     """In-memory session table.
 
     Sessions hold no listener data - that lives in the state store and is
-    keyed by the account-linked listener id, so a dropped session never
+    keyed by the listener id, so a dropped session never
     loses a match or a last_told_at. This table only tracks liveness.
     """
 
@@ -155,11 +158,24 @@ class Dispatcher:
 
         started = time.time()
         try:
-            result = self.run_tool(name, args, listener_id)
+            if getattr(_REQUEST, "agent", False):
+                result = self.run_tool(name, args, listener_id, agent=True)
+            else:
+                result = self.run_tool(name, args, listener_id)
+        except ProviderUnavailable as e:
+            # The data feed refused or is down (bad key, quota, plan, network).
+            # A listener cannot act on a protocol error; they can on this.
+            LOG.warning("tool %s: data feed unavailable: %s", name, e)
+            return {
+                "content": [{"type": "text", "text":
+                             "I can't get that from the match data right now."}],
+                "structuredContent": {"reason": "provider_unavailable",
+                                      "problem": str(e)},
+                "isError": True,
+            }
         except ToolError as e:
             # Not a protocol failure. Hand the model something it can say.
             LOG.info("tool %s declined: %s", name, e.spoken)
-            metrics.emit("ToolDeclined", 1, Tool=name)
             return {
                 "content": [{"type": "text", "text": e.spoken}],
                 "structuredContent": e.detail,
@@ -167,7 +183,6 @@ class Dispatcher:
             }
         took = (time.time() - started) * 1000
         LOG.info("tool %s ok in %.0fms", name, took)
-        metrics.emit("ToolLatency", round(took), "Milliseconds", Tool=name)
 
         # Every tool returns (spoken_text, structured, ui_payload).
         spoken, structured, ui = result
@@ -211,25 +226,15 @@ class Handler(BaseHTTPRequestHandler):
         if body:
             self.wfile.write(body)
 
-    def _authenticate(self):
-        """Listener id, or None after sending a 401.
+    def _listener(self):
+        """Who is asking: the `X-Sideline-Listener` header, else one shared id.
 
-        With no authenticator configured (SIDELINE_AUTH=off) this is the
-        old behaviour: identity from a header, else one shared id.
+        There is no account linking (Alexa+'s add-on tooling is partner-only,
+        so participants cannot exercise it). That makes this a single-listener
+        server: the id is the only thing keying listener state, so do not expose
+        it to more than one real person.
         """
-        auth = self.server.authenticator
-        if auth is None:
-            return self.server.resolve_listener(self.headers)
-        try:
-            return auth.authenticate(self.headers)
-        except AuthError as e:
-            LOG.info("auth rejected: %s", e.reason)
-            # The reason is for our logs. No WWW-Authenticate header:
-            # Alexa+'s QuickStart requires the 401 without one (it lists
-            # the header as not yet supported). See sideline/auth.py.
-            self._send(e.status,
-                       {"error": "unauthorized" if e.status == 401 else "auth unavailable"})
-            return None
+        return self.server.resolve_listener(self.headers)
 
     def _rpc_error(self, err, msg_id=None, http=200):
         self._send(http, {"jsonrpc": "2.0", "id": msg_id, "error": err.to_json()})
@@ -260,18 +265,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        # A query string (the simulator's ?preview=...) is not part of the route.
+        # A query string is not part of the route.
         if urlparse(self.path).path in ("/", "/simulator", "/simulator/", "/index.html"):
             return self._serve_simulator()
         if self.path == "/health":
             return self._send(200, {"ok": True, "protocol": PROTOCOL_VERSION,
-                                    "tools": len(public_tools()),
-                                    "mode": self.server.mode})
-        if self.path == "/.well-known/oauth-protected-resource":
-            auth = self.server.authenticator
-            if auth is None:
-                return self._send(404, {"error": "authentication is not enabled"})
-            return self._send(200, auth.protected_resource_metadata())
+                                    "tools": len(public_tools())})
         if self.path == "/voice/capabilities":
             # Simulator support, not part of the MCP surface. The browser
             # asks once at load whether to post audio here or fall back
@@ -287,8 +286,6 @@ class Handler(BaseHTTPRequestHandler):
         if not self._origin_ok():
             return self._send(403, {"error": "origin not allowed"})
 
-        if self._authenticate() is None:
-            return
         sid = self.headers.get("Mcp-Session-Id")
         if sid and not self.server.sessions.touch(sid):
             return self._send(404, {"error": "unknown session"})
@@ -316,8 +313,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         if self.path.rstrip("/") != "/mcp":
             return self._send(404, {"error": "not found"})
-        if self._authenticate() is None:
-            return
         sid = self.headers.get("Mcp-Session-Id")
         if sid:
             self.server.sessions.drop(sid)
@@ -343,7 +338,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/voice/stt":
             mime = self.headers.get("X-Audio-Type") or "audio/webm"
-            out = voice.transcribe(raw, mime)
+            hint = ""
+            hinter = getattr(self.server, "voice_hint", None)
+            if hinter:
+                hint = hinter(self.server.resolve_listener(self.headers))
+            out = voice.transcribe(raw, mime, hint)
             if not out:
                 return self._send(503, {"error": "no speech provider configured"}, cors)
             LOG.info("stt (%s): %s", out["provider"], out["text"][:60])
@@ -367,17 +366,13 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/agent/chat":
             if not self._origin_ok():
                 return self._send(403, {"error": "origin not allowed"})
-            listener_id = self._authenticate()
-            if listener_id is None:
-                return
-            return self._agent_chat(listener_id)
+            return self._agent_chat(self._listener())
         if self.path.rstrip("/") != "/mcp":
             return self._send(404, {"error": "not found"})
         if not self._origin_ok():
             return self._send(403, {"error": "origin not allowed"})
-        listener_id = self._authenticate()
-        if listener_id is None:
-            return
+        listener_id = self._listener()
+        _REQUEST.agent = self.headers.get("X-Sideline-Agent") == "1"
 
         try:
             length = int(self.headers.get("Content-Length") or 0)
@@ -473,21 +468,17 @@ class McpServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
     def __init__(self, addr, tool_runner, resolve_listener, allowed_origins,
-                 authenticator=None, agent_runner=None, mode="demo"):
+                 agent_runner=None):
         ThreadingHTTPServer.__init__(self, addr, Handler)
-        self.authenticator = authenticator
         self.agent_runner = agent_runner
-        self.mode = mode
         self.sessions = Sessions()
         self.dispatcher = Dispatcher(tool_runner, self.sessions)
         self.resolve_listener = resolve_listener
         self.allowed_origins = set(allowed_origins)
 
 
-def serve(host, port, tool_runner, resolve_listener, allowed_origins,
-          authenticator=None, agent_runner=None, mode="demo"):
+def serve(host, port, tool_runner, resolve_listener, allowed_origins, agent_runner=None):
     srv = McpServer((host, port), tool_runner, resolve_listener, allowed_origins,
-                    authenticator, agent_runner, mode)
-    LOG.info("MCP endpoint on http://%s:%d/mcp (spec %s, auth %s)", host, port,
-             PROTOCOL_VERSION, "required" if authenticator else "off")
+                    agent_runner)
+    LOG.info("MCP endpoint on http://%s:%d/mcp (spec %s)", host, port, PROTOCOL_VERSION)
     return srv

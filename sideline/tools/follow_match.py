@@ -9,7 +9,7 @@ Side effect that matters: following a match is what tells the poller to
 start watching it. See poller.py.
 """
 
-from .. import sync
+from .. import sports, sync
 from ..mcp.errors import ToolError
 
 
@@ -77,18 +77,19 @@ def run(ctx, args, listener_id):
     poll_once(ctx)
 
     minute = fx.get("minute") or 0
+    sp = sports.for_fixture(fx)
     if fx.get("status") in ("finished", "FT"):
-        spoken = "That match has finished. %s." % ctx.lang.templates.say_score(fx)
+        spoken = "That %s has finished. %s." % (sp.game, sp.say_score(fx))
     elif minute <= 0:
-        spoken = "Following %s against %s. Not kicked off yet." % (fx["home"], fx["away"])
+        spoken = "Following %s against %s. Not started yet." % (fx["home"], fx["away"])
     else:
         spoken = "Following %s against %s. %s" % (
-            fx["home"], fx["away"], ctx.lang.templates.say_match_state(fx))
+            fx["home"], fx["away"], sp.say_match_state(fx))
     if not rec.get("offset_calibrated") and fx.get("status") not in ("finished", "FT"):
         # Say it once, here, so the listener knows the anchor exists.
         # Repeating it on every answer would be nagging.
-        spoken += (" Tell me when you hear kick-off and I'll make sure I never "
-                   "get ahead of your picture.")
+        spoken += (" Tell me when you hear %s and I'll make sure I never "
+                   "get ahead of your picture." % sp.start_word)
 
     structured = {"fixture_id": fx["fixture_id"], "home": fx["home"],
                   "away": fx["away"], "minute": minute, "status": fx.get("status"),

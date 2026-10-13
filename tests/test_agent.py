@@ -55,7 +55,6 @@ def main():
     ctx = make_ctx(start_minute=40)
     model = FakeBedrock()
     original_available, original_client = bedrock.available, bedrock.client
-    original_strict = bedrock.STRICT_LIVE
     bedrock.available = lambda: True
     bedrock.client = lambda: model
     try:
@@ -111,10 +110,8 @@ def main():
         print("ok  model tool arguments are validated against the MCP input schema")
     finally:
         bedrock.available, bedrock.client = original_available, original_client
-        bedrock.STRICT_LIVE = original_strict
 
     bedrock.available = lambda: False
-    bedrock.STRICT_LIVE = True
     try:
         try:
             agent.run(ctx, "What's the score?", "agent-listener",
@@ -122,17 +119,17 @@ def main():
         except agent.AgentUnavailable:
             pass
         else:
-            raise AssertionError("live agent must not return a canned fallback")
+            raise AssertionError("the agent must not return a canned fallback")
+        bedrock.available = lambda: True          # Bedrock on: failure is reported, not hidden
         try:
             bedrock.catchup([], ctx.provider.fixture(1208341), 0, 0)
         except bedrock.BedrockUnavailable:
             pass
         else:
-            raise AssertionError("live catch-up must not return a template")
-        print("ok  live mode fails explicitly instead of returning a canned answer")
+            raise AssertionError("with Bedrock on, a catch-up must not fall back to a template")
+        print("ok  with Bedrock on, failure is reported instead of returning a canned answer")
     finally:
         bedrock.available = original_available
-        bedrock.STRICT_LIVE = original_strict
 
     def runner(question, listener_id):
         return {"text": question, "generated_by": "nova", "tool_results": [

@@ -27,7 +27,7 @@ class Resp(io.BytesIO):
         return False
 
 
-def fake_urlopen(req, timeout=None):
+def fake_urlopen(req, timeout=None, context=None):
     url = req.full_url
     CALLS.append((url, req.headers.get("X-apisports-key")))
     for needle, body in ROUTES.items():
@@ -123,6 +123,41 @@ def main():
     fx = ApiFootballProvider("k", cache_seconds=0).fixtures_today()
     assert len(fx) == 1 and fx[0]["home"] == "Arsenal"
     print("ok  fixtures_today uses the date, merges live, no duplicates")
+
+    # --- found by running against the real API --------------------------
+    # The vendor's filler is not read aloud, an own goal is worded as one,
+    # and a card reason loses the feed's capital.
+    ROUTES.clear()
+    card = ev(10, "Card", "Yellow Card", player="C")
+    card["comments"] = "Foul"
+    ROUTES["fixtures"] = {"errors": [], "response": [fixture_item(events=[
+        ev(5, "Goal", "Normal Goal", player="A"),
+        ev(6, "Goal", "Own Goal", player="B"),
+        ev(7, "Goal", "Penalty", player="D"), card])]}
+    got = {e["minute"]: e for e in ApiFootballProvider("k", cache_seconds=0).events(77)}
+    assert got[5]["detail"] == "" and got[6]["detail"] == "own goal"
+    assert got[7]["detail"] == "penalty" and got[10]["reason"] == "foul"
+    from sideline.language import templates
+    assert templates.say_event(got[6]) == "B scored an own goal on 6"
+    assert templates.say_event(got[5]) == "A scored on 5"
+    print("ok  'Normal Goal' is not read aloud; own goal and card reason read naturally")
+
+    # Free plans refuse `last=`; head-to-head must not send it, and must not
+    # list the fixture being watched as a past meeting.
+    CALLS[:] = []
+    past = lambda i, d: {"fixture": {"id": i, "date": d, "status": {"short": "FT"}},
+                         "teams": {"home": {"id": 42, "name": "Arsenal"},
+                                   "away": {"id": 47, "name": "Tottenham"}},
+                         "goals": {"home": 1, "away": 0}}
+    ROUTES.clear()
+    ROUTES["headtohead"] = {"errors": [], "response": [
+        past(1, "2025-01-01T00:00:00+00:00"), past(77, "2026-10-12T15:00:00+00:00"),
+        past(3, "2026-01-01T00:00:00+00:00")]}
+    ROUTES["fixtures?id=77"] = {"errors": [], "response": [fixture_item()]}
+    h2h = ApiFootballProvider("k", cache_seconds=0).head_to_head(77, limit=5)
+    assert [f["fixture_id"] for f in h2h] == [3, 1], h2h
+    assert not any("last=" in u for u, _ in CALLS), CALLS
+    print("ok  head-to-head sends no `last`, excludes the live fixture, newest first")
 
     print("\napifootball: all good")
 

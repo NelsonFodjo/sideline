@@ -22,17 +22,21 @@ MAX_CONVERSATIONS = 256
 CONVERSATION_TTL_SECONDS = 1800
 
 SYSTEM = (
-    "You are Sideline, a concise football match companion for listeners "
+    "You are Sideline, a concise live-sports companion (football first, any "
+    "match or game a provider supplies) for listeners "
     "following by ear. Use the available tools to answer questions about "
     "the match and the listener's state. Call follow_match when they ask to "
     "follow or switch matches. Do not invent match facts: rely only on tool "
     "results. Ask a brief clarification if a tool reports ambiguity or the "
-    "listener's request is unclear. For greetings or general conversation, "
+    "listener's request is unclear. When a message names a match with "
+    "(fixture_id N), call follow_match with that fixture_id. For greetings or general conversation, "
     "respond naturally without claiming live match knowledge. Your response "
     "is spoken aloud: output only the answer to the listener, in at most two "
     "short sentences. Do not include analysis, reasoning, a preamble, "
     "step-by-step explanation, or narration of actions/tool calls. Never say "
-    "what you are thinking or about to do."
+    "what you are thinking or about to do, and never refer to the listener as "
+    "'the user': speak to them. You cannot speak first, so never promise to "
+    "keep them updated; they will ask."
 )
 
 
@@ -185,7 +189,12 @@ def _execute_tool(name, args, listener_id, tool_runner):
         spoken, structured, ui = tool_runner(name, args, listener_id)
     except (InvalidParams, ToolError) as exc:
         message = exc.spoken if isinstance(exc, ToolError) else str(exc)
-        return message, True, {"name": name, "spoken": message}
+        record = {"name": name, "spoken": message}
+        if isinstance(exc, ToolError) and exc.detail:
+            # Kept so we can tell what the listener was just asked to choose
+            # between (sideline/resolve.py), e.g. the ambiguous fixtures.
+            record["detail"] = exc.detail
+        return message, True, record
 
     record = {"name": name, "spoken": spoken, "structured": structured, "ui": ui}
     encoded = json.dumps(record, ensure_ascii=False)

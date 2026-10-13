@@ -8,13 +8,14 @@ names, and Alexa's transcription is not perfect. An exact-match lookup
 would fail constantly on exactly the names that matter.
 """
 
+from .. import sports
 from ..mcp.errors import ToolError
 
 # A sighted viewer resolves "he" by looking at the screen. We have no
 # camera, so we resolve it from recency instead: whoever the match was
 # just about. These windows are in match minutes and are deliberately
 # short - beyond them, guessing is worse than asking.
-RECENCY = [("card", 2), ("goal", 3), ("substitution", 2), ("var", 2)]
+# Per sport: sideline/sports/ (SportProfile.recency).
 
 PRONOUNS = {"he", "him", "his", "she", "her", "they", "them",
             "that player", "him there", "the player"}
@@ -35,14 +36,12 @@ def _resolve_pronoun(ctx, fx):
     now = fx.get("minute") or 0
     best = None
     for e in reversed(ctx.store.events(fx["fixture_id"])):
-        for kind, window in RECENCY:
+        for kind, window, why in sports.for_fixture(fx).recency:
             if e["kind"] != kind or now - e["minute"] > window:
                 continue
             name = e.get("player")
             if not name:
                 continue
-            why = {"card": "just booked", "goal": "just scored",
-                   "substitution": "just came on", "var": "just checked by VAR"}[kind]
             if best is None or e["minute"] > best[2]:
                 best = (name, why, e["minute"])
     if not best:
@@ -83,6 +82,20 @@ def run(ctx, args, listener_id):
             break
 
     if not found:
+        # Line-ups are often not published until close to kick-off (and
+        # some feeds never have them). The event log still names everyone
+        # who has done something, so look there before saying no.
+        for e in ctx.store.events(fx["fixture_id"]):
+            for field in ("player", "player_off", "assist"):
+                n = _norm(e.get(field))
+                if n and (query == n or query in n or n.endswith(query)):
+                    found = {"name": e[field], "team": e.get("team"),
+                             "number": None, "starting": None}
+                    break
+            if found:
+                break
+
+    if not found:
         raise ToolError(
             "I can't find %s in this match." % args["player"],
             {"reason": "player_not_found", "query": args["player"]})
@@ -100,11 +113,12 @@ def run(ctx, args, listener_id):
         bits.append("%s, %s" % (found["name"], found["team"]))
     if found.get("number"):
         bits.append("number %s" % found["number"])
-    bits.append("started" if found["starting"] else "on the bench")
+    if found["starting"] is not None:
+        bits.append("started" if found["starting"] else "on the bench")
     spoken = ", ".join(bits) + "."
     if involved:
         spoken += " " + " ".join(
-            ctx.lang.templates._upper_first(ctx.lang.templates.say_event(e, brief=True)) + "."
+            ctx.lang.templates._upper_first(ctx.lang.templates.say_event(e, brief=True, sport=fx)) + "."
             for e in involved[:3])
 
     structured = {"fixture_id": fx["fixture_id"], "player": found,

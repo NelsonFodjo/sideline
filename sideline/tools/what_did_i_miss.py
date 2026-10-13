@@ -11,8 +11,9 @@ anything. We resolve the window from our own state.
 
 Flow:
     1. gap_for()  - events since last_told_at, minus anything already told
-    2. summaries.answer() - the paragraph: precomputed by the poller, or
-       the template at once in demo mode; live mode waits for Bedrock
+    2. the paragraph: Bedrock writes it (or, with SIDELINE_BEDROCK=off, the
+       deterministic template, labelled `generated_by: template`). If Bedrock
+       is on and fails, the listener is told so; nothing canned is substituted.
     3. mark_told() - move the marker, record the event ids
 
 Step 3 is the one people forget. Without it the listener hears the same
@@ -20,10 +21,34 @@ goal every time they ask.
 """
 
 
-# Beyond this, a full read-back stops being a catch-up and becomes a
-# match report nobody can follow by ear. We switch to headlines and offer
-# the rest - which is what the friend on the sofa does.
-LONG_ABSENCE_MINUTES = 15
+from .. import sports
+from ..mcp.errors import ToolError
+
+
+def long_absence_minutes(fx):
+    """Beyond this a full read-back stops being a catch-up and becomes a match
+    report nobody can follow by ear, so we give headlines and offer the rest,
+    which is what the friend on the sofa does. Per sport (SportProfile)."""
+    return sports.for_fixture(fx).long_absence_minutes
+
+
+def _words(ctx, mode, events, fx, frm, to, away, language):
+    """The spoken paragraph and who wrote it. (text, generated_by)."""
+    bedrock = ctx.lang.bedrock
+    try:
+        if mode == "milestones":
+            text, how = bedrock.milestones(events, fx, away)
+        else:
+            text, how = bedrock.catchup(events, fx, frm, to)
+        if language not in (None, "", "en"):
+            text, how2 = bedrock.translate(text, language)
+            how = "%s+%s" % (how, how2)
+        return text, how
+    except bedrock.BedrockUnavailable as e:
+        # Say so. A canned answer here would be a confident guess about a match
+        # the listener cannot see.
+        raise ToolError("I can't put that into words right now. Ask me again in a moment.",
+                        {"reason": "language_unavailable", "problem": str(e)})
 
 
 def run(ctx, args, listener_id, agent_mode=False):
@@ -45,30 +70,24 @@ def run(ctx, args, listener_id, agent_mode=False):
 
     now = fx.get("minute") or to
     away = max(0, now - frm)
-    long_absence = (away > LONG_ABSENCE_MINUTES and len(events) > 3
+    long_absence = (away > long_absence_minutes(fx) and len(events) > 3
                     and not args.get("full"))
 
     mode = "milestones" if long_absence else "full"
     language = ctx.store.listener(listener_id).get("language")
 
-    # Precomputed when possible, so the model is not on the listener's
-    # clock; see sideline/summaries.py.
-    from .. import summaries
     if agent_mode:
         # The agent needs the event facts, not a second model-generated
         # paragraph or a template that Nova would merely paraphrase.
-        spoken, how, source = "", "tool-data", "not-generated"
+        spoken, how = "", "tool-data"
     else:
-        spoken, how, source = summaries.answer(ctx, mode, events, fx, frm, to,
-                                               away, language)
+        spoken, how = _words(ctx, mode, events, fx, frm, to, away, language)
 
     # When we only gave the headlines, do NOT mark the rest as told. The
     # listener was offered more and may ask for it, and a tool that
     # quietly consumed the events it did not read back would lose them.
     if mode == "milestones":
-        key_ids = [e["id"] for e in events
-                   if e["kind"] == "goal"
-                   or (e["kind"] == "card" and e.get("colour") == "red")]
+        key_ids = [e["id"] for e in sports.for_fixture(fx).headlines(events)]
         ctx.store.mark_told(listener_id, frm, key_ids)
     else:
         ctx.store.mark_told(listener_id, max(to, now), [e["id"] for e in events])
@@ -87,11 +106,6 @@ def run(ctx, args, listener_id, agent_mode=False):
         # Reported honestly so anyone reading the response can see
         # whether a model was involved in producing the words.
         "generated_by": how,
-        # Where the words came from: "precomputed" (cached model text, no
-        # model call at ask time), "template-fast" (answered at once, the
-        # model text queued for next time), "live" (model called now) or
-        # "template" (no model configured).
-        "summary_source": source,
     }
     ui = {"events": structured["events"], "score": fx["score"],
           "window": structured["window"]}

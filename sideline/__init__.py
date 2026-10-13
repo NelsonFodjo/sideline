@@ -1,8 +1,8 @@
 """Sideline - live football for people who cannot see the screen.
 
 Entry points:
-    python -m sideline            start the MCP server
-    scripts/smoke_test.py         exercise every tool end to end
+    python3 -m sideline           start the MCP server (needs SIDELINE_FOOTBALL_KEY)
+    python3 scripts/verify_data.py --tools   run every tool against the live feed
 
 Read docs/ARCHITECTURE.md first. The one file that matters most is
 sideline/state/store.py - `last_told_at` is the product.
@@ -18,7 +18,7 @@ _envfile.load()
 
 # boto3 reads AWS_DEFAULT_REGION, the docs and this project say AWS_REGION.
 # Bridge them once, here, so a client built without an explicit region
-# (STS, the transcribe SDK) still lands in the region you set.
+# (STS, say) still lands in the region you set.
 _os.environ.setdefault("AWS_DEFAULT_REGION",
                        _os.environ.get("AWS_REGION", "us-east-1"))
 

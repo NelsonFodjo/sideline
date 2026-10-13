@@ -13,9 +13,32 @@ used the product. Where an automated test pins a rule it is named.
 | 4 minutes said as people say them | `tests/test_language.py` |
 | 5 never repeat, never skip | `tests/test_what_did_i_miss.py` |
 | 6 refusals are spoken | `tests/test_tools.py` |
-| 7 speed | measured, `docs/EVIDENCE.md` |
+| 7 speed | the fast tools call no model (`get_match_state`); a Bedrock catch-up takes about two seconds (README) |
 | 8 never ask them to look | `tests/test_routing_phrases.py`, `tests/test_broadcast_sync.py` |
 | 9 fail safe | `tests/test_broadcast_sync.py` |
+
+## Where a listener's voice goes
+
+Speech in is the most sensitive data this product touches, and who hears it
+depends on the setting: **Groq Whisper** (only when `GROQ_API_KEY` is set, and
+then first in the order because it measured best) sends it to Groq; **Amazon
+Nova Sonic** keeps it in the AWS account; the **browser's
+recognition** sends it to the browser vendor (Chrome and Edge, to theirs).
+Nothing is stored by Sideline. With no Groq key nothing leaves AWS **unless live
+captions are on** (`SIDELINE_LIVE_CAPTION`, default `browser`): the page then also
+runs the browser's recognition to type words while you speak, which sends that
+audio to the browser vendor. Set it to `off` for a strictly in-account path. A person
+choosing a speech provider should be told where their voice goes, so say so in
+any demo that uses one. We chose accuracy over keeping audio in-account only
+because Groq is opt-in by key; if that trade is wrong for your users, leave the
+key unset and Nova Sonic is first. See [SPEECH.md](SPEECH.md).
+
+## Understanding mispronounced answers
+
+A listener who cannot see the screen cannot catch a wrong guess, so when Sideline
+offers a choice and the answer is only close to one option it resolves to the
+nearest, and says what it understood. When two options are about equally near it
+asks again rather than picking one. See [SPEECH.md](SPEECH.md).
 
 ## 1. The screen is never the only place a fact lives
 
@@ -76,11 +99,11 @@ not exist for them.
 
 ## 7. Speed is an accessibility requirement
 
-A sighted viewer takes in the score at a glance. The listener's equivalent
-has to be quick. Measured server time for the template tools is about
-0.2 ms (docs/EVIDENCE.md). Alexa+'s QuickStart sets a 500 ms round-trip
-target. A Bedrock-composed catch-up has **not been measured** and may exceed
-it; that is a design target, not a result.
+A sighted viewer takes in the score at a glance.
+The listener's equivalent has to be quick. The template tools make no model call, so the score, line-ups and
+officials come back as fast as the feed's 12-second cache allows. Alexa+'s QuickStart sets a 500 ms round-trip
+target. A Bedrock-composed catch-up takes about two seconds (a few samples on one account), so it misses that
+target; that is stated, not hidden.
 
 This is why `get_match_state` never calls a model. See
 [BEDROCK.md](BEDROCK.md).

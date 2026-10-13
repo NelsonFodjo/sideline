@@ -1,39 +1,27 @@
-"""Live provider.
+"""The live football feed: API-Football (api-sports.io).
 
-Points at a commercial football feed. Kept behind the same Provider
-interface as replay so nothing above this file changes when you switch.
+The only provider the product ships. It turns the vendor's JSON into our
+internal Event shape (see base.py for the rules every provider must follow).
 
-WHY THIS IS NOT FREE, and why we checked first:
-
-  * The free tiers we tested are either delayed (no use: the listener
-    hears the crowd react before we know anything) or capped at around
-    a hundred calls a day (no use: a 90-minute match polled every 15
-    seconds is 360 calls).
-  * The paid tier we budgeted for refreshes live fixtures and events
-    roughly every 15 seconds. That is comfortably inside our latency
-    budget, because the listener asks AFTER hearing the crowd, not
-    before.
-
-Verifying this was stage one of the build plan, before a line of server
-code was written. See docs/DATA_PROVIDERS.md for the capture we took.
-
-The key is read from the SIDELINE_FOOTBALL_KEY environment variable and
-is never written to a file or committed. On App Runner the stack injects
-it from Secrets Manager as that same variable (deploy/sideline.yaml).
+The key is read from SIDELINE_FOOTBALL_KEY and is never written to a file. A
+free plan allows 100 requests a day, so the poller defaults to a 60 s interval
+(SIDELINE_POLL_SECONDS); one followed match then costs about 100 requests over
+its length. Observed on a free plan: refresh and quota behaviour are in
+docs/DATA_PROVIDERS.md.
 """
 
 import json
 import logging
-import os
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from .base import Provider
+from .. import tls
+from .base import Provider, ProviderUnavailable  # noqa: F401 (re-exported)
 
 LOG = logging.getLogger("sideline.provider")
 
-BASE = os.environ.get("SIDELINE_FOOTBALL_BASE", "https://v3.football.api-sports.io")
+BASE = "https://v3.football.api-sports.io"
 TIMEOUT = 6
 
 
@@ -41,7 +29,7 @@ class ApiFootballProvider(Provider):
     name = "apifootball"
 
     def __init__(self, api_key=None, cache_seconds=12):
-        self.api_key = api_key or os.environ.get("SIDELINE_FOOTBALL_KEY", "")
+        self.api_key = api_key or ""
         self.cache_seconds = cache_seconds
         self._cache = {}
 
@@ -64,7 +52,7 @@ class ApiFootballProvider(Provider):
         url = "%s/%s?%s" % (BASE, path.lstrip("/"), urllib.parse.urlencode(params))
         req = urllib.request.Request(url, headers={"x-apisports-key": self.api_key})
         try:
-            with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            with urllib.request.urlopen(req, timeout=TIMEOUT, context=tls.context()) as r:
                 doc = json.loads(r.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, ValueError) as e:
             # Never let a provider outage become a protocol error. The
@@ -169,9 +157,15 @@ class ApiFootballProvider(Provider):
         fx = self.fixture(fixture_id)
         if not fx:
             return []
+        # No `last=`: free plans refuse that parameter, so take the most
+        # recent meetings ourselves.
         doc = self._get("fixtures/headtohead",
-                        h2h="%s-%s" % (fx["home_id"], fx["away_id"]), last=limit)
-        return [self._norm_fixture(i) for i in doc.get("response", [])]
+                        h2h="%s-%s" % (fx["home_id"], fx["away_id"]))
+        past = [self._norm_fixture(i) for i in doc.get("response", [])]
+        # The feed lists this fixture among the meetings; it is not "before".
+        past = [f for f in past if f["fixture_id"] != fx["fixture_id"]]
+        past.sort(key=lambda f: f.get("kickoff") or "", reverse=True)
+        return past[:limit]
 
     # ------------------------------------------------------ normalising
     @staticmethod
@@ -215,6 +209,9 @@ class ApiFootballProvider(Provider):
             # "Missed Penalty" arrives as type Goal. It is not a goal.
             if "missed" in detail.lower():
                 return None
+            # "Normal Goal" is the vendor's filler, not something to read out.
+            detail = {"normal goal": "", "own goal": "own goal",
+                      "penalty": "penalty"}.get(detail.lower(), detail)
             return self.mk_goal(fixture_id, minute, player, team, assist=assist,
                                 detail=detail, stoppage=stoppage)
         if kind == "card":
@@ -222,8 +219,10 @@ class ApiFootballProvider(Provider):
             # yellow is a sending-off, so it is a red to the listener.
             low = detail.lower()
             colour = "red" if ("red" in low or "second yellow" in low) else "yellow"
+            reason = (raw.get("comments") or "").strip()
             return self.mk_card(fixture_id, minute, player, team, colour,
-                                reason=raw.get("comments"), stoppage=stoppage)
+                                reason=reason[:1].lower() + reason[1:],
+                                stoppage=stoppage)
         if kind == "subst":
             return self.mk_sub(fixture_id, minute, on=assist, off=player,
                                team=team, stoppage=stoppage)
@@ -232,6 +231,3 @@ class ApiFootballProvider(Provider):
                                player=player, team=team, stoppage=stoppage)
         return None
 
-
-class ProviderUnavailable(Exception):
-    pass

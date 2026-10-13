@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """Create the DynamoDB table Sideline uses, with its TTL. Idempotent.
 
-    python3 scripts/create_table.py                  # real table, your account
-    SIDELINE_DYNAMO_ENDPOINT=http://localhost:8000 \\
-        python3 scripts/create_table.py              # DynamoDB Local
+    python3 scripts/create_table.py        # or: make create-table
 
-Same design as docs/DEPLOYMENT.md and deploy/sideline.yaml: one table,
-PK + SK, on-demand billing, TTL on `expires_at`. Reads SIDELINE_TABLE and
-AWS_REGION like the server does.
+One table, PK + SK, on-demand billing, TTL on `expires_at` (design:
+sideline/state/dynamo.py). Reads SIDELINE_TABLE and AWS_REGION like the server.
+Needs the permissions in docs/AWS_SETUP.md.
 """
 
 import os
@@ -22,12 +20,9 @@ def main():
         import boto3
     except ImportError:
         sys.exit("boto3 is not installed:  pip3 install boto3")
-    table = os.environ.get("SIDELINE_TABLE", "sideline")
-    kw = {"region_name": os.environ.get("AWS_REGION", "us-east-1")}
-    endpoint = os.environ.get("SIDELINE_DYNAMO_ENDPOINT")
-    if endpoint:
-        kw["endpoint_url"] = endpoint
-    db = boto3.client("dynamodb", **kw)
+    from sideline.config import CONFIG
+    table = CONFIG.table
+    db = boto3.client("dynamodb", region_name=CONFIG.region)
 
     try:
         db.describe_table(TableName=table)
@@ -49,8 +44,7 @@ def main():
             TimeToLiveSpecification={"Enabled": True, "AttributeName": "expires_at"})
         print("TTL enabled on expires_at")
     except Exception as e:                                     # noqa: BLE001
-        # Already enabled raises ValidationException; DynamoDB Local may
-        # not implement TTL at all. Neither is a reason to fail.
+        # Already enabled raises ValidationException: not a reason to fail.
         print("TTL: %s" % str(e).split(":")[-1].strip()[:100])
 
     print("\nnow:  just start the server; SIDELINE_STATE=auto will use this table")

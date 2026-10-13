@@ -22,7 +22,7 @@ The offset applies in resolve_fixture(), so no other tool has to know
 any of this happened.
 """
 
-from .. import sync
+from .. import sports, sync
 from ..mcp.errors import ToolError
 
 
@@ -114,7 +114,7 @@ def run(ctx, args, listener_id):
         return spoken, {"broadcast_offset": blended, "measured": measured,
                         "source": note, "calibrated": True,
                         "precision": "wall_clock" if precise else "minute_rounded",
-                        "anchor": sync.ANCHOR_SPOKEN.get(anchor, anchor)}, None
+                        "anchor": sports.for_fixture(fx).spoken_anchor(anchor)}, None
 
     # ------------------------------- 2. a sighted companion, or a number
     if args.get("their_minute") is not None or args.get("offset_seconds") is not None:
@@ -144,10 +144,11 @@ def run(ctx, args, listener_id):
     # ------------------------------------------- nothing usable given
     ctx.store.save_listener(rec)
     raise ToolError(
-        "Tell me when you hear something and I'll line us up - kick-off, half "
-        "time, or a goal going in. Until then I'm holding everything back "
+        "Tell me when you hear something and I'll line us up - %s, half "
+        "time, or a %s going in. Until then I'm holding everything back "
         "about %d seconds so I don't spoil anything."
-        % rec["broadcast_offset"],
+        % (sports.for_fixture(fx).start_word, sports.for_fixture(fx).score_word,
+           rec["broadcast_offset"]),
         {"reason": "need_anchor", "broadcast_offset": rec["broadcast_offset"],
          "source": rec["offset_source"],
          "anchors": sorted(sync.ANCHORS.keys())})

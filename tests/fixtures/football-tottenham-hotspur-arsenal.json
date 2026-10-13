@@ -1,0 +1,226 @@
+{
+  "_comment": "TEST FIXTURE ONLY. Invented events with illustrative names: the same shape as football-arsenal-tottenham.json with the sides swapped, so a test can follow 'Arsenal' and meet two matches.",
+  "fixture": {
+    "fixture_id": 1208342,
+    "home": "Tottenham Hotspur",
+    "away": "Arsenal",
+    "home_id": 47,
+    "away_id": 42,
+    "venue": "Tottenham Hotspur Stadium",
+    "kickoff": "2026-10-04T16:30:00+00:00",
+    "competition": "Premier League"
+  },
+  "events": [
+    {
+      "minute": 12,
+      "kind": "card",
+      "player": "Romero",
+      "team": "Tottenham Hotspur",
+      "colour": "yellow",
+      "reason": "a late challenge on Saka"
+    },
+    {
+      "minute": 34,
+      "kind": "goal",
+      "player": "Saka",
+      "team": "Arsenal",
+      "assist": "Odegaard",
+      "detail": "Left foot from inside the box"
+    },
+    {
+      "minute": 45,
+      "stoppage": 2,
+      "kind": "card",
+      "player": "Partey",
+      "team": "Arsenal",
+      "colour": "yellow",
+      "reason": "dissent"
+    },
+    {
+      "minute": 51,
+      "kind": "card",
+      "player": "Bissouma",
+      "team": "Tottenham Hotspur",
+      "colour": "yellow",
+      "reason": "a late tackle"
+    },
+    {
+      "minute": 58,
+      "kind": "goal",
+      "player": "Son",
+      "team": "Tottenham Hotspur",
+      "assist": "Maddison",
+      "detail": "Right foot from the edge of the area"
+    },
+    {
+      "minute": 62,
+      "kind": "substitution",
+      "player": "Jesus",
+      "player_off": "Havertz",
+      "team": "Arsenal"
+    },
+    {
+      "minute": 67,
+      "kind": "var",
+      "decision": "Penalty check, no penalty",
+      "team": "Tottenham Hotspur"
+    },
+    {
+      "minute": 74,
+      "kind": "goal",
+      "player": "Martinelli",
+      "team": "Arsenal",
+      "assist": "Rice",
+      "detail": "Header from close range"
+    },
+    {
+      "minute": 81,
+      "kind": "card",
+      "player": "Van de Ven",
+      "team": "Tottenham Hotspur",
+      "colour": "yellow",
+      "reason": "pulling back a runner"
+    },
+    {
+      "minute": 90,
+      "stoppage": 4,
+      "kind": "card",
+      "player": "Jesus",
+      "team": "Arsenal",
+      "colour": "yellow",
+      "reason": "time wasting"
+    }
+  ],
+  "lineups": {
+    "Arsenal": {
+      "formation": "4-3-3",
+      "xi": [
+        "Raya",
+        "White",
+        "Saliba",
+        "Gabriel",
+        "Timber",
+        "Rice",
+        "Odegaard",
+        "Partey",
+        "Saka",
+        "Havertz",
+        "Martinelli"
+      ],
+      "numbers": {
+        "Raya": 22,
+        "White": 4,
+        "Saliba": 2,
+        "Gabriel": 6,
+        "Timber": 12,
+        "Rice": 41,
+        "Odegaard": 8,
+        "Partey": 5,
+        "Saka": 7,
+        "Havertz": 29,
+        "Martinelli": 11
+      },
+      "bench": [
+        "Jesus",
+        "Trossard",
+        "Nketiah",
+        "Zinchenko",
+        "Jorginho"
+      ],
+      "coach": "Mikel Arteta"
+    },
+    "Tottenham Hotspur": {
+      "formation": "4-2-3-1",
+      "xi": [
+        "Vicario",
+        "Porro",
+        "Romero",
+        "Van de Ven",
+        "Udogie",
+        "Bissouma",
+        "Sarr",
+        "Kulusevski",
+        "Maddison",
+        "Son",
+        "Johnson"
+      ],
+      "numbers": {
+        "Vicario": 13,
+        "Porro": 23,
+        "Romero": 17,
+        "Van de Ven": 37,
+        "Udogie": 38,
+        "Bissouma": 8,
+        "Sarr": 29,
+        "Kulusevski": 21,
+        "Maddison": 10,
+        "Son": 7,
+        "Johnson": 22
+      },
+      "bench": [
+        "Solomon",
+        "Werner",
+        "Lo Celso",
+        "Dragusin",
+        "Forster"
+      ],
+      "coach": "Ange Postecoglou"
+    }
+  },
+  "officials": {
+    "referee": "Michael Oliver",
+    "assistants": [
+      "Stuart Burt",
+      "Dan Cook"
+    ],
+    "fourth_official": "Craig Pawson",
+    "var": "Paul Tierney"
+  },
+  "head_to_head": [
+    {
+      "home": "Tottenham",
+      "away": "Arsenal",
+      "score": {
+        "home": 0,
+        "away": 1
+      },
+      "date": "2026-04-28"
+    },
+    {
+      "home": "Arsenal",
+      "away": "Tottenham",
+      "score": {
+        "home": 2,
+        "away": 2
+      },
+      "date": "2025-09-15"
+    },
+    {
+      "home": "Tottenham",
+      "away": "Arsenal",
+      "score": {
+        "home": 2,
+        "away": 3
+      },
+      "date": "2025-01-19"
+    },
+    {
+      "home": "Arsenal",
+      "away": "Tottenham",
+      "score": {
+        "home": 3,
+        "away": 1
+      },
+      "date": "2024-09-28"
+    },
+    {
+      "home": "Tottenham",
+      "away": "Arsenal",
+      "score": {
+        "home": 2,
+        "away": 3
+      },
+      "date": "2024-04-28"
+    }
+  ]
+}

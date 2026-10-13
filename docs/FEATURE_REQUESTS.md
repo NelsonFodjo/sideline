@@ -51,8 +51,9 @@ when the standard header will be supported.
 **What** Guidance for a 500 ms target when a tool calls a language model:
 precomputed summaries, streaming, or a declared longer budget.
 
-**Evidence** QuickStart, 2026-10-12. See FL-03. Sideline's own approach is
-templates for fast tools and a configurable model timeout.
+**Evidence** QuickStart, 2026-10-12. See FL-03. Sideline's approach is
+templates for the fast tools and an honest two-second catch-up; a precompute cache
+was built, never measured against a real model, and removed.
 
 ### FR-05 — A "this UI is supplementary" signal for MCP Apps
 

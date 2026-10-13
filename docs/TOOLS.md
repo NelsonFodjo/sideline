@@ -51,7 +51,7 @@ the first catch-up read out the wrong game.
 ### `get_match_state`
 
 Score and clock. The most-asked question, so the fastest path: no
-Bedrock, template only (about 0.2 ms of server time; docs/EVIDENCE.md).
+Bedrock, template only: no model call.
 
 **Does not advance `last_told_at`.** Hearing the score is not the same as
 being told what happened. A listener who asks the score and then asks
@@ -98,6 +98,11 @@ while the kettle was on has no way to retrieve it.
 Resolution order: explicit id, then nearest minute, then most recent of a
 kind. **Nearest**, not exact — listeners say "that goal around the half
 hour" and are usually a minute or two out.
+
+`kind` is per sport (`goal`, `card`, `substitution`, `var` in football;
+`basket`, `foul`, `timeout`, `ejection`, `review`, `substitution` in
+basketball), plus `score`, which means whatever scores in this sport, so
+"that goal" and "that basket" resolve the same way. See [SPORTS.md](SPORTS.md).
 
 ### `get_officials`
 

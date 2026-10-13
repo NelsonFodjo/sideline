@@ -12,7 +12,7 @@ what they missed must still get the goals.
 def run(ctx, args, listener_id):
     from . import resolve_fixture
     fx = resolve_fixture(ctx, args, listener_id)
-    spoken = ctx.lang.templates.say_match_state(fx)
+    spoken = ctx.lang.templates.say_match_state(fx, fx)
 
     structured = {
         "fixture_id": fx["fixture_id"],

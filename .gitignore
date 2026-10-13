@@ -1,6 +1,12 @@
-__pycache__/
-*.pyc
+# secrets: never committed
 .env
 
-# Git Auto Commit Generator learned data
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# tooling that is not part of the project
 .git-auto-commit/
+.DS_Store
