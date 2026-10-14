@@ -15,22 +15,20 @@ secret.
 
 | To get | You need |
 |---|---|
-| The server to start | `SPORTMONKS_TOKEN` (a free Sportmonks token) |
+| The server to start | Nothing required (reads open multi-sport ESPN feed) |
 | Spoken, written catch-ups, and the voice agent in the simulator | AWS credentials with Bedrock access (the access key pair) |
 | Nova's voice (Polly) | AWS credentials with Polly access. A Bedrock API key alone is not enough |
 | Durable listener state | AWS credentials with DynamoDB access, and the table (`make create-table`) |
 | Speech in (the listener's voice) | the same AWS credentials: Voxtral and Nova Sonic run on Bedrock, so audio never leaves the account (see [SPEECH.md](SPEECH.md)) |
 
-With no football key the server refuses to start and says why: Sideline has no recorded
-or demo data. With no AWS credentials it still starts, but the agent in the simulator
+The server starts out of the box with open live sports coverage from ESPN. With no AWS credentials it still starts, but the agent in the simulator
 has nothing to answer with and listener state is kept in memory.
 
 ## The variables
 
 | Variable | Default | What it does |
 |---|---|---|
-| `SPORTMONKS_TOKEN` | *(none)* | Sportmonks token (free plan: a few leagues, 180 calls an hour). Required: there is no recorded or demo data. **Secret.** |
-| `SIDELINE_POLL_SECONDS` | `30` | Seconds between polls of a followed match while it is in play (free plan: 180 calls an hour). A match not yet started is checked every 5 minutes, a finished one once. |
+| `SIDELINE_POLL_SECONDS` | `30` | Seconds between polls of a followed match while it is in play. A match not yet started is checked every 5 minutes, a finished one once. |
 | `SIDELINE_HOST` | `127.0.0.1` | Interface to bind. |
 | `SIDELINE_PORT` | `8765` | Port. |
 | `SIDELINE_LOG` | `INFO` | Log level. |
@@ -41,12 +39,17 @@ has nothing to answer with and listener state is kept in memory.
 | `AWS_ACCESS_KEY_ID` | *(none)* | AWS credentials (with the secret below). **Secret.** |
 | `AWS_SECRET_ACCESS_KEY` | *(none)* | AWS credentials (with the key id above). **Secret.** |
 | `SIDELINE_BEDROCK` | `auto` | auto (on when AWS credentials are present), on, or off. |
-| `SIDELINE_BEDROCK_MODEL` | `amazon.nova-micro-v1:0` | Bedrock model or inference-profile id. |
+| `SIDELINE_BEDROCK_MODEL` | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | Bedrock model or inference-profile id. |
 | `SIDELINE_STATE` | `auto` | auto (DynamoDB if it answers, else memory), memory, or dynamo. |
 | `SIDELINE_TABLE` | `sideline` | DynamoDB table name. |
+| `GROQ_API_KEY` | *(none)* | Groq API key for Whisper Large v3 Turbo speech-to-text (~200ms). **Secret.** |
+| `SIDELINE_TTS` | `auto` | Speech out: auto, browser (<15ms), cartesia (~60ms), elevenlabs (~75ms), or polly. |
+| `CARTESIA_API_KEY` | *(none)* | Cartesia API key for Sonic TTS (~60ms with word timestamps). **Secret.** |
+| `ELEVENLABS_API_KEY` | *(none)* | ElevenLabs API key for Flash v2.5 TTS (~75ms with timestamps). **Secret.** |
+| `ELEVENLABS_VOICE_ID` | `21m00Tcm4TlvDq8ikWAM` | ElevenLabs voice ID (default: Rachel / conversational). |
 | `SIDELINE_POLLY_VOICE` | `Amy` | Polly voice (speech out). |
 | `SIDELINE_POLLY_ENGINE` | `generative` | Polly engine: generative (most natural, falls back to neural) or neural. |
-| `SIDELINE_STT` | `auto` | Speech in: auto (Voxtral, then Nova Sonic, both on Bedrock), voxtral, sonic, or off. |
+| `SIDELINE_STT` | `auto` | Speech in: auto (Groq, then Voxtral/Sonic on Bedrock), groq, voxtral, sonic, or off. |
 | `SIDELINE_WEATHER` | `on` | on adds the weather at the ground to a match preview (city and country go to Open-Meteo); off does not. |
 | `SIDELINE_LIVE_CAPTION` | `browser` | browser types interim words while you speak (audio also reaches the browser vendor); off does not. |
 

@@ -3,7 +3,7 @@
 In order, each step with a way to check it worked. Console menu names and model availability change; where a
 step fails, trust the error and `make aws-check` over this page.
 
-> **Status, 2026-10-13, one account.** Bedrock (Nova Micro), Nova 2 Sonic, Polly and DynamoDB were each run
+> **Status, 2026-10-13, one account.** Bedrock (Anthropic Claude), Nova 2 Sonic, Polly and DynamoDB were each run
 > against a real account and work. Nothing here has been run on a different account, so treat the permission lists
 > as what *this* code calls, not as a promise about yours.
 
@@ -11,7 +11,7 @@ You do not need all of it. What each piece unlocks:
 
 | | What it does | Without it |
 |---|---|---|
-| **Bedrock (Nova Micro)** | writes the spoken catch-up; the voice agent chooses tools | the fast tools still answer in templated wording; the simulator's voice agent has no answer |
+| **Bedrock (Anthropic Claude)** | writes the spoken catch-up; the voice agent chooses tools | the fast tools still answer in templated wording; the simulator's voice agent has no answer |
 | **Polly** | the voice, with word timings | the page uses the browser's own voice |
 | **Voxtral Small** and **Nova 2 Sonic** | speech in (Voxtral first, Sonic the fallback) | the browser's own recognition (the least accurate) |
 | **DynamoDB** | what a listener has heard survives a restart | state lives in memory |
@@ -44,8 +44,8 @@ access keys.
 
 ## Step 3: Bedrock model access
 
-Check that Amazon Nova Micro is available to your account in the region: console, Amazon Bedrock, Model catalog
-or Model access, and complete any first-use step shown. The default id is `amazon.nova-micro-v1:0`.
+Check that Anthropic Claude is available to your account in the region: console, Amazon Bedrock, Model catalog
+or Model access, and complete any first-use step shown. The default id is `us.anthropic.claude-sonnet-4-5-20250929-v1:0`.
 
 **Check it:** `make aws-check` runs a real call ("bedrock responds") and lists models you can use if the id is
 wrong. Set `SIDELINE_BEDROCK_MODEL` to change it.
@@ -69,8 +69,8 @@ If you use your own admin credentials, skip this. For a scoped IAM user, this is
      "Effect": "Allow",
      "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
                 "bedrock:InvokeModelWithBidirectionalStream"],
-     "Resource": ["arn:aws:bedrock:*::foundation-model/amazon.nova-*",
-                  "arn:aws:bedrock:*:<account-id>:inference-profile/*"]},
+     "Resource": ["arn:aws:bedrock:*::foundation-model/*",
+                  "arn:aws:bedrock:*:*:inference-profile/*"]},
     {"Sid": "ListModels",
      "Effect": "Allow",
      "Action": ["bedrock:ListFoundationModels", "bedrock:ListInferenceProfiles"],
@@ -100,7 +100,7 @@ make aws-check
 ```
 
 It checks each layer in turn and names the one that failed: boto3, credentials, region, model access, a real
-Bedrock answer, **Nova calling a Sideline tool**, **a catch-up written by Bedrock**, speech in, speech out, and
+Bedrock answer, **Anthropic Claude calling a Sideline tool**, **a catch-up written by Bedrock**, speech in, speech out, and
 DynamoDB. It uses small synthetic inputs, so it needs no football key. Run it before the server, not after.
 
 Polly needs no model-access step. The startup log then reads `voice: in=... out=polly (Amy)`; `out=browser` means it

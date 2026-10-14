@@ -5,8 +5,9 @@ in whatever is not exported (sideline/envfile.py); it is git-ignored. Every
 variable is documented in docs/ENVIRONMENT.md, and tests/test_environment.py
 fails if the code, `.env.example` and that page ever disagree.
 
-There is no demo mode and no recorded data: the server needs a Sportmonks token
-(SPORTMONKS_TOKEN) and says so at startup if it is missing.
+There is no demo mode and no recorded data: the server connects to
+live multi-sport feeds (ESPN Universal Multi-Sport Provider covering
+Soccer, Basketball, American Football, Baseball, and Hockey).
 """
 
 import os
@@ -14,11 +15,9 @@ import os
 # Every environment variable the code reads, and nothing else. This is the one
 # source of truth: `make env` prints from it, and tests/test_environment.py fails
 # if the code, this list, `.env.example` and docs/ENVIRONMENT.md ever disagree.
-# (name, secret?, default, what it does)
 VARIABLES = [
-    # The live football feed
-    ("SPORTMONKS_TOKEN", True, "", "Sportmonks token (free plan: a few leagues, 180 calls an hour). Required: there is no recorded or demo data"),
-    ("SIDELINE_POLL_SECONDS", False, "30", "Seconds between polls of a followed match while it is in play (free plan: 180 calls an hour). A match not yet started is checked every 5 minutes, a finished one once"),
+    # Live sports polling
+    ("SIDELINE_POLL_SECONDS", False, "30", "Seconds between polls of a followed match while it is in play. A match not yet started is checked every 5 minutes, a finished one once"),
     # The server
     ("SIDELINE_HOST", False, "127.0.0.1", "Interface to bind"),
     ("SIDELINE_PORT", False, "8765", "Port"),
@@ -31,10 +30,15 @@ VARIABLES = [
     ("AWS_ACCESS_KEY_ID", True, "", "AWS credentials (with the secret below)"),
     ("AWS_SECRET_ACCESS_KEY", True, "", "AWS credentials (with the key id above)"),
     ("SIDELINE_BEDROCK", False, "auto", "auto (on when AWS credentials are present), on, or off"),
-    ("SIDELINE_BEDROCK_MODEL", False, "amazon.nova-micro-v1:0", "Bedrock model or inference-profile id"),
+    ("SIDELINE_BEDROCK_MODEL", False, "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "Bedrock model or inference-profile id"),
     ("SIDELINE_STATE", False, "auto", "auto (DynamoDB if it answers, else memory), memory, or dynamo"),
     ("SIDELINE_TABLE", False, "sideline", "DynamoDB table name"),
     # Voice, for the simulator
+    ("GROQ_API_KEY", True, "", "Groq API key for Whisper Large v3 Turbo (~200ms)"),
+    ("SIDELINE_TTS", False, "auto", "Speech out: auto, browser (<15ms), cartesia (~60ms), elevenlabs (~75ms), or polly"),
+    ("CARTESIA_API_KEY", True, "", "Cartesia API key for Sonic TTS (~60ms with word timestamps)"),
+    ("ELEVENLABS_API_KEY", True, "", "ElevenLabs API key for Flash v2.5 TTS (~75ms with timestamps)"),
+    ("ELEVENLABS_VOICE_ID", False, "21m00Tcm4TlvDq8ikWAM", "ElevenLabs voice ID (default: Rachel / conversational)"),
     ("SIDELINE_POLLY_VOICE", False, "Amy", "Polly voice (speech out)"),
     ("SIDELINE_POLLY_ENGINE", False, "generative", "Polly engine: generative (most natural, falls back to neural) or neural"),
     ("SIDELINE_STT", False, "auto", "Speech in: auto (Voxtral, then Nova Sonic, on Bedrock), voxtral, sonic, or off"),
@@ -83,10 +87,7 @@ class Config:
     log_dir = os.environ.get("SIDELINE_LOG_DIR", "logs")
     log_keep_days = int(os.environ.get("SIDELINE_LOG_KEEP_DAYS", "14"))
 
-    # The live football feed (Sportmonks). Required to start the server.
-    sportmonks_token = os.environ.get("SPORTMONKS_TOKEN", "")
-    # Seconds between polls of each followed match. The free plan allows 180 calls an
-    # hour per kind of data, so one match in play at 30 s uses two thirds of it.
+    # Seconds between polls of each followed match.
     poll_seconds = int(os.environ.get("SIDELINE_POLL_SECONDS", "30"))
 
     # Listener state: DynamoDB, or memory. Table: docs/AWS_SETUP.md.

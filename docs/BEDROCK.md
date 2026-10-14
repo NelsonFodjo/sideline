@@ -21,7 +21,7 @@ return, it is too late.
 | `catchup()` | Composition and prioritisation. The one that genuinely earns it. |
 | `milestones()` | A long absence, compressed to headlines plus an offer of detail. Called by `what_did_i_miss`. |
 | `translate()` | The same facts in another language or register (a listener can ask for one). |
-| The Nova MCP host, `/agent/chat` | Fetches `initialize` instructions and `tools/list` over MCP, gives Nova the live tool catalog, then executes Nova's `tools/call` selections over MCP. |
+| The Claude MCP host, `/agent/chat` | Fetches `initialize` instructions and `tools/list` over MCP, gives Claude the live tool catalog, then executes Claude's `tools/call` selections over MCP. |
 | Nova 2 Sonic | speech in: a separate use of Bedrock, described in [SPEECH.md](SPEECH.md). |
 
 **Deterministic, never a model**
@@ -48,7 +48,7 @@ If Bedrock is **off**, the deterministic templates in [`templates.py`](../sideli
 and the response says `generated_by: template`. That is a configuration choice, not a fallback.
 
 Every response reports who wrote the words in `structuredContent.generated_by`: `bedrock`, `template`,
-`tool-data` (the Nova host asked for facts) or `bedrock+bedrock` (translated). It is the easiest way to show the model
+`tool-data` (the host asked for facts) or `bedrock+bedrock` (translated). It is the easiest way to show the model
 working on camera.
 
 ## The grounding rule
@@ -73,7 +73,7 @@ states a parseable scoreline **and** it disagrees. Vague text passes.
 ## Latency
 
 > **Alexa+'s QuickStart sets a round-trip target of 500 ms** (rules read 2026-10-12). **A Bedrock catch-up misses
-> it:** a real Nova call took about 1.5 to 2.1 s on 2026-10-13 (a few samples on one account, not a guarantee). The
+> it:** a real Bedrock Converse call took about 1.5 to 2.1 s on 2026-10-13 (a few samples on one account, not a guarantee). The
 > fast tools call no model, so they are not held to account by this.
 
 Three rules keep the rest inside a listener's patience:
@@ -82,22 +82,22 @@ Three rules keep the rest inside a listener's patience:
 2. Catch-up prompts are capped at 12 events.
 3. The provider caches for 12 seconds, so no tool waits on the football feed more than once.
 
-`max_attempts=1` on the boto3 client is intentional: a retry costs another request timeout. The one exception is the Nova MCP host, which retries **once**, after 0.6 s, when AWS answers at once with "capacity limit reached" or "slow down" (`ServiceUnavailableException`, `ThrottlingException`): that refusal is quick and the same request a moment later usually works. Any other error is not retried. The request ceiling is
+`max_attempts=1` on the boto3 client is intentional: a retry costs another request timeout. The one exception is the Bedrock MCP host, which retries **once**, after 0.6 s, when AWS answers at once with "capacity limit reached" or "slow down" (`ServiceUnavailableException`, `ThrottlingException`): that refusal is quick and the same request a moment later usually works. Any other error is not retried. The request ceiling is
 8 seconds. A first-ever precompute-and-cache design was built and then removed: it moved the model off the
 listener's clock but was only ever tested against a simulated model, and the honest statement is that a catch-up
 takes about two seconds.
 
-## The Nova MCP host
+## The Claude MCP host
 
 The simulator posts the listener's transcript to `/agent/chat`. The server resolves what they meant
 ([SPEECH.md](SPEECH.md)), then discovers the MCP `initialize` instructions and `tools/list` catalog over
 [`mcp/client.py`](../sideline/mcp/client.py). It passes the complete discovered descriptions and input schemas
-to Bedrock Converse up front. Nova decides whether and what to call; selected tools are executed through the
+to Bedrock Converse up front. Claude decides whether and what to call; selected tools are executed through the
 same server's `/mcp` endpoint, with protocol sessions and server-side schema validation. Tool results return to
-Nova for its answer. The prompt contains general grounding and spoken-response guidance, not phrase-to-tool rules.
+Claude for its answer. The prompt contains general grounding and spoken-response guidance, not phrase-to-tool rules.
 
-Bedrock Nova is a model API, not an MCP client: a host must do this discovery and dispatch. Any other
-MCP-capable host can connect directly to `/mcp` and provide Nova (or another model) with the same tool catalog.
+Bedrock is a model API, not an MCP client: a host must do this discovery and dispatch. Any other
+MCP-capable host can connect directly to `/mcp` and provide Claude (or another model) with the same tool catalog.
 
 Conversation context is four layers, each small and bounded, and none is persisted across restarts:
 
@@ -105,7 +105,7 @@ Conversation context is four layers, each small and bounded, and none is persist
 2. **The topic** (`Focus` in `agent.py`): after each turn the real tool results, not the model's wording, are reduced to
    the match, team and player just discussed, and the next turn's system prompt says so ("The listener was last talking
    about the match Arsenal against Lille, the player Saka..."). That is what makes "and their form?", "what about him?"
-   and "that match" mean something on a small model, including for a match the listener is not following. It expires
+   and "that match" mean something on a model, including for a match the listener is not following. It expires
    after ten minutes, a new match drops the old player, a bare pronoun is never a topic, and the prompt says it is
    context, not a fact to state.
 3. **Offers** (`resolve.py`): what was just offered ("Arsenal or Arsenal W?") is remembered for two minutes, so a
@@ -118,14 +118,13 @@ time zone, lives in the state store and survives restarts. The model never recei
 short sentences, never to narrate, and never to promise to keep the listener updated (the server cannot speak
 first).
 
-For Nova, `what_did_i_miss` returns its structured event facts, not a prewritten paragraph (a header asks for
-this): Nova is itself a model and would only paraphrase a paragraph, at the cost of a second model call.
+For Claude, `what_did_i_miss` returns its structured event facts, not a prewritten paragraph (a header asks for
+this): Claude is itself an LLM and would only paraphrase a paragraph, at the cost of a second model call.
 
 ## Model choice
 
-`amazon.nova-micro-v1:0` is the default, set by `SIDELINE_BEDROCK_MODEL`. It supports the Converse API used for
-both tool use and catch-up generation. This is compression under a voice deadline, not writing, so a small fast
-model with `temperature=0.2`. Availability varies by account and region; `make aws-check` checks the selected
+`us.anthropic.claude-sonnet-4-5-20250929-v1:0` is the default, set by `SIDELINE_BEDROCK_MODEL`. It supports Bedrock's Converse API used for
+both MCP tool use and catch-up generation. Anthropic Claude delivers exceptional tool routing precision, strict zero-hallucination discipline, and natural conversational phrasing. Availability varies by account and region; `make aws-check` checks the selected
 model. We make no claim about what model Alexa+ uses.
 
 **Historical comparison (2026-10-13, one account, one run each; not a measurement of the current MCP-discovery prompt).** Asked a broad batch of

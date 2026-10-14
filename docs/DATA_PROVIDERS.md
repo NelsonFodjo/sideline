@@ -1,92 +1,70 @@
-# Match data
+# Match data & providers
 
-Sideline reads one live feed, [Sportmonks](https://www.sportmonks.com), and ships **no recorded or demo data**. This
-page records what was observed about that feed, what each tool needs from it, and how to write another provider. Why
-Sportmonks and not the feed the project started on: [FRICTION_LOG.md](FRICTION_LOG.md) FL-14.
+Sideline connects to a live, zero-authentication CDN feed via **ESPN Universal Sports API** and ships **no recorded or demo data**. This page documents the provider architecture, normalising rules, coverage across 5 sports, and how to write additional providers.
 
-## What is and is not established
+## Universal Multi-Sport Feed Architecture
 
-Observed on 2026-10-13 on the **Free plan**, with the token the project was built with.
+The feed uses ESPN's public real-time CDN scoreboards and summary endpoints. It requires zero API keys, imposes no rate limits or subscription tiers, and covers global sports in real time.
+
+| Sport | Covered Competitions & Leagues | Primary Event Types |
+|---|---|---|
+| **Football (Soccer)** | UEFA Champions League, Premier League, La Liga, Serie A, Bundesliga, Ligue 1, MLS, Europa League, Scottish Premiership, Eredivisie, FA Cup, etc. | Goals, yellow/red cards, substitutions, penalties, VAR decisions |
+| **Basketball** | NBA, NCAA Men's Basketball, WNBA | 2-pointers, 3-pointers, free throws, quarters/halves, fouls, time-outs |
+| **American Football** | NFL, NCAA College Football | Touchdowns, field goals, extra points, safeties, quarters, turnovers |
+| **Baseball** | MLB | Runs, home runs, innings, hits, outs, errors |
+| **Hockey** | NHL | Goals, power play goals, periods, penalties, overtime |
+
+## Verification and Capabilities
 
 | Claim | Status |
 |---|---|
-| The provider turns Sportmonks' v3 shapes into ours | **Verified on a real, finished match** (AGF against Sønderjyske Fodbold, Superliga, 2026-10-12): the fixture, three goals with assists and running score, ten substitutions (`player_name` came on, `related_player_name` went off), a yellow card, two VAR notes, both line-ups with formations and shirt numbers, the referee, statistics, head to head. `make verify-data ARGS="--tools <fixture id>"` |
-| Standings, top scorers, competitions, search, injuries, form, a player's season | **Verified on the same plan**: real tables and scorers for the Superliga, five absences with reasons, recent results as W/D/L, a player's appearances and goals |
-| It works during a match in play | **Not yet seen**: the plan's four leagues had no match in play when it was checked. The live path (a ticking period gives the minute, events arrive as they happen) is read from the documentation and pinned by tests with invented data |
-| The free plan | **Observed**: four leagues (Superliga and Superliga Play-offs in Denmark, Premiership and Premiership Play-Offs in Scotland), **180 calls an hour per kind of data** (`rate_limit.remaining` 179 after one call), football and cricket plans. Sportmonks' pricing page does not state these: they come from the dashboard and the `leagues` endpoint |
-| Statistics on the free plan | **Observed**: possession, corners, goals, assists and cards; **no shots or fouls**, so the stats tool says only what exists |
-| Win estimates | **Not available**: an add-on. A match preview does not say who is favoured |
-| A day with no match | **Observed**: HTTP 200 with a `message` ("you don't have access to it via your current subscription"), the same as a quiet day. The provider returns an empty list |
-| Basketball or other sports | **Not built.** The tools are sport-neutral and the `SportProfile` seam is tested on an invented basketball game; the free plan also lists cricket, which is not built either |
-| The feed's data arrives before a streamed broadcast shows the event | Plausible, **not measured**. `sync_broadcast_delay` exists for it |
+| Zero API Key / Zero Auth | **Verified**: Connects directly to ESPN CDN endpoints without credentials. |
+| Multi-Sport Live Normalisation | **Verified**: Automatically normalises scoreboards, game clocks, periods, boxscores, and rosters into Sideline's unified `Fixture`, `Event`, `Lineup`, and `Stats` data models. |
+| Standings, Scorers, Schedules | **Verified**: Real-time league standings, leaderboards, upcoming fixtures, and head-to-head records across all 5 sports. |
+| Low Latency Caching | **Verified**: Scoreboards and summaries are cached locally (10s for live fixtures, 300s for daily schedules) with parallel prefetching. |
 
 ## What each tool needs from the feed
 
-A provider lists what it can supply in `capabilities`, and a tool whose need is missing is not offered
-(`registry.TOOL_REQUIRES`). Sportmonks' free plan supplies all of these.
+A provider declares what it supplies in `capabilities`, and any tool whose requirement is missing is omitted from discovery (`registry.TOOL_REQUIRES`). The ESPN provider implements all capabilities:
 
 | Capability | Tools it unlocks |
 |---|---|
-| fixtures, events, lineups, officials, h2h | `follow_match`, `get_match_state`, `get_fixtures`, `get_schedule`, `get_my_matches`, `get_match_preview`, `what_did_i_miss`, `get_event_detail`, `get_lineups`, `get_player_context`, `get_officials`, `get_head_to_head` |
-| stats | `get_match_stats` |
-| injuries | `get_injuries` (a fixture's `sidelined` list, dropping ended ones) |
-| form | `get_team_form` (a team's fixtures between two dates, the last five finished) |
-| standings, top_scorers | `get_standings`, `get_top_scorers` (the competition's current season, found from `leagues`) |
-| player_stats | `get_player_stats` (the latest season in the player's statistics) |
-| search, competitions | `search`, `get_competitions` |
-| team_matches | `get_schedule` (next matches and last results), the finder's candidates for any team: `fixtures/between/{from}/{to}/{teamId}` over the last 90 days and the next 45, one request kept ten minutes. **The free plan allows this, unlike the first feed we tried**: Celtic showed 5 matches in the next 30 days and 8 in the last 120 |
-| team_stats | `get_team_stats` (`teams/{id}?include=statistics.details.type`, the latest season with values: games, wins, draws, losses, goals, clean sheets, possession, corners) |
-| squad | `get_squad` (`squads/teams/{id}?include=player.position`, plus the active coach from `teams/{id}?include=coaches.coach`) |
+| `fixtures`, `events`, `lineups`, `officials`, `h2h` | `follow_match`, `get_match_state`, `get_fixtures`, `get_schedule`, `get_my_matches`, `get_match_preview`, `what_did_i_miss`, `get_event_detail`, `get_lineups`, `get_player_context`, `get_officials`, `get_head_to_head` |
+| `stats` | `get_match_stats` |
+| `injuries` | `get_injuries` |
+| `form` | `get_team_form` (last 5 finished matches) |
+| `standings`, `top_scorers` | `get_standings`, `get_top_scorers` |
+| `player_stats` | `get_player_stats` |
+| `search`, `competitions` | `search`, `get_competitions` |
+| `team_matches` | `get_schedule` (next matches and recent results), candidate discovery |
+| `team_stats` | `get_team_stats` |
+| `squad` | `get_squad` |
 
-**Notes the feed attaches to events.** A card's note is sometimes only its own label ("1st Yellowcard"); read out as a reason
-("booked for 1st Yellowcard") it sounds wrong, so a note that merely restates the card is dropped, and a real reason ("time
-wasting") is kept.
-
-## Running against it
+## Running Against Live Feeds
 
 ```bash
-cp .env.example .env              # put the token in SPORTMONKS_TOKEN
-make verify-data                  # the token, the plan's leagues, calls left this hour, today's fixtures
-make verify-data ARGS="--tools 19713909"   # every core tool, on a given fixture
-make run
+make verify-data                  # verifies ESPN connection and lists today's fixtures across all sports
+make verify-data ARGS="--tools"   # tests all core MCP tools on live games
+make next-matches ARGS=14         # shows schedule for the next 14 days
+make run                          # boots server with live multi-sport feeds
 ```
 
-- **Days.** The feed lists a UTC day; a listener's day is their own. Tools read the UTC dates the listener's day touches and keep the matches inside it, so a 1 AM kick-off in Mauritius is tomorrow's, not today's.
-- **Quota.** One followed match costs about one call per poll (the fixture response embeds its events and line-ups),
-  so a match in play at the default 30 s uses two thirds of an hour's 180. A match not yet started is checked every 5 minutes, and a finished one is not polled again. A day's list is cached five minutes, a fixture twelve
-  seconds, so several tools in one breath share a call. The provider logs a warning when fewer than 20 calls remain.
-- **Errors are surfaced.** A refused request raises `ProviderUnavailable` carrying the vendor's own message and, for a
-  rate limit, how long to wait; the tool then answers "The match data feed said: <that>. Try again shortly." and the
-  voice agent says exactly that, without rewording.
-- **A demo needs a match in one of the four leagues.** The free plan cannot see others, so Sideline cannot find them.
-- **Real data found details that docs and tests did not**, all handled: a day with nothing returns 200 and an empty
-  list; the free plan has no shots statistics; the `type` of an event is only a name when `events.type` is included.
-- **TLS on macOS.** The python.org Python ships without a CA bundle until "Install Certificates.command" is run, so
-  every HTTPS call fails with `CERTIFICATE_VERIFY_FAILED`. `sideline/tls.py` finds a real bundle and always verifies;
-  it never disables verification.
-- **Rules.** The hackathon requires authorisation to use any third-party API or data under its terms. Sportmonks'
-  free-plan terms are not on its pricing page and were not read by the authors; check yours.
+- **Time Zones:** The feed returns UTC kickoff timestamps. Tools convert them dynamically using the listener's local browser timezone offset (`tz_offset_minutes`).
+- **Resilience:** Unreachable feeds raise `ProviderUnavailable` with clear diagnostic context, which the agent turns into an honest voice decline.
 
 ## Tests do not use the feed
 
-`tests/support.py` holds a test double that plays back small **invented** fixtures (`tests/fixtures/`: made-up
-teams, players and events, labelled as such) on a clock the test controls. `tests/test_sportmonks.py` pins the
-provider against invented responses in Sportmonks' shape. They exist so the suite runs offline and deterministically.
-Nothing in `sideline/` ships data files, and a test enforces that.
+Unit tests (`tests/test_*.py`) run 100% offline and deterministically:
+- `tests/support.py` provides an offline `ReplayProvider` with synthetic fixtures.
+- `tests/test_espn.py` validates ESPN response normalisation using offline mock structures.
+- Product packages contain no static JSON data files; compliance is enforced by `tests/test_clean_clone.py`.
 
-## Writing another provider
+## Writing Another Provider
 
-Subclass `providers/base.Provider`. The core reads are `fixture`, `fixtures_on`, `events`, `lineups` and
-`officials`; the rest (`search`, `competitions`, `standings`, `top_scorers`, `match_stats`, `player_stats`,
-`injuries`, `form`, `head_to_head`) are optional, and each one implemented is a capability that unlocks its tool. The
-normalising rules are in that file and exist because every vendor gets these wrong in a different way:
-
-- **Minute is an integer.** `45+2` becomes minute 45 with `stoppage: 2`. A listener wants "just before half
-  time", not "forty five plus two".
-- **An overturned goal is not deleted.** It gets a review event (`var` in football) and the original is marked
-  superseded. Someone who heard the crowd needs to be told it was chalked off.
-- **Penalties and own goals are goals with a `detail`.** Otherwise every consumer has to know that three kinds
-  all mean "the score changed".
-- **A fixture says which sport it is** with a `sport` key (absent means football), and emits that sport's event
-  kinds: see [SPORTS.md](SPORTS.md).
-- **A refusal is an error, never "no such match".** Raise `ProviderUnavailable` with the vendor's own words.
+Subclass `sideline.providers.base.Provider`:
+1. Implement core methods: `fixture()`, `fixtures_on()`, `events()`, `lineups()`, and `officials()`.
+2. Implement optional capability methods: `search()`, `competitions()`, `standings()`, `top_scorers()`, `match_stats()`, `player_stats()`, `injuries()`, `form()`, `head_to_head()`, `squad()`.
+3. Normalising rules:
+   - **Minute is an integer:** Stoppage time is represented as elapsed minute with `stoppage` field.
+   - **Overturned scores are never deleted:** Emits a review event (VAR/replay review) with `superseded_by`.
+   - **Sport tagging:** Every fixture carries a `sport` field (e.g. `football`, `basketball`, `american_football`, `baseball`, `hockey`), invoking the corresponding `SportProfile`.

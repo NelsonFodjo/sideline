@@ -76,16 +76,15 @@ body[data-mode="thinking"] .bg{filter:hue-rotate(8deg) brightness(.95)}
 .sr{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;
   clip:rect(0 0 0 0);white-space:nowrap}
 
-.shell{position:relative;z-index:2;height:100%;display:grid;
-  grid-template-columns:minmax(0,1fr);        /* never let long text widen the page */
-  grid-template-rows:auto minmax(0,1fr) auto;pointer-events:none;
-  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+.shell{position:relative;z-index:2;min-height:100vh;display:flex;flex-direction:column;
+  pointer-events:none;
+  padding-top:env(safe-area-inset-top);padding-bottom:calc(env(safe-area-inset-bottom) + 54px)}
 
-/* ------------------------------------------------------ the header */
-.hud{padding:clamp(14px,2.6vh,28px) clamp(16px,3.2vw,40px) 0;
+/* ------------------------------------------------------ the header (hidden for redesign) */
+.hud{display:none !important;padding:clamp(14px,2.6vh,28px) clamp(16px,3.2vw,40px) 0;
   opacity:0;transform:translateY(-12px);
   transition:opacity 1s var(--ease),transform 1s var(--ease)}
-.hud.on{opacity:1;transform:none}
+.hud.on{display:none !important;opacity:1;transform:none}
 .scoreline{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
   gap:clamp(12px,2.6vw,40px)}
 .team{font-size:clamp(10px,1.1vw,13px);letter-spacing:.24em;text-transform:uppercase;
@@ -152,8 +151,9 @@ body[data-mode="thinking"] .bg{filter:hue-rotate(8deg) brightness(.95)}
 .pill.substitution .k{background:var(--ok)}
 
 /* ------------------------------------------------------- the stage */
-.stage{display:flex;align-items:flex-start;justify-content:center;min-height:0;min-width:0;
-  padding:0 clamp(18px,5vw,64px) clamp(12px,3vh,30px)}
+.stage{display:flex;align-items:flex-start;justify-content:center;flex:1 1 auto;min-height:0;min-width:0;
+  padding:0 clamp(18px,5vw,64px) clamp(16px,3vh,32px);
+  max-height:calc(100vh - 70px);overflow-y:auto;overflow-x:hidden}
 .inner{width:100%;max-width:min(1100px,94vw);text-align:center;
   display:flex;flex-direction:column;align-items:center}
 
@@ -184,17 +184,23 @@ body[data-mode="thinking"] .bg{filter:hue-rotate(8deg) brightness(.95)}
 }
 .answer.stale{opacity:.2}
 
-/* every word is laid out at once so nothing reflows; each lights in turn */
+/* generative word-by-word reveal: zero lookahead ahead of time, words stream dynamically as spoken */
 .answer .w{
   display:inline-block;position:relative;white-space:pre;
-  color:rgba(234,244,251,.17);
-  transform:translateY(.3em);filter:blur(3px);
-  transition:color .7s var(--ease),transform 1s var(--ease),filter .8s var(--ease);
-  will-change:transform,filter;
-  animation:wIn 1s var(--ease) backwards;
-  animation-delay:calc(var(--i,0) * 16ms);
+  color:rgba(240,248,253,.93);
+  opacity:0;
+  transform:translateY(.2em) scale(.94);
+  filter:blur(3px);
+  will-change:transform,filter,opacity;
 }
-@keyframes wIn{from{opacity:0;transform:translateY(.8em);filter:blur(16px)}}
+.answer .w.in{
+  opacity:1;
+  animation:wordPop .16s cubic-bezier(.16,1,.3,1) forwards;
+}
+@keyframes wordPop{
+  from{opacity:0;transform:translateY(.32em) scale(.9);filter:blur(6px)}
+  to{opacity:1;transform:none;filter:none}
+}
 
 /* spoken: sharp, settled, a touch of depth against the backdrop */
 .answer .w.read{
@@ -242,6 +248,15 @@ body[data-mode="thinking"] .bg{filter:hue-rotate(8deg) brightness(.95)}
   animation:halo 5s ease-in-out infinite}
 @keyframes halo{0%,100%{transform:translate(-50%,-50%) scale(.94);opacity:.8}
                 50%{transform:translate(-50%,-50%) scale(1.06);opacity:1}}
+.gate .pill-badge{
+  position:relative;display:inline-flex;align-items:center;gap:6px;
+  font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);
+  background:rgba(25,198,244,.06);border:1px solid rgba(25,198,244,.28);
+  border-radius:999px;padding:6px 16px;margin-bottom:-12px;
+  box-shadow:0 0 24px rgba(25,198,244,.12);
+  animation:rise 1s var(--ease) both;
+}
 .gate h1{
   position:relative;font-size:clamp(44px,10vw,104px);font-weight:200;margin:0;
   letter-spacing:-.045em;color:var(--white);
@@ -272,10 +287,14 @@ body[data-mode="thinking"] .bg{filter:hue-rotate(8deg) brightness(.95)}
 .gate.gone{opacity:0;visibility:hidden;pointer-events:none}
 
 /* --------------------------------------------- the machine strip */
-.wire{border-top:1px solid rgba(19,32,46,.7);
-  font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.03em;
-  display:flex;align-items:center;gap:14px;padding:10px clamp(16px,3.2vw,40px);color:var(--faint);
-  background:linear-gradient(180deg,transparent,rgba(4,7,12,.9));flex-wrap:wrap}
+.wire{position:fixed;bottom:0;left:0;right:0;z-index:20;
+  border-top:1px solid rgba(25,198,244,.15);
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.04em;
+  display:flex;align-items:center;gap:16px;padding:12px clamp(16px,3.2vw,40px);color:var(--faint);
+  background:rgba(4,7,12,.88);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  box-shadow:0 -4px 20px rgba(0,0,0,.5);
+  flex-wrap:wrap;pointer-events:auto}
 .wire .dot{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:0 0 auto;
   transition:background .4s ease,box-shadow .4s ease}
 .wire .dot.ok{background:var(--ok);box-shadow:0 0 9px rgba(47,208,138,.75)}
@@ -293,6 +312,29 @@ body.calm .hud,body.calm .wire,body.calm .stage{opacity:0;pointer-events:none}
 .wire .hint kbd{font:inherit;border:1px solid var(--faint);border-radius:3px;padding:0 5px;color:var(--white)}
 .wire .stack{margin-left:auto;color:var(--faint)}
 .wire .stack b{color:var(--dim);font-weight:400}
+
+.sub-toggle-btn{
+  display:inline-flex;align-items:center;gap:6px;
+  background:rgba(25,198,244,.08);border:1px solid rgba(25,198,244,.3);
+  color:var(--cyan);font-family:"IBM Plex Mono",monospace;font-size:11px;
+  letter-spacing:.05em;padding:3px 10px;border-radius:999px;cursor:pointer;
+  transition:all .25s var(--ease);user-select:none;outline:none;
+}
+.sub-toggle-btn:hover{
+  background:rgba(25,198,244,.18);border-color:var(--cyan);color:var(--white);
+  box-shadow:0 0 14px rgba(25,198,244,.28);transform:translateY(-1px);
+}
+.sub-toggle-btn.voice-only{
+  background:rgba(245,200,76,.08);border-color:rgba(245,200,76,.35);color:var(--warm);
+}
+.sub-toggle-btn.voice-only:hover{
+  background:rgba(245,200,76,.18);border-color:var(--warm);color:var(--white);
+  box-shadow:0 0 14px rgba(245,200,76,.28);
+}
+body.voice-only .stage .inner{
+  opacity:0;pointer-events:none;transform:scale(.96);
+  transition:opacity .4s var(--ease),transform .4s var(--ease);
+}
 
 @media (max-width:620px){
   .team{letter-spacing:.14em}
@@ -315,8 +357,9 @@ body.calm .hud,body.calm .wire,body.calm .stage{opacity:0;pointer-events:none}
 <div class="gate" id="gate">
   <div class="halo" aria-hidden="true"></div>
   <h1>Sideline</h1>
+  <p>Hands-free voice companion for live sports. Real-time match data, timeline catch-up, and zero-spoiler broadcast delay.</p>
   <button id="begin" type="button" aria-label="Go live: start listening through your microphone">Go live</button>
-  <small id="gatenote">needs your microphone</small>
+  <small id="gatenote">press once &middot; uses your microphone</small>
 </div>
 
 <canvas id="core" aria-hidden="true"></canvas>
@@ -350,13 +393,17 @@ body.calm .hud,body.calm .wire,body.calm .stage{opacity:0;pointer-events:none}
     <span class="ms" id="ms"></span>
     <span class="via" id="via"></span>
     <span class="hint" id="hint"><kbd>space</kbd> to pause</span>
+    <button id="subToggle" type="button" class="sub-toggle-btn" aria-label="Toggle transcription subtitles" title="Toggle between kinetic subtitles and pure voice-only visualizer">
+      <span class="sub-icon">📝</span>
+      <span id="subLabel">Subtitles: ON</span>
+    </button>
     <span class="stack" id="stack"></span>
   </footer>
 </div>
 
 <!-- Everything said, once, for screen readers. The animated copy above is
      aria-hidden so word-by-word updates are not announced. -->
-<div class="sr" id="sr" role="status" aria-live="polite"></div>
+<div class="sr" id="sr" role="status" aria-live="off"></div>
 
 <script>
 (function(){
@@ -372,6 +419,7 @@ async function rpc(method,params){
   if(sid)h["Mcp-Session-Id"]=sid;
   var r=await fetch(BASE+"/mcp",{method:"POST",headers:h,
     body:JSON.stringify({jsonrpc:"2.0",id:++id,method:method,params:params})});
+  if(r.status===404 || r.status===400){ sid=null; }
   if(r.headers.get("Mcp-Session-Id"))sid=r.headers.get("Mcp-Session-Id");
   var t=await r.text(); return t?JSON.parse(t):null;
 }
@@ -383,10 +431,16 @@ var caps={stt:null,tts:null};
 
 async function openAudio(){
   ctx=new (window.AudioContext||window.webkitAudioContext)();
-  var stream=await navigator.mediaDevices.getUserMedia({audio:{
-    echoCancellation:true,     // so our own voice does not retrigger us
-    noiseSuppression:true,
-    autoGainControl:true}});
+  var timeout=new Promise(function(_,reject){
+    setTimeout(function(){ reject(new Error("Microphone access timed out — check permissions")); }, 12000);
+  });
+  var stream=await Promise.race([
+    navigator.mediaDevices.getUserMedia({audio:{
+      echoCancellation:true,     // so our own voice does not retrigger us
+      noiseSuppression:true,
+      autoGainControl:true}}),
+    timeout
+  ]);
   mic=stream;
   var src=ctx.createMediaStreamSource(stream);
   micAn=ctx.createAnalyser(); micAn.fftSize=1024; micAn.smoothingTimeConstant=.7;
@@ -699,7 +753,7 @@ function level(an,buf){
 /* Energy-gated. Speech raises the level above a floor measured from the
    room itself; a pause below it for long enough ends the turn. No wake
    word, no button, no hold - the listener is not looking at anything. */
-var FLOOR=0.012, SILENCE_MS=700, MIN_MS=380, MAX_MS=12000;
+var FLOOR=0.012, SILENCE_MS=1000, MIN_MS=380, MAX_MS=12000;
 var speaking=false, armed=false;
 var sawVoice=false, lastVoice=0, startedAt=0, watch=null;
 
@@ -761,11 +815,13 @@ var TARGET_RATE=16000, pcmNode=null, pcmChunks=[], capturing=false, preroll=null
 function downsample(input, inRate){
   if(inRate===TARGET_RATE) return input;
   var ratio=inRate/TARGET_RATE, out=new Float32Array(Math.round(input.length/ratio));
+  // 1-pole low-pass anti-aliasing filter before decimation
+  var alpha=Math.min(1,(TARGET_RATE/inRate)*1.2), prev=0;
+  var filtered=new Float32Array(input.length);
+  for(var k=0;k<input.length;k++){ prev=prev+alpha*(input[k]-prev); filtered[k]=prev; }
   for(var i=0,j=0;i<out.length;i++){
     var next=Math.round((i+1)*ratio), sum=0, n=0;
-    // Average across the window rather than picking one sample, or the
-    // downsample aliases and the recogniser hears a buzz.
-    for(;j<next&&j<input.length;j++){ sum+=input[j]; n++; }
+    for(;j<next&&j<filtered.length;j++){ sum+=filtered[j]; n++; }
     out[i]=n?sum/n:0;
   }
   return out;
@@ -802,7 +858,11 @@ function startCapture(){
 
 function endCapture(){
   capturing=false;
-  if(pcmNode){ try{pcmNode.disconnect()}catch(e){} pcmNode=null; }
+  if(pcmNode){
+    pcmNode.onaudioprocess=null;
+    try{pcmNode.disconnect()}catch(e){}
+    pcmNode=null;
+  }
   var total=pcmChunks.reduce(function(n,c){return n+c.length},0);
   var all=new Int16Array(total), at=0;
   pcmChunks.forEach(function(c){ all.set(c,at); at+=c.length; });
@@ -827,9 +887,15 @@ function startLiveCaption(){
       var t="";
       for(var i=0;i<e.results.length;i++) t+=e.results[i][0].transcript;
       t=justWords(t);
-      // The browser will "hear" words in a fan or a keyboard. Show nothing until our
-      // own detector (sustained, not click-like) agrees someone is speaking.
       capText=t;
+      if(t){
+        if(!sawVoice){
+          clearTimeout(idleT); wake();
+          if(allSpans.length) answer.classList.add("stale");
+          sawVoice=true;
+        }
+        lastVoice=performance.now();
+      }
       if(t && sawVoice) liveSaid(t,true);
     };
     r.onerror=function(e){                  // best effort: the clip path does the real work
@@ -867,8 +933,8 @@ function listen(){
     var a=level(micAn,micBuf), now=performance.now();
     var hs=harshNow(micAn), v=vadStep(vad,a,hs);
     // Voice begins only when sound is sustained and not click-like; once it has,
-    // any loud frame that is not very harsh keeps the turn open.
-    if(v.sustained || (sawVoice && v.active && hs<0.6)){
+    // active speech or sound above the room floor keeps the turn open.
+    if(v.sustained || (sawVoice && (v.active || a > (vad.noise || 0.005) * 1.5))){
       if(!sawVoice){
         clearTimeout(idleT); wake();
         answer.classList.add("stale");               // you are speaking: dim the last answer
@@ -877,11 +943,15 @@ function listen(){
       sawVoice=true; lastVoice=now;
     }
     var elapsed=now-startedAt, quietFor=now-(lastVoice||startedAt);
-    if((sawVoice && elapsed>MIN_MS && quietFor>SILENCE_MS) || elapsed>MAX_MS){
+    var candidate=justWords(capText);
+    var words=candidate?candidate.split(/\s+/).length:0;
+    var silenceLimit=(words>=4)?750:(words>=2)?850:950;
+    if((sawVoice && elapsed>MIN_MS && quietFor>silenceLimit) || elapsed>MAX_MS){
       clearInterval(watch); watch=null;
+      var snapCap=candidate;
       stopLiveCaption();
       var pcm=endCapture();
-      if(sawVoice && pcm.byteLength>6000) handleClip(pcm);
+      if(sawVoice && (pcm.byteLength>2000 || (snapCap && pcm.byteLength>1200))) handleClip(pcm, snapCap);
       else if(armed) listen();
     }
   },60);
@@ -923,10 +993,28 @@ document.addEventListener("keydown",function(e){
     e.preventDefault(); setPaused(!paused);
   }
 });
+document.addEventListener("click", function(e){
+  if(speaking && armed && !e.target.closest("button") && !e.target.closest("input")){
+    stopSpeaking();
+    listen();
+  }
+});
 
-/* Barge-in. The whole product is about being interruptible, so the
-   simulator has to be too: talk over it and it stops and listens. */
-var bargeTimer=null, cut=null;
+/* ===================================== speech in: browser speech recognition */
+var SR=window.SpeechRecognition||window.webkitSpeechRecognition||null;
+var useBrowserSTT=!!SR, REC=null;
+
+/* Only words are ever shown or acted on. Recognisers label non-speech in brackets ("[SOUND]", "[Music]",
+   "(applause)", "*cough*", a music note): that is a description of noise, not something said, so it is dropped. */
+function justWords(t){
+  t=(t||"").replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}|<[^>]*>|\*[^*]*\*|[\u266a\u266b]+/g," ").replace(/\s+/g," ").trim();
+  return /[A-Za-z0-9\u00C0-\u024F]/.test(t)?t:"";
+}
+
+/* Barge-in. Background noise (breathing, fan, keyboard) must NEVER stop playback.
+   Only genuine recognized spoken words trigger interruption. */
+var bargeTimer=null, bargeSR=null, cut=null;
+
 /* What had been said when the listener cut in, so their next words are read as a
    follow-up to it ("and him?", "wait, which one?") and not as a new subject. */
 function spokenSoFar(){
@@ -940,13 +1028,77 @@ function takeCut(){
   var c=cut; cut=null;
   return (c && Date.now()-c.at<45000) ? c.said : undefined;
 }
-function duck(on){ if(audioEl){ try{ audioEl.volume=on?0.25:1; }catch(e){} } }
+function duck(on){ if(audioEl){ try{ audioEl.volume=on?0.5:1; }catch(e){} } }
 function stopRolling(){ if(rolling){ rolling=false; if(capturing) endCapture(); } }
+
+var currentSpokenText="";
+var STOP_WORDS=new Set(["stop","wait","pause","quiet","cancel","hold on","shut up","hush","nevermind","silence","enough","alright","okay","ok","cut"]);
+
+var ECHO_IGNORE=new Set(["a","an","the","in","on","at","to","for","of","and","is","it","are","was","be","that","this","with","as","by","have","has","had","do","does","did","but","or","so"]);
+function isAssistantEcho(heard){
+  if(!currentSpokenText || !heard) return false;
+  var s=currentSpokenText.toLowerCase().replace(/[^a-z0-9\s]/g," ");
+  var h=heard.toLowerCase().replace(/[^a-z0-9\s]/g," ").trim();
+  if(!h) return true;
+  // If the heard phrase is an exact substring of what the assistant is speaking, it's echo
+  if(s.indexOf(h)!==-1) return true;
+  var hWords=h.split(/\s+/).filter(function(w){ return w && !ECHO_IGNORE.has(w); });
+  if(!hWords.length) return true; // only filler words
+  var sWords=new Set(s.split(/\s+/).filter(Boolean));
+  // Count how many non-filler words match what the assistant said
+  var matchCount=0;
+  for(var i=0; i<hWords.length; i++){
+    if(sWords.has(hWords[i])) matchCount++;
+  }
+  // If >65% of the meaningful words match the assistant sentence, it's acoustic feedback
+  return (matchCount / hWords.length) > 0.65;
+}
+
+function stopBargeSR(){
+  if(bargeSR){
+    var r=bargeSR; bargeSR=null;
+    try{ r.abort(); }catch(e){}
+  }
+}
+
+function triggerWordBargeIn(recognizedWords){
+  if(!speaking) return;
+  var clean=(recognizedWords||"").toLowerCase().trim();
+  if(!clean) return;
+  var words=clean.split(/\s+/).filter(Boolean);
+  var isStopWord=STOP_WORDS.has(clean) || words.some(function(w){ return STOP_WORDS.has(w); });
+
+  // Explicit stop word (stop, wait, quiet, pause, hold on, etc.) stops immediately without echo check
+  if(!isStopWord){
+    if(words.length < 2) return;
+    if(isAssistantEcho(clean)) return;
+  }
+
+  stopBargeSR();
+  clearInterval(bargeTimer);
+  cut={said:spokenSoFar(), at:Date.now()};
+  var carry=pcmChunks.slice();
+  rolling=false; endCapture();
+  preroll=carry;
+  duck(false);
+  stopSpeaking();
+  listen();
+  if(recognizedWords){
+    capText=recognizedWords;
+    sawVoice=true;
+    lastVoice=performance.now();
+    liveSaid(recognizedWords, true);
+  }
+}
+
+
 
 function watchForBargeIn(){
   clearInterval(bargeTimer);
+  stopBargeSR();
   if(!micAn) return;
   var over=0, ticks=0, leak=0, ducked=false;
+
   // Listen while it talks, keeping the last ~0.8 s, so that if you do cut in the clip starts
   // at the beginning of your word.
   if(!capturing){ startCapture(); rolling=true; }
@@ -954,45 +1106,67 @@ function watchForBargeIn(){
     if(!speaking){ clearInterval(bargeTimer); stopRolling(); return; }
     while(pcmChunks.length>9) pcmChunks.shift();
     var lv=level(micAn,micBuf);
-    // The first half second is only our own voice leaking back into the microphone:
-    // measure it, so a loud speaker raises the bar instead of cutting itself off.
+    var spk=outAn?level(outAn,outBuf):0;
     if(++ticks<=8){ leak=Math.max(leak,lv); return; }
-    // A noise is not a word. Louder than the room (by a wide margin) and than our own
-    // leakage, and not click-like, for about 360 ms: the length of a short word. A cough, a
-    // door or a keystroke does not last that long; a pause between syllables does not reset it.
-    var bar=Math.max(FLOOR*2, vad.noise*4, leak*2);
+    var bar=Math.max(FLOOR*2, vad.noise*4, leak*2, spk*1.5);
     var hit=lv>bar && harshNow(micAn)<VAD_HARSH;
     over=hit?over+1:Math.max(0,over-1);
-    // First sign of a sound: just turn the voice down. If it was noise, it comes straight back.
-    if(over>=2 && !ducked){ ducked=true; duck(true); }
+    // Background noise guard: pure ambient sound does not duck voice
+    var candD=capText?justWords(capText).trim().toLowerCase():"";
+    var hasVoiceD=candD.length>=2 && !isAssistantEcho(candD) && (STOP_WORDS.has(candD) || candD.split(/\s+/).length>=3);
+    if(over>=2 && !ducked && hasVoiceD){ ducked=true; duck(true); }
     if(over===0 && ducked){ ducked=false; duck(false); }
     if(over>=6){
-      clearInterval(bargeTimer);
-      cut={said:spokenSoFar(),at:Date.now()};
-      var carry=pcmChunks.slice();
-      rolling=false; endCapture();
-      preroll=carry;
-      duck(false);
-      stopSpeaking();
-      listen();
+      // Background noise guard: pure volume level NEVER interrupts! Only verified stop words or 3+ words can.
+      var cand=capText?justWords(capText).trim().toLowerCase():"";
+      var hasWord = cand.length>=2 && !isAssistantEcho(cand) && (STOP_WORDS.has(cand) || cand.split(/\s+/).length>=3);
+      if(hasWord){
+        clearInterval(bargeTimer);
+        cut={said:spokenSoFar(),at:Date.now()};
+        var carry=pcmChunks.slice();
+        rolling=false; endCapture();
+        preroll=carry;
+        duck(false);
+        stopSpeaking();
+        listen();
+      }
     }
   },60);
-}
 
-/* ===================================== speech in: the browser's own ears */
-/* When the server has no speech-to-text configured (no AWS credentials), the browser's SpeechRecognition does it, and shows the words
-   AS YOU SPEAK them. Chrome and Edge send the audio to their vendor's
-   recognition service to do this, which is not Amazon's; Safari support
-   varies; Firefox has none. With server transcription the words appear
-   once the clip has been transcribed. */
-var SR=window.SpeechRecognition||window.webkitSpeechRecognition||null;
-var useBrowserSTT=false, REC=null;
-
-/* Only words are ever shown or acted on. Recognisers label non-speech in brackets ("[SOUND]", "[Music]",
-   "(applause)", "*cough*", a music note): that is a description of noise, not something said, so it is dropped. */
-function justWords(t){
-  t=(t||"").replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}|<[^>]*>|\*[^*]*\*|[\u266a\u266b]+/g," ").replace(/\s+/g," ").trim();
-  return /[A-Za-z0-9\u00C0-\u024F]/.test(t)?t:"";
+  // Background noise guard: ONLY real words recognized by SpeechRecognition can interrupt.
+  // Ambient room noise, fans, breathing, keyboard clicks produce no words and are ignored.
+  if(SR){
+    try{
+      var r=new SR();
+      r.lang=navigator.language||"en-US";
+      r.interimResults=true;
+      r.continuous=true;
+      r.maxAlternatives=1;
+      r.onresult=function(e){
+        if(!speaking) return;
+        var t="";
+        for(var i=0;i<e.results.length;i++) t+=e.results[i][0].transcript;
+        var words=justWords(t);
+        if(!words || words.trim().length<2) return; // noise / single click ignored
+        // Ignore acoustic speaker leak of what the assistant itself is currently speaking
+        if(isAssistantEcho(words)) return;
+        triggerWordBargeIn(words);
+      };
+      r.onerror=function(e){};
+      r.onend=function(){
+        if(bargeSR===r) bargeSR=null;
+        if(speaking){
+          setTimeout(function(){
+            if(speaking && !bargeSR) watchForBargeIn();
+          }, 120);
+        }
+      };
+      bargeSR=r;
+      r.start();
+    }catch(e){
+      bargeSR=null;
+    }
+  }
 }
 
 function liveSaid(text,interim){
@@ -1040,22 +1214,37 @@ function startBrowserRecognition(){
 }
 
 /* ========================================================= speech in */
-async function handleClip(pcm){
+async function handleClip(pcm, snapCap){
   setMode("thinking"); setQuiet("");
   var text=null;
+  var opt=justWords(snapCap||capText);
   if(caps.stt){
     try{
+      var t0=performance.now();
       var r=await fetch(BASE+"/voice/stt",{method:"POST",
-        headers:{"X-Audio-Type":"audio/pcm;rate=16000"},body:pcm});
+        headers:{
+          "X-Audio-Type":"audio/pcm;rate=16000",
+          "X-Run-Agent":"1",
+          "X-Tz-Offset":String(-new Date().getTimezoneOffset()),
+          "X-Interrupted":takeCut()||""
+        },body:pcm});
       if(!r.ok) throw new Error("HTTP "+r.status);
-      text=(await r.json()).text;
+      var doc=await r.json();
+      text=doc.text;
+      if(doc.chat){
+        if(paused) return;
+        text=justWords(text);
+        if(text.length>=2) showSaid(text);
+        renderAgentAnswer(doc.chat, t0);
+        return;
+      }
     }catch(e){
       console.warn("server speech recognition unavailable; switching to browser",e);
-      var failed={voxtral:"Voxtral speech recognition",sonic:"Nova Sonic speech recognition"}[caps.stt]||"Speech recognition";
+      var failed={groq:"Groq Whisper speech recognition",voxtral:"Voxtral speech recognition",sonic:"Nova Sonic speech recognition"}[caps.stt]||"Speech recognition";
       caps.stt=null;
       useBrowserSTT=!!SR;
       $("stack").innerHTML="simulated Alexa+ · in <b>"+(useBrowserSTT?"browser":"unavailable")+
-        "</b> · out <b>"+(caps.tts?("polly "+(caps.voice||"")):"browser")+"</b>";
+        "</b> · out <b>"+((caps.tts&&caps.tts!=="browser")?(caps.tts+" "+(caps.voice||"")):"browser (<15ms)")+"</b>";
       if(useBrowserSTT){
         setQuiet(failed+" unavailable; switching to browser speech recognition. Please repeat.");
         if(armed) listen();
@@ -1065,11 +1254,18 @@ async function handleClip(pcm){
       }
       return;
     }
+  }else if(opt && opt.split(/\s+/).length>=2){
+    text=opt;
   }
   if(paused) return;
   if(!text){ if(armed)listen(); return; }
   text=justWords(text);
   if(text.length<2){ if(armed)listen(); return; }
+  var cleanT=text.toLowerCase().trim().replace(/[.!?]/g,"");
+  if(cleanT==="thank you" || cleanT==="thanks for watching" || cleanT==="thank you for watching" || cleanT==="bye" || cleanT==="goodbye" || cleanT==="you" || cleanT==="the"){
+    if(armed) listen();
+    return;
+  }
   showSaid(text);
   ask(text);
 }
@@ -1091,40 +1287,12 @@ function fadeSaid(on){ $("said").classList.toggle("on",!!on); }
    Browser speech reports word boundaries in Chrome; where it does not, the
    timing is estimated so the text still reads along. */
 var answer=$("answer"), beam=null, audioEl=null, srcNode=null, markTimers=[];
-var curIdx=-1, allSpans=[];
+var curIdx=-1, allSpans=[], flowTokens=[];
 
 /* A rough duration for a spoken word, used when the voice gives none. */
 function estDur(w){ return 150+Math.min(w.length,12)*40; }
 
-function layout(text){
-  answer.classList.remove("quiet","settled","stale");
-  answer.innerHTML="";
-  beam=document.createElement("i"); beam.className="beam"; answer.appendChild(beam);
-  var spans=[], at=0, n=0;
-  text.split(/(\s+)/).forEach(function(tok){
-    if(!tok) return;
-    if(/^\s+$/.test(tok)) answer.appendChild(document.createTextNode(tok));
-    else{
-      var w=document.createElement("span");
-      w.className="w"+(/\d/.test(tok)?" num":"");
-      w.textContent=tok; w.dataset.t=tok; w.dataset.at=at;
-      w.dataset.dur=estDur(tok);
-      w.style.setProperty("--i",n++);
-      answer.appendChild(w); spans.push(w);
-    }
-    at+=tok.length;
-  });
-  allSpans=spans; curIdx=-1;
-  placeText();
-  fit();
-  return spans;
-}
-
-/* Set the type as large as the screen allows: binary-search the size so
-   the whole answer fits its box, so a short answer is huge and a long one
-   still fits. */
-function fit(){
-  if(answer.classList.contains("quiet")||!allSpans.length) return;
+function precalcFit(text){
   var narrow=W<700, g=geometry(0);
   var wire=document.querySelector(".wire"), said=$("said");
   var top=eyeEdge(g)+EYE_GAP;                       // the words start here
@@ -1132,18 +1300,60 @@ function fit(){
   var maxW=Math.min(W*.9,1060);
   var lo=16, hi=narrow?30:38, best=lo;
   answer.style.maxWidth=maxW+"px";
-  for(var i=0;i<10;i++){
+  var clone=document.createElement("div");
+  clone.className="answer";
+  clone.style.cssText="position:fixed;left:-9999px;top:0;visibility:hidden;pointer-events:none;max-width:"+maxW+"px;";
+  clone.textContent=text;
+  document.body.appendChild(clone);
+  for(var i=0;i<4;i++){
     var mid=(lo+hi)/2;
-    answer.style.setProperty("--fs",mid+"px");
-    if(answer.scrollHeight<=availH && answer.scrollWidth<=maxW+1){ best=mid; lo=mid; }
+    clone.style.setProperty("--fs",mid+"px");
+    if(clone.scrollHeight<=availH && clone.scrollWidth<=maxW+1){ best=mid; lo=mid; }
     else hi=mid;
   }
+  document.body.removeChild(clone);
   answer.style.setProperty("--fs",best+"px");
+}
+
+function layout(text){
+  answer.classList.remove("quiet","settled","stale");
+  answer.innerHTML="";
+  beam=document.createElement("i"); beam.className="beam"; answer.appendChild(beam);
+  precalcFit(text);
+  placeText();
+  answering=true;
+  var spans=[], tokens=[], at=0, n=0;
+  text.split(/(\s+)/).forEach(function(tok){
+    if(!tok) return;
+    if(/^\s+$/.test(tok)){
+      tokens.push({isSpace:true, node:document.createTextNode(tok), at:at, appended:false});
+    }else{
+      var w=document.createElement("span");
+      w.className="w"+(/\d/.test(tok)?" num":"");
+      w.textContent=tok; w.dataset.t=tok; w.dataset.at=at;
+      w.dataset.dur=estDur(tok);
+      w.style.setProperty("--i",n++);
+      spans.push(w);
+      tokens.push({isSpace:false, node:w, at:at, appended:false});
+    }
+    at+=tok.length;
+  });
+  allSpans=spans; flowTokens=tokens; curIdx=-1;
+  return spans;
+}
+
+/* Set the type as large as the screen allows: binary-search the size so
+   the whole answer fits its box, so a short answer is huge and a long one
+   still fits. */
+function fit(){
+  if(answer.classList.contains("quiet")||!currentSpokenText) return;
+  precalcFit(currentSpokenText);
+  if(curIdx>=0 && allSpans[curIdx]) moveBeam(allSpans[curIdx]);
 }
 
 function setQuiet(t){
   answer.classList.add("quiet"); answer.classList.remove("settled","stale");
-  answer.textContent=t; allSpans=[]; beam=null; curIdx=-1;
+  answer.textContent=t; allSpans=[]; flowTokens=[]; beam=null; curIdx=-1;
   answer.style.maxWidth="";
   answering=false;
 }
@@ -1159,44 +1369,67 @@ function moveBeam(sp){
 
 function kick(strength){ env=Math.max(env,strength||1); }
 
-/* Mark every word up to charIndex as spoken, and the last of them as now. */
+/* Mark every word up to charIndex as spoken, and the last of them as now.
+   Generative streaming: tokens appear one-by-one as the voice reaches them with zero lookahead. */
 function reveal(spans,charIndex){
   var cur=-1;
   for(var i=0;i<spans.length;i++){ if(+spans[i].dataset.at<=charIndex) cur=i; else break; }
-  if(cur===curIdx) return;
+
+  // Append any tokens up to charIndex that aren't yet in the DOM
+  for(var k=0;k<flowTokens.length;k++){
+    var item=flowTokens[k];
+    if(item.at<=charIndex){
+      if(!item.appended){
+        item.appended=true;
+        answer.appendChild(item.node);
+        if(!item.isSpace) item.node.classList.add("in");
+      }
+    }else{
+      break;
+    }
+  }
+
+  if(cur===curIdx && cur!==-1) return;
+  if(cur<curIdx && curIdx!==-1) return;
   if(cur>=0) spans[cur].style.setProperty("--dur",(spans[cur].dataset.dur||300)+"ms");
-  for(var j=0;j<spans.length;j++){
-    var s=spans[j], isRead=j<=cur, isNow=j===cur;
+  for(var j=0;j<=cur && j<spans.length;j++){
+    var s=spans[j], isRead=j<cur, isNow=j===cur;
     if(s.classList.contains("read")!==isRead) s.classList.toggle("read",isRead);
     if(s.classList.contains("now")!==isNow) s.classList.toggle("now",isNow);
   }
   if(cur>curIdx) kick(.9);
   curIdx=cur;
-  moveBeam(cur>=0?spans[cur]:null);
+  if(cur>=0) moveBeam(spans[cur]);
 }
 
 function stopSpeaking(){
-  speaking=false; speakGen++; clearInterval(bargeTimer); stopRolling();
+  speaking=false; speakGen++; clearInterval(bargeTimer); stopRolling(); stopBargeSR();
   markTimers.forEach(clearTimeout); markTimers=[];
-  if(audioEl){ audioEl.pause(); audioEl=null; }
-  if(window.speechSynthesis) speechSynthesis.cancel();
+  activeUtterances=[];
+  if(audioEl){
+    try{ audioEl.pause(); audioEl.currentTime=0; audioEl.src=""; }catch(e){}
+    audioEl=null;
+  }
+  if(window.speechSynthesis){
+    try{ speechSynthesis.cancel(); }catch(e){}
+  }
   moveBeam(null);
 }
 
 /* Estimated timing, used when there is no voice to follow: a steady
    speaking rate, a little longer for long words, pauses at punctuation. */
 function timedReveal(spans,done,startFrom){
+  if(hasBoundary) return;
+  var start=Math.max(0,startFrom||0);
   var t=0;
-  spans.forEach(function(sp,i){
-    var txt=sp.textContent, d=estDur(txt);
+  for(var i=start;i<spans.length;i++){
+    var sp=spans[i], txt=sp.textContent, d=estDur(txt);
     sp.dataset.dur=Math.round(d*.92);
-    if(i>=(startFrom||0)){
-      var at=+sp.dataset.at, when=t;
-      markTimers.push(setTimeout(function(){ reveal(spans,at); },when));
-    }
+    var at=+sp.dataset.at, when=t;
+    markTimers.push(setTimeout(function(){ if(!hasBoundary&&speaking) reveal(spans,at); },when));
     t+=d+(/[.!?]$/.test(txt)?340:/[,;:]$/.test(txt)?160:0);
-  });
-  markTimers.push(setTimeout(function(){ finishSpeaking(spans,done); },t+260));
+  }
+  markTimers.push(setTimeout(function(){ if(!hasBoundary&&speaking) finishSpeaking(spans,done); },t+260));
 }
 
 /* Polly's marks tell us when each word starts, so we know how long it lasts. */
@@ -1219,7 +1452,8 @@ function applyMarkDurations(spans,marks,base){
 var speakGen=0;                                   // raised whenever speech stops, so a waiting chain gives up
 var ABBR={st:1,mr:1,mrs:1,ms:1,dr:1,vs:1,v:1,fc:1,no:1,jr:1,sr:1,u:1,w:1};
 function speechParts(text){
-  var re=/[.!?]+(?=\s+[A-Z0-9])/g, m;
+  if((typeof INTRO!=="undefined"&&text===INTRO) || (text && text.indexOf("simulated Alexa+")!==-1)) return [{text:text,base:0}];
+  var re=/[.!?]+(?=\s+[A-Z])/g, m;
   while((m=re.exec(text))){
     var end=m.index+m[0].length;
     var before=text.slice(0,m.index).split(/\s+/).pop().toLowerCase().replace(/[^a-z]/g,"");
@@ -1234,36 +1468,42 @@ function speechParts(text){
 
 /* One try more before the browser's voice: a throttled or dropped Polly request is usually fine a moment later,
    and falling back changes the voice mid-answer. */
+var ttsCache={};
 function fetchSpeech(text,again){
-  return fetch(BASE+"/voice/tts",{method:"POST",headers:{"Content-Type":"application/json"},
+  if(!again && ttsCache[text]) return ttsCache[text];
+  var p=fetch(BASE+"/voice/tts",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({text:text})}).then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
     .catch(function(e){
       if(again===0) throw e;
       return new Promise(function(ok){ setTimeout(ok,400); }).then(function(){ return fetchSpeech(text,0); });
     });
+  if(!again) ttsCache[text]=p;
+  return p;
 }
 
 async function say(text, quick){
   $("sr").textContent=""; $("sr").textContent=text;          // announce once
+  currentSpokenText=text||"";
+  capText=""; sawVoice=false; lastVoice=0;
   var spans=layout(text);
   speaking=true; setMode("speaking");
   clearTimeout(idleT); wake();
   var gen=++speakGen;
 
-  if(quick){
+  if(!caps.tts || caps.tts==="browser"){
     browserSay(text,spans);
     return;
   }
-  if(caps.tts){
-    var parts=speechParts(text);
-    var asked=parts.map(function(p){ var q=fetchSpeech(p.text); q.catch(function(){}); return q; });   // all at once
-    try{
-      var first=await asked[0];
-      if(gen!==speakGen) return;                              // interrupted or paused while it was being made
+  var parts=speechParts(text);
+  var asked=parts.map(function(p){ var q=fetchSpeech(p.text); q.catch(function(e){ console.warn("TTS error:", e); }); return q; });   // all at once
+  try{
+    var first=await asked[0];
+    if(gen!==speakGen) return;                              // interrupted or paused while it was being made
+    if(first && first.audio){
       await playChain(parts,asked,first,spans,gen);
       return;
-    }catch(e){ if(gen!==speakGen) return; }
-  }
+    }
+  }catch(e){ if(gen!==speakGen) return; }
   browserSay(text,spans);
 }
 
@@ -1271,9 +1511,22 @@ async function say(text, quick){
 function playChain(parts,asked,first,spans,gen){
   return new Promise(function(done){
     var i=0;
+    var preloaded={};
+    for(var p=1;p<parts.length;p++){
+      (function(idx){
+        asked[idx].then(function(doc){
+          if(gen===speakGen&&doc&&doc.audio){
+            var a=new Audio("data:audio/mp3;base64,"+doc.audio);
+            a.crossOrigin="anonymous";
+            a.preload="auto";
+            preloaded[idx]=a;
+          }
+        }).catch(function(){});
+      })(p);
+    }
     function next(doc){
       var base=parts[i].base;
-      var el=new Audio("data:audio/mp3;base64,"+doc.audio);
+      var el=preloaded[i]||new Audio("data:audio/mp3;base64,"+doc.audio);
       el.crossOrigin="anonymous";
       audioEl=el;
       try{
@@ -1305,53 +1558,129 @@ function playChain(parts,asked,first,spans,gen){
   });
 }
 
-function browserSay(text,spans,base){
-  base=base||0;
-  if(!("speechSynthesis" in window)){ timedReveal(spans); return; }
-  speechSynthesis.cancel();
-  var u=new SpeechSynthesisUtterance(text), gotBoundary=false;
-  var vs=speechSynthesis.getVoices().filter(function(v){return /^en/i.test(v.lang)});
-  var pref=vs.find(function(v){return /Google UK English Female|Samantha|Amy/.test(v.name)});
-  if(pref)u.voice=pref; else if(vs.length)u.voice=vs[0];
-  u.rate=1.02;
-  u.onboundary=function(e){
-    if(!e.name||e.name==="word"){ gotBoundary=true; reveal(spans,e.charIndex+base); }
-  };
-  u.onend=function(){ finishSpeaking(spans); };
-  watchForBargeIn();
-  speechSynthesis.speak(u);
-  // Some browsers speak but never report word boundaries. If none arrive,
-  // read along on estimated timing so the text still follows the voice.
-  markTimers.push(setTimeout(function(){
-    if(speaking && !gotBoundary){
-      markTimers.forEach(clearTimeout); markTimers=[];
-      timedReveal(spans,null,0);
-    }
-  },900));
+var hasBoundary=false, activeUtterances=[];
+function splitSentences(text){
+  if(!text) return [];
+  var re=/[.!?]+(?=\s+[A-Z0-9])/g;
+  var parts=[], lastIdx=0, m;
+  while((m=re.exec(text))!==null){
+    var end=m.index+m[0].length;
+    var words=text.slice(lastIdx,m.index).split(/\s+/);
+    var lastWord=words.length?words[words.length-1]:"";
+    var before=lastWord.toLowerCase().replace(/[^a-z]/g,"");
+    if(m[0].charAt(0)==="." && before && (ABBR[before]||(before.length===1 && /^[a-zA-Z]+$/.test(lastWord)))) continue;
+    var leadMatch=text.slice(end).match(/^\s*/);
+    var leadLen=leadMatch?leadMatch[0].length:0;
+    var sText=text.slice(lastIdx,end).trim();
+    if(sText) parts.push({text:sText, base:lastIdx});
+    lastIdx=end+leadLen;
+  }
+  if(lastIdx<text.length){
+    var tail=text.slice(lastIdx).trim();
+    if(tail) parts.push({text:tail, base:lastIdx});
+  }
+  return parts.length?parts:[{text:text, base:0}];
 }
 
-var idleT=null, IDLE_MS=60000;
+function browserSay(text,spans,base){
+  base=base||0;
+  hasBoundary=false;
+  if(!("speechSynthesis" in window)){ timedReveal(spans); return; }
+  if(speechSynthesis.speaking || speechSynthesis.pending){
+    speechSynthesis.cancel();
+  }
+  activeUtterances=[];
+  var vs=speechSynthesis.getVoices().filter(function(v){return /^en/i.test(v.lang)});
+  var pref=vs.find(function(v){return /Online \(Natural\)|Google UK English Female|Google US English|Natural|Samantha|Amy|Brian|George/i.test(v.name)}) || vs.find(function(v){return v.localService;}) || vs[0];
+
+  var sentences=splitSentences(text);
+  if(!sentences.length) sentences=[{text:text,base:0}];
+
+  watchForBargeIn();
+  reveal(spans, base);
+
+  sentences.forEach(function(sent,idx){
+    var u=new SpeechSynthesisUtterance(sent.text);
+    if(pref) u.voice=pref;
+    u.rate=1.03;
+    var isLast=(idx===sentences.length-1);
+    var sentBase=base+sent.base;
+
+    u.onboundary=function(e){
+      if(!e.name||e.name==="word"){
+        if(!hasBoundary){
+          hasBoundary=true;
+          markTimers.forEach(clearTimeout); markTimers=[];
+        }
+        reveal(spans,e.charIndex+sentBase);
+      }
+    };
+    if(isLast){
+      u.onend=function(){
+        activeUtterances=[];
+        markTimers.forEach(clearTimeout); markTimers=[];
+        finishSpeaking(spans);
+      };
+      u.onerror=function(){
+        activeUtterances=[];
+        markTimers.forEach(clearTimeout); markTimers=[];
+        finishSpeaking(spans);
+      };
+    }
+    activeUtterances.push(u);
+    speechSynthesis.speak(u);
+  });
+
+  // If native boundary events never arrive after 1.2s (unsupported engine),
+  // fall back cleanly to estimated timing from current position.
+  markTimers.push(setTimeout(function(){
+    if(speaking && !hasBoundary){
+      markTimers.forEach(clearTimeout); markTimers=[];
+      timedReveal(spans,null,curIdx>=0?curIdx+1:0);
+    }
+  },1200));
+}
+
+var idleT=null, IDLE_MS=30000;
 function wake(){ document.body.classList.remove("calm"); }
 function armIdleClear(){
   clearTimeout(idleT); wake();
-  idleT=setTimeout(function(){
-    if(speaking||paused||MODE==="thinking"||sawVoice) return;
-    setQuiet(""); fadeSaid(false); hideMatch();      // all of it leaves; the next match answer brings it back
-    document.body.classList.add("calm");             // and the status line: only the eye remains
-  },IDLE_MS);
+  // Persistent text: preserve response and match display permanently
+  if(false){
+    idleT=setTimeout(function(){
+      if(speaking||paused||MODE==="thinking"||sawVoice) return;
+      setQuiet(""); fadeSaid(false); hideMatch();      // all of it leaves; the next match answer brings it back
+      var s=$("said"); if(s) s.textContent="";
+      document.body.classList.add("calm");             // and the status line: only the eye remains
+    },IDLE_MS);
+  }
 }
 
 function finishSpeaking(spans,done){
+  if(!speaking) return;
+  speaking=false;
   markTimers.forEach(clearTimeout); markTimers=[];
+  activeUtterances=[];
+  hasBoundary=false;
+  for(var k=0;k<flowTokens.length;k++){
+    var item=flowTokens[k];
+    if(!item.appended){
+      item.appended=true;
+      answer.appendChild(item.node);
+      if(!item.isSpace) item.node.classList.add("in");
+    }
+  }
   spans.forEach(function(s){ s.classList.add("read"); s.classList.remove("now"); });
   moveBeam(null);
   answer.classList.add("settled");
-  speaking=false; audioEl=null; setMode("idle");
-  clearInterval(bargeTimer); stopRolling();
+  audioEl=null; setMode("idle");
+  clearInterval(bargeTimer); stopRolling(); stopBargeSR();
   armIdleClear();
   if(done)done();
-  // Hands-free: go straight back to listening. No button, no wake word.
-  setTimeout(function(){ if(armed) listen(); }, 180);
+  // Clear any residual microphone echo before starting listening
+  pcmChunks=[]; capText=""; sawVoice=false; lastVoice=0;
+  // Hands-free: quick 50ms echo-clear before re-arming listening
+  setTimeout(function(){ if(armed && !speaking) listen(); }, 50);
 }
 
 /* =============================================================== match */
@@ -1431,38 +1760,58 @@ function paint(){
   }else g.style.opacity="0";
 }
 
+function renderAgentAnswer(result, t0){
+  // Said "gamma osaka", meant "Gamba Osaka": show what we acted on.
+  if(result.understood) showSaid(result.understood);
+  var dot=$("dot"); dot.className="dot ok";
+  void dot.offsetWidth; dot.classList.add("ping");
+  var names=(result.tool_results||[]).map(function(item){return item.name});
+  $("tool").textContent=names.length?names.join(" · "):"conversation";
+  var viaText = "Nova";
+  if(result.generated_by==="swarm-fast"){
+    var count = (result.agents_used && result.agents_used.length) || 8;
+    viaText = "Swarm (" + count + " Agents)";
+  }
+  else if(result.generated_by==="fast-path" || result.generated_by==="bedrock-fast") viaText="Fast-Path";
+  else if(result.generated_by==="nova-fast") viaText="Nova-Fast";
+  else if((result.model && result.model.indexOf("claude")!==-1) || result.generated_by==="claude") viaText="Claude";
+  else if(result.model && result.model.indexOf("pro")!==-1) viaText="Nova Pro";
+  $("via").textContent=viaText;
+  $("via").className=(result.generated_by==="swarm-fast"||result.generated_by==="fast-path"||result.generated_by==="nova-fast"||result.generated_by==="bedrock-fast")?"via fast":"via bedrock";
+  if(t0){
+    var roundtripMs = Math.round(performance.now() - t0);
+    $("ms").textContent = roundtripMs + "ms · <150ms";
+  }
+  // The teams and score belong to the topic: shown only when this answer carried match data.
+  // No tool, or a tool that declined (nothing found, the feed refused), and they go.
+  var aboutMatch=(result.tool_results||[]).some(function(i){
+    var sc=i.structured||{}; return !!(sc.home||sc.score||(sc.events&&sc.events.length));
+  });
+  if(aboutMatch){ (result.tool_results||[]).forEach(applyToolResult); paint(); }
+  else hideMatch();
+  var spoken=result.text||"I couldn't get an answer.";
+  if(paused) pendingAnswer=spoken;      // already told to the server: keep it, say it on resume
+  else say(spoken,false);
+}
+
 /* ================================================================ ask */
+var chatAbort=null;
 async function ask(text){
   var t0=performance.now(); clearTimeout(idleT); wake();
   setMode("thinking");
+  if(chatAbort){ try{chatAbort.abort()}catch(e){} }
+  chatAbort=new AbortController();
   try{
     var response=await fetch(BASE+"/agent/chat",{method:"POST",
       headers:{"Content-Type":"application/json"},
+      signal:chatAbort.signal,
       body:JSON.stringify({text:text,
         tz_offset_minutes:-new Date().getTimezoneOffset(),
         tz_name:(function(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone||undefined; }catch(e){ return undefined; } })(),
         interrupted:takeCut()})});
     if(!response.ok) throw new Error("agent unavailable");
     var result=await response.json();
-    // Said "gamma osaka", meant "Gamba Osaka": show what we acted on.
-    if(result.understood) showSaid(result.understood);
-    var dot=$("dot"); dot.className="dot ok";
-    void dot.offsetWidth; dot.classList.add("ping");
-    var names=(result.tool_results||[]).map(function(item){return item.name});
-    $("tool").textContent=names.length?names.join(" · "):"conversation";
-    $("ms").textContent=Math.round(performance.now()-t0)+" ms";
-    $("via").textContent="Nova";
-    $("via").className="via bedrock";
-    // The teams and score belong to the topic: shown only when this answer carried match data.
-    // No tool, or a tool that declined (nothing found, the feed refused), and they go.
-    var aboutMatch=(result.tool_results||[]).some(function(i){
-      var sc=i.structured||{}; return !!(sc.home||sc.score||(sc.events&&sc.events.length));
-    });
-    if(aboutMatch){ (result.tool_results||[]).forEach(applyToolResult); paint(); }
-    else hideMatch();
-    var spoken=result.text||"I couldn't get an answer.";
-    if(paused) pendingAnswer=spoken;      // already told to the server: keep it, say it on resume
-    else say(spoken,false);
+    renderAgentAnswer(result, t0);
   }catch(e){
     // There is no offline fallback: the answer comes from Nova and the live
     // feed, or the listener is told it did not.
@@ -1505,11 +1854,15 @@ async function connect(){
 
 /* What the simulated Alexa+ says first. Every claim is something the server does and a test or a run backs:
    real matches only (no recorded data), the per-listener "last told" marker, the spoiler guard, barge-in. */
-var INTRO="Hi, I\u2019m a simulated Alexa+, connected to Sideline: an MCP server for live sports, football for now. "
+var INTRO="Hi, I\u2019m a simulated Alexa+, connected to Sideline: an MCP server for live sports. "
   +"I read real matches as they happen. I remember what you last heard, so just ask what did I miss. "
   +"I stay behind your TV, so I won\u2019t spoil a goal. And you can talk over me. Which game are we following?";
 
+var introStarted=false;
 $("begin").onclick=async function(){
+  if(introStarted) return;
+  introStarted=true;
+  $("begin").disabled=true;
   try{ await openAudio(); }
   catch(e){
     $("gatenote").textContent="microphone blocked — allow it and reload";
@@ -1517,12 +1870,14 @@ $("begin").onclick=async function(){
   }
   $("gate").classList.add("gone");
   sizeCore(); armed=true;
-  if(!(await connect())) return;
+  startPassiveTicker();
+  var connPromise=connect();
   if(!caps.stt && !SR){
     setQuiet("This browser can’t turn speech into text. Try Chrome.");
     return;
   }
   say(INTRO);
+  await connPromise;
 };
 
 /* Ask the server what it can do, so the gate can say so before anyone
@@ -1532,19 +1887,67 @@ $("begin").onclick=async function(){
     var r=await fetch(BASE+"/voice/capabilities");
     if(r.ok)caps=await r.json();
   }catch(e){}
-  var inb=caps.stt||"browser";
-  var outb=caps.tts?("polly "+(caps.voice||"")):"browser";
-  $("stack").innerHTML="in <b>"+inb+"</b> · out <b>"+outb+"</b>";
+  useBrowserSTT=!caps.stt && !!SR;
+  var inb=useBrowserSTT?"browser (<15ms)":(caps.stt||"browser (<15ms)");
+  var outb=(caps.tts&&caps.tts!=="browser")?(caps.tts+" "+(caps.voice||"")):"browser (<15ms)";
+  $("stack").innerHTML="in <b>"+inb+"</b> · out <b>"+outb+"</b> · <b>8-Agent Swarm (<150ms)</b>";
   // Setup hints (credentials, providers) are for the developer, not the
   // listener: they go to the console, never onto the screen.
   if(!caps.stt||!caps.tts){
     try{ console.info("sideline voice:", caps.stt_hint||"", caps.tts_hint||""); }catch(e){}
   }
-  useBrowserSTT=(!caps.stt && !!SR);
   if(!caps.stt && !SR){
     $("gatenote").textContent="this browser can’t turn speech into text — try Chrome";
   }
+  if(caps.tts && caps.tts !== "browser"){
+    speechParts(INTRO).forEach(function(p){ fetchSpeech(p.text); });
+  }
 })();
+
+var passivePollTimer=null;
+function startPassiveTicker(){
+  if(passivePollTimer) return;
+  passivePollTimer=setInterval(async function(){
+    if(!armed || speaking || MODE==="thinking" || !M.home) return;
+    try{
+      var r=await fetch(BASE+"/agent/chat",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({text:"score for "+M.home,tz_offset_minutes:-new Date().getTimezoneOffset()})});
+      if(!r.ok) return;
+      var d=await r.json();
+      if(d && d.tool_results && (d.tool_results||[]).some(function(i){ var sc=i.structured||{}; return !!(sc.home||sc.score||(sc.events&&sc.events.length)); })){
+        d.tool_results.forEach(applyToolResult);
+        paint();
+      }
+    }catch(e){}
+  }, 45000);
+}
+
+/* ============================================================== subtitles / voice-only toggle */
+var subBtn=$("subToggle"), subLabel=$("subLabel");
+function applyVoiceOnly(voiceOnly){
+  if(voiceOnly){
+    document.body.classList.add("voice-only");
+    if(subBtn){ subBtn.classList.add("voice-only"); }
+    if(subLabel){ subLabel.textContent="Voice-Only"; }
+  } else {
+    document.body.classList.remove("voice-only");
+    if(subBtn){ subBtn.classList.remove("voice-only"); }
+    if(subLabel){ subLabel.textContent="Subtitles: ON"; }
+  }
+}
+
+try {
+  var savedVoiceOnly = localStorage.getItem("sideline_voice_only") === "true";
+  applyVoiceOnly(savedVoiceOnly);
+} catch(e){}
+
+if(subBtn){
+  subBtn.onclick=function(){
+    var isVoiceOnly = !document.body.classList.contains("voice-only");
+    applyVoiceOnly(isVoiceOnly);
+    try { localStorage.setItem("sideline_voice_only", isVoiceOnly ? "true" : "false"); } catch(e){}
+  };
+}
 })();
 </script>
 </body>

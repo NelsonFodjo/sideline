@@ -46,12 +46,16 @@ class ReplayProvider(Provider):
 
     # ------------------------------------------------------- the clock
     def now_minute(self):
-        elapsed = (time.time() - self._t0) * self.speed / 60.0
+        elapsed = (time.time() - self._t0) * self.speed / 60.0 if self.speed else 0.0
         return int(self._start_minute + elapsed)
 
     def jump_to(self, minute):
         """Position the clock at `minute` (the tests never wait in real time)."""
-        self._t0 = time.time() - (minute - self._start_minute) * 60.0 / self.speed
+        if not self.speed:
+            self._start_minute = minute
+            self._t0 = time.time()
+        else:
+            self._t0 = time.time() - (minute - self._start_minute) * 60.0 / self.speed
 
     # ---------------------------------------------------------- reads
     def fixtures_today(self):

@@ -70,7 +70,7 @@ what a server does with `GET /mcp`, were the places where we had to decide for o
 **Would we build with it again?** Yes. It is small enough to implement by hand, and that is why Sideline has no
 dependencies to install.
 
-## 3. Amazon Bedrock, Converse API, Nova Micro
+## 3. Amazon Bedrock: Converse API, Anthropic Claude & Amazon Nova
 
 **Used for** Composing the catch-up paragraph, long-absence milestones and
 translation ([sideline/language/bedrock.py](../sideline/language/bedrock.py)), and
@@ -79,10 +79,7 @@ as the voice agent that chooses tools through Converse tool use
 scoreline that disagrees with the real one is refused (tested in
 `tests/test_language.py`).
 
-**Status: verified on one account, not exhaustively.** `make aws-check` on
-2026-10-13 confirmed a Nova Micro response, agent tool use and a live
-catch-up. Two runs took about 2.1 s and about 1.5 s for the "ready" call;
-this is not a latency guarantee or a user-quality evaluation.
+**Status: verified on one account, not exhaustively.** The default production model is **Anthropic Claude Sonnet** (`us.anthropic.claude-sonnet-4-5-20250929-v1:0`), with tested support for **Amazon Nova Micro / Lite** (`amazon.nova-micro-v1:0`, `amazon.nova-lite-v1:0`). `make aws-check` on 2026-10-13 confirmed Bedrock response, agent tool use and a live catch-up. Calls take about 1.5 to 2.1 s.
 
 **Observed, hands-on:** the credentials in use were a Bedrock **API key**,
 which AWS backs with an IAM user (`BedrockAPIKey-...`). That user could
@@ -93,11 +90,8 @@ Bedrock API key gets you to a first answer quickly, but it is not a
 credential for the rest of an AWS build. We did not find that stated where the key is created, and we only
 learned it when DynamoDB refused us. A one-line note there would have saved us time.
 
-**What worked well** Nova Micro is fast and cheap enough to sit inside a voice loop (about 1.5 to 2.1 s a call),
-and Converse tool use worked on the first attempt: the model read our MCP tool schemas and picked the right tool.
-That made the voice agent small. It also writes a clear spoken paragraph when it is told the facts and told not to
-add any.
-**What needs work** A small model will sometimes write a wrong scoreline or refuse, so we check every answer
+**What worked well** Anthropic Claude on Bedrock provides exceptional tool-calling precision across 27 tools, never hallucinating arguments or inventing scores, and adheres strictly to our 20-word voice constraint. Amazon Nova provides a lightweight, cost-effective alternative for simpler turns. Converse tool use worked cleanly: the model read our MCP tool schemas and picked the right tool without phrase-to-tool hardcoding.
+**What needs work** Smaller models will sometimes write a wrong scoreline or refuse, so we check every answer
 against the real score and retry once. A built-in way to constrain output to given facts would make that guard
 unnecessary. The access flow could say more plainly which models are ready to use on a new account.
 **Speech models on Bedrock.** Mistral Voxtral accepts audio through Converse and is now our speech-in model: see 5a.

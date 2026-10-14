@@ -7,7 +7,8 @@ question about a match, and does not need one: the team is found by name, whatev
 from ..mcp.errors import ToolError
 from . import feed, no_team, possessive
 
-_PLURAL = {"goalkeeper": "goalkeepers", "defender": "defenders", "midfielder": "midfielders", "attacker": "attackers"}
+_PLURAL = {"goalkeeper": "goalkeepers", "defender": "defenders", "midfielder": "midfielders",
+           "attacker": "attackers", "forward": "forwards", "guard": "guards", "center": "centers"}
 LISTED = 14
 
 

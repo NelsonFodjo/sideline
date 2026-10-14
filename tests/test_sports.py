@@ -158,6 +158,25 @@ def main():
         assert "tip-off" in str(e) and "basket going in" in str(e), str(e)
     print("ok  anchors use the sport's clock (half time at 24:00):", off, "s")
 
+    # --------------------------------- sport preferences and access
+    # Setting sport preference
+    spoken, structured, _ = run(ctx, "sport-user", "set_preferences", sport="basketball")
+    assert "focus on basketball" in spoken.lower(), spoken
+    assert ctx.store.listener("sport-user")["sport"] == "basketball"
+
+    # Following without a team prompts for the sport when not set
+    try:
+        run(ctx, "new-user", "follow_match")
+        raise AssertionError("expected sport prompt when not following and no team given")
+    except ToolError as e:
+        assert e.detail["reason"] == "needs_sport" and "basketball or football" in str(e)
+
+    # Calling follow_match with a sport choice
+    spoken, structured, _ = run(ctx, "new-user", "follow_match", sport="basketball")
+    assert "set for basketball" in spoken.lower()
+    assert ctx.store.listener("new-user")["sport"] == "basketball"
+    print("ok  asking for sport first: preference, prompt on cold start, and sport filtering")
+
     print("\nsports: all good")
 
 

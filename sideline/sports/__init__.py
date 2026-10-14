@@ -203,4 +203,4 @@ def event_kinds():
     return kinds
 
 
-from . import basketball, football  # noqa: E402,F401  (registers the profiles)
+from . import american_football, baseball, basketball, football, hockey  # noqa: E402,F401

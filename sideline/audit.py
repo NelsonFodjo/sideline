@@ -77,11 +77,24 @@ class _DailyFile(logging.Handler):
         except Exception:                                           # noqa: BLE001  logging must never break the server
             self.handleError(record)
 
+    def close(self):
+        try:
+            if self._fh:
+                self._fh.close()
+                self._fh = None
+        finally:
+            super().close()
+
 
 def setup(directory, keep_days=14):
     """Start writing logs to `directory` (None or "off" does nothing). Returns the folder or None."""
     if not directory or str(directory).strip().lower() in ("off", "none", "0", "false", "no"):
         _state["dir"] = None
+        root = logging.getLogger()
+        for h in list(root.handlers):
+            if isinstance(h, _DailyFile):
+                h.close()
+                root.removeHandler(h)
         return None
     directory = os.path.abspath(directory)
     try:

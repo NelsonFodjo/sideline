@@ -53,7 +53,7 @@ except ImportError:                                            # pragma: no cove
 # SIDELINE_BEDROCK: auto (on when AWS credentials are present), on, or off.
 ENABLED = config.bedrock_enabled()
 REGION = os.environ.get("AWS_REGION", "us-east-1")
-MODEL_ID = os.environ.get("SIDELINE_BEDROCK_MODEL", "amazon.nova-micro-v1:0")
+MODEL_ID = os.environ.get("SIDELINE_BEDROCK_MODEL", "amazon.nova-lite-v1:0")
 
 TIMEOUT_SECONDS = 8.0
 MAX_TOKENS = 160
@@ -114,8 +114,7 @@ def _converse(system, user_text, max_tokens=MAX_TOKENS):
             system=[{"text": system}],
             messages=[{"role": "user", "content": [{"text": user_text}]}],
             inferenceConfig={"maxTokens": max_tokens,
-                             "temperature": 0.2,   # reporting, not writing
-                             "topP": 0.9},
+                             "temperature": 0.2},   # reporting, not writing
         )
         pieces, usage = [], {}
         for event in resp.get("stream"):

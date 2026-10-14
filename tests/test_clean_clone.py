@@ -21,7 +21,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Blank secrets beat a developer's own .env, so this test never uses real keys.
-BLANK = {"SIDELINE_LOG_DIR": "off", "SPORTMONKS_TOKEN": "", "AWS_ACCESS_KEY_ID": "",
+BLANK = {"SIDELINE_LOG_DIR": "off", "AWS_ACCESS_KEY_ID": "",
          "AWS_SECRET_ACCESS_KEY": "",
          "SIDELINE_BEDROCK": "off", "SIDELINE_STATE": "memory"}
 
@@ -72,17 +72,8 @@ def main():
     assert r.returncode == 0, "import sideline failed:\n" + r.stderr
     print("ok  `import sideline` works with no PYTHONPATH:", r.stdout.strip())
 
-    # ------------------------- no key: a clear refusal, not a traceback, not a demo
-    r = subprocess.run([sys.executable, "-m", "sideline"], cwd=ROOT, env=_clean_env(),
-                       capture_output=True, text=True, timeout=20)
-    out = r.stdout + r.stderr
-    assert r.returncode != 0, "the server must not start without a football key"
-    assert "SPORTMONKS_TOKEN is not set" in out and "no recorded" in out, out
-    assert "Traceback" not in out, "a missing key is a message, not a stack trace:\n" + out
-    print("ok  with no football key it refuses to start and says exactly what to do")
-
-    # ----------------------------------------------------- with a key: it serves
-    proc = _start(8799, SPORTMONKS_TOKEN="not-a-real-token")
+    # ----------------------------------------------------- clean startup: it serves
+    proc = _start(8799)
     try:
         health = _wait_for_health(proc, 8799)
         assert health["protocol"] == "2025-11-25" and health["tools"] == 27, health
@@ -97,7 +88,7 @@ def main():
             {"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=2) as resp:
             assert len(json.loads(resp.read())["result"]["tools"]) == 27
-        print("ok  with a key `python -m sideline` serves on a clean shell:",
+        print("ok  `python -m sideline` serves on a clean shell with zero setup:",
               "%d tools, spec %s, the simulator page, MCP tools/list" % (
                   health["tools"], health["protocol"]))
     finally:

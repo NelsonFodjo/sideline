@@ -66,8 +66,20 @@ def day_fixtures(ctx, offset, tz=None):
     start = datetime.datetime(local.year, local.month, local.day, tzinfo=clock.UTC) - datetime.timedelta(minutes=int(tz))
     end = start + datetime.timedelta(days=1)
     out, seen = [], set()
-    for utc_day in sorted({start.date(), (end - datetime.timedelta(seconds=1)).date()}):
-        for fx in ctx.provider.fixtures_on((utc_day - now.date()).days):
+    utc_days = sorted({start.date(), (end - datetime.timedelta(seconds=1)).date()})
+    if len(utc_days) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fetched_lists = list(pool.map(lambda d: ctx.provider.fixtures_on((d - now.date()).days), utc_days))
+        for fl in fetched_lists:
+            for fx in fl:
+                ko = clock.kickoff(fx)
+                if fx.get("fixture_id") in seen or (ko is not None and not start <= ko < end):
+                    continue
+                seen.add(fx.get("fixture_id"))
+                out.append(fx)
+    else:
+        for fx in ctx.provider.fixtures_on((utc_days[0] - now.date()).days):
             ko = clock.kickoff(fx)
             if fx.get("fixture_id") in seen or (ko is not None and not start <= ko < end):
                 continue
@@ -82,9 +94,16 @@ def find_matches(ctx, team, opponent=None, offsets=(0, 1, -1), tz=None):
     Stops at the first day with any. Whatever the feed cannot see (a free plan sees only
     yesterday to tomorrow) is simply not found, and said so by the caller.
     """
-    for offset in offsets:
+    if len(offsets) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=len(offsets)) as pool:
+            all_day_fixtures = list(pool.map(lambda off: (off, day_fixtures(ctx, off, tz)), offsets))
+    else:
+        all_day_fixtures = [(offsets[0], day_fixtures(ctx, offsets[0], tz))] if offsets else []
+
+    for offset, fixtures in all_day_fixtures:
         hits = []
-        for fx in day_fixtures(ctx, offset, tz):
+        for fx in fixtures:
             home, away = fx.get("home"), fx.get("away")
             if _is_team(home, team) and (not opponent or _is_team(away, opponent)):
                 hits.append(fx)
@@ -130,7 +149,7 @@ def not_found(ctx, team, opponent=None, tz=None):
                              {"reason": "no_match", "team": team, "opponent": opponent})
     close = suggestions(ctx, team, tz=tz)
     if close:
-        names = ", or ".join(clock.say_fixture(m, tz) for m in close)
+        names = ", or ".join(clock.say_fixture(m, tz) if m.get("away") else m.get("home") for m in close)
         return ToolError("I couldn't find %s. Did you mean %s?" % (team, names),
                          {"reason": "ambiguous", "candidates": close})
     what = "%s against %s" % (team, opponent) if team and opponent else ("a match for %s" % team if team else "that match")

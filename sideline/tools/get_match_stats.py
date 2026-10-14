@@ -7,6 +7,11 @@ _LABELS = (("possession", "Possession", " percent"), ("shots", "Shots", ""), ("s
            ("corners", "Corners", ""), ("fouls", "Fouls", ""), ("yellow_cards", "Yellow cards", ""),
            ("red_cards", "Red cards", ""))
 
+_BB_LABELS = (("field_goals", "Field goals", ""), ("field_goal_pct", "Field goal pct", " percent"),
+              ("three_pointers", "Three pointers", ""), ("free_throws", "Free throws", ""),
+              ("rebounds", "Rebounds", ""), ("assists", "Assists", ""), ("steals", "Steals", ""),
+              ("blocks", "Blocks", ""), ("turnovers", "Turnovers", ""), ("fouls", "Fouls", ""))
+
 
 def _line(label, unit, home, away, a, b):
     if a is None and b is None:
@@ -23,7 +28,8 @@ def run(ctx, args, listener_id):
                         {"reason": "no_match", "fixture_id": fx["fixture_id"]})
     home, away = fx["home"], fx["away"]
     a, b = stats.get(home) or {}, stats.get(away) or {}
-    parts = [_line(label, unit, home, away, a.get(key), b.get(key)) for key, label, unit in _LABELS]
+    labels = _BB_LABELS if fx.get("sport") == "basketball" else _LABELS
+    parts = [_line(label, unit, home, away, a.get(key), b.get(key)) for key, label, unit in labels]
     parts = [p for p in parts if p]
     if not parts:
         raise ToolError("There are no statistics for this match yet.",

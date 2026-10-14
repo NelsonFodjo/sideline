@@ -29,9 +29,12 @@ Severity: **critical** blocks shipping · **important** costs real time ·
 | FL-12 | Store listener state in DynamoDB with boto3 | `put_item` rejects Python floats (`Float types are not supported`), and reads return `Decimal`, which JSON cannot encode; a local fake accepts both, so nothing failed until a real table was used (every event was silently not logged) | important | Convert on write and read; `tests/test_dynamo.py` pins it | Show the Decimal rule next to the first `put_item` example, and make the error name the attribute |
 | FL-13 | Transcribe a spoken question with a speech-capable model on Bedrock (Mistral Voxtral via Converse) | It accepts audio but is a chat model: it answered a spoken question with an invented score instead of transcribing it (2 of 4 phrases correct on Small) | nice-to-have | Used Nova 2 Sonic and Groq instead | Add a transcription mode to Converse for audio models, or say clearly that they are chat-only |
 | FL-14 | Build and test against a free football feed for a day | The first feed's free plan allowed 100 requests a day and 10 a minute, with only yesterday to tomorrow visible; the day's quota was spent before the build was done, so every question returned the feed's error | important | Replaced it with Sportmonks, whose free plan is limited per hour, not per day | State the per-minute and date-window limits beside the daily number, return remaining quota on every response, and offer a hackathon-sized free tier |
-| FL-15 | Replace a third-party speech recogniser with a model on Bedrock, and keep the accuracy | Voxtral rejected a system message next to audio, answered the question instead of transcribing when the instruction came first, and the small model worked while the mini one did not; it took a controlled comparison to find all that | important |
-| FL-16 | Run Nova Sonic from the Python SDK on a new Python | The SDK's CRT component failed to import with `awscrt` 0.26.1 on Python 3.14 and reported "awscrt is not installed" while it was; upgrading to 0.37 fixed it, after one whole comparison run was wasted | important |
-| FL-17 | Test a voice agent against a real DynamoDB table | Our own routing and verify runs wrote 108 items into the app's real table (85 invented listeners, three fixtures that the live feed has never heard of, stale follower markers), and the browser's listener was left following a match from the feed we had dropped, so every match question answered "can't find that match any more" | important |
+| FL-15 | Replace a third-party speech recogniser with a model on Bedrock, and keep the accuracy | Voxtral rejected a system message next to audio, answered the question instead of transcribing when the instruction came first, and the small model worked while the mini one did not; it took a controlled comparison to find all that | important | Put audio before instruction in user turn, drop vocabulary list, select Voxtral Small with length-guard fallback to Nova Sonic | Document prompt ordering and restrictions for Converse audio models; add a dedicated transcription-only mode |
+| FL-16 | Run Nova Sonic from the Python SDK on a new Python | The SDK's CRT component failed to import with `awscrt` 0.26.1 on Python 3.14 and reported "awscrt is not installed" while it was; upgrading to 0.37 fixed it, after one whole comparison run was wasted | important | Upgrade `awscrt` to >=0.37 and verify `crt.HAS_CRT` | Report underlying ImportError instead of generic missing dependency; state explicit compatible `awscrt` versions |
+| FL-17 | Test a voice agent against a real DynamoDB table | Our own routing and verify runs wrote 108 items into the app's real table (85 invented listeners, three fixtures that the live feed has never heard of, stale follower markers), and the browser's listener was left following a match from the feed we had dropped, so every match question answered "can't find that match any more" | important | Cleaned stale items; enforce in-memory state for test providers regardless of `SIDELINE_STATE`; auto-drop stale followings | Make safe test isolation the default so "auto" state does not write test data to production tables |
+| FL-18 | Run Bedrock Converse tool calls under multi-query loads | Nova Micro periodically failed immediately with `ServiceUnavailableException: Service capacity limit has been reached`, failing voice responses when retries were disabled for latency | important | Fast retry once after 0.6 s (`BUSY_RETRY_SECONDS`) exclusively for capacity and throttling errors; fail fast on timeouts | Document expected on-demand capacity limits for Nova models; guide builders to retry fast rejections but not timeouts in voice loops |
+| FL-19 | Cache static MCP tool catalog definitions across conversational turns | Bedrock Converse rejected a `cachePoint` placed inside `toolConfig.tools` with `ValidationException: extraneous key [cachePoint] is not permitted`, preventing caching of 7,800 tokens of tool definitions | nice-to-have | Return short tool outputs directly without LLM rephrasing; pre-warm connections at startup | Support prompt caching in `toolConfig.tools` on Nova Micro, or clarify allowed cachePoint placements in Converse docs |
+| FL-20 | Set up and run the service on Windows via quickstart scripts | `make run` failed with `make: command not found`; `./run.sh` hardcoded Unix `.venv/bin/python` causing it to fail on Windows (`Scripts/python.exe`), and CRLF line endings broke bash execution with `$'\r': command not found` | important | Updated `run.sh` to support Windows `Scripts/python.exe` and Unix `bin/python`; normalized line endings to LF; documented `python -m sideline` | Add `.gitattributes` to enforce `eol=lf` on shell scripts; make venv bootstrap scripts cross-platform aware; document Windows PowerShell run steps |
 
 ---
 
@@ -352,6 +355,67 @@ it is seen; made the poller give up on a fixture the feed does not know after th
 test provider use memory state only, whatever `SIDELINE_STATE` says, with a test. **Suggestion** for anyone building the same:
 "auto" backends are convenient and dangerous in tests; make the safe choice the one that needs no configuration.
 
+### FL-18 — Bedrock Converse intermittently fails with "Service capacity limit has been reached"
+
+**Evidence** Sideline routing and verification runs, 2026-10-13; commit `3495516` ([`tests/test_agent.py`](../tests/test_agent.py), [`docs/PRODUCT_FEEDBACK.md`](PRODUCT_FEEDBACK.md) section 3a).
+
+**Task** Run batch test suites and multi-turn voice queries through Bedrock Converse with Nova Micro (`amazon.nova-micro-v1:0`).
+
+**Steps** Sent sequential and rapid tool-use requests to the Bedrock Converse API with retry defaults disabled to keep voice turnaround under 2 seconds.
+
+**Expected** Requests to succeed, queue briefly, or throttle with standard retry headers.
+
+**Actual** `converse` intermittently failed with immediate `ServiceUnavailableException: Service capacity limit has been reached. Please try again later.`, occurring seconds apart from calls that succeeded. Because a voice agent cannot afford standard multi-second exponential backoff without doubling listener latency, standard zero-retry client configs treated this as a hard conversational drop.
+
+**Severity** important: turns failed randomly for the listener during active use.
+
+**What we did.** Added targeted retry logic in [`sideline/language/agent.py`](../sideline/language/agent.py): we wait 0.6 s (`BUSY_RETRY_SECONDS`) and retry once **only** for `ServiceUnavailableException` (capacity limit reached) and throttling exceptions (`ThrottlingException`). Any other error (including model timeouts) fails immediately to avoid keeping the voice listener waiting. Pinned in `tests/test_agent.py`.
+
+**Suggestion** Document whether capacity limits are expected on on-demand Nova models under modest burst traffic, and publish guidance on voice-optimized retry policies (retry instant capacity refusals, but fail fast on latency timeouts).
+
+### FL-19 — Bedrock Converse rejects prompt caching on `toolConfig.tools`
+
+**Evidence** Sideline build, 2026-10-13; [`docs/BEDROCK.md`](BEDROCK.md) and [`docs/PRODUCT_FEEDBACK.md`](PRODUCT_FEEDBACK.md) section 3b.
+
+**Task** Reduce latency and token consumption across turns by caching the static MCP tool catalog (~7,800 input tokens across 27 tools) with Bedrock Converse prompt caching.
+
+**Steps** Injected `cachePoint: {"type": "default"}` into the `toolConfig.tools` schema sent to `amazon.nova-micro-v1:0`.
+
+**Expected** Converse to accept the cache point and cache the repetitive tool definitions across questions.
+
+**Actual** Bedrock rejected the request with `ValidationException: Malformed input request: #/toolConfig/tools/26: extraneous key [cachePoint] is not permitted`. While Converse accepts a `cachePoint` inside the `system` prompt block, the system text is only a small fraction of the request, whereas the tool catalog represents over 90% of the token payload.
+
+**Severity** nice-to-have: warm calls take ~0.75 s without caching, but repeated tool definitions consume unnecessary tokens and latency every turn.
+
+**What we did.** We skipped prompt caching for tool definitions; instead, we return tool outputs of 240 characters or fewer directly without asking the model to rephrase them (`generated_by: tool`), pre-warm the Bedrock connection on server startup to absorb TLS handshake overhead, and keep tool schemas concise.
+
+**Suggestion** Allow `cachePoint` declarations on `toolConfig` or after tools on Nova models in Converse, or state clearly in the Converse documentation that `cachePoint` cannot be placed inside `toolConfig.tools`.
+
+### FL-20 — Setup scripts fail on Windows due to POSIX venv paths and CRLF line endings
+
+**Evidence** Hands-on developer onboarding on Windows, 2026-10-13; `run.sh` terminal logs.
+
+**Task** Clone the repository and start the server using the documented quickstart command (`make run` or `./run.sh`).
+
+**Steps** Attempted `make run` in Git Bash, then ran `./run.sh` on a Windows machine with Python 3.14.
+
+**Expected** The bootstrap script to create `.venv`, install `requirements.txt`, and start the MCP server.
+
+**Actual**
+1. `make run` failed with `bash: make: command not found` because `make` is not available out-of-the-box on Windows.
+2. `./run.sh` hardcoded Unix paths (`VENV_PYTHON="$VENV/bin/python"`). On Windows, `python -m venv` places binaries under `.venv/Scripts/python.exe`, causing the check `[ ! -x "$VENV/bin/python" ]` to report `/c/.../.venv/bin/python: No such file or directory` followed by the misleading error: `The Python in .venv is too old. Remove .venv and rerun with Python 3.8 or newer.`
+3. When saved or checked out with Windows default CRLF line endings (`\r\n`), bash failed to execute `run.sh` with `./run.sh: line 2: set: -: invalid option`, `./run.sh: line 3: $'\r': command not found`, and `syntax error near unexpected token 'elif'`.
+
+**Severity** important: completely blocked first-time developer onboarding and execution on Windows.
+
+**What we did.**
+1. Converted `run.sh` line endings to LF (`\n`).
+2. Updated `run.sh` to check for Windows `.venv/Scripts/python.exe` and `.venv/Scripts/python` as well as POSIX `.venv/bin/python`.
+3. Created [`.gitattributes`](../.gitattributes) enforcing `eol=lf` for shell scripts and code.
+4. Added native Windows PowerShell instructions (`python -m sideline`) to avoid depending on bash or make.
+
+**Suggestion** Add a `.gitattributes` file configuring `*.sh text eol=lf` so Git preserves Unix line endings on Windows checkouts; update setup scripts to accommodate Windows virtual environment directories (`Scripts/` vs `bin/`); and document native Windows PowerShell commands in the README quickstart alongside `make` and bash.
+
 ---
 
 ## Candidates: add an entry only if you actually hit it
@@ -360,8 +424,8 @@ These were in an earlier draft as if they had happened. They have not been
 observed, so they are **not** in the log. Promote one only with a real
 observation and its numbers.
 
-- Bedrock first-call latency after idle, or retry/timeout defaults too slow
-  for voice. Measure with `make aws-check` and real calls.
+- Bedrock first-call latency after idle: tested with connection pre-warming
+  on startup; retry and capacity behaviors were measured and promoted to FL-18.
 - Free football-data tiers being delayed or capped. Unverified: the vendor
   pages blocked automated reading; check them by hand.
 - `_meta` conventions for UI payloads. No observation.

@@ -11,7 +11,6 @@ from .mcp import server as mcp_server
 from .mcp.client import McpClient
 from .poller import Poller
 from .providers import build as build_provider
-from .providers.sportmonks import HOURLY_CALLS
 from .state import build as build_store
 from .tools import REGISTRY
 
@@ -61,14 +60,7 @@ def build(provider=None):
 
     test_provider = provider is not None
     if provider is None:
-        if not CONFIG.sportmonks_token:
-            raise ConfigError(
-                "SPORTMONKS_TOKEN is not set.\n"
-                "  Sideline reads a live football feed (Sportmonks) and has no recorded\n"
-                "  or demo data. Get a free token at https://www.sportmonks.com, then:\n"
-                "      cp .env.example .env     # and put the token in SPORTMONKS_TOKEN\n"
-                "  See the README, 'Run it'.")
-        provider = build_provider(CONFIG.sportmonks_token)
+        provider = build_provider()
 
     # Offer only the tools this feed can answer: a model is never shown a tool that would fail.
     registry.limit_to(getattr(provider, "capabilities", None))
@@ -92,6 +84,20 @@ def build(provider=None):
         # snapped to the closest option, and a misheard name from this match is
         # repaired, before the model ever sees it.
         understood = resolve.understand(ctx, listener_id, question)
+        if understood.get("clarify"):
+            suggestion = understood["suggestion"]
+            resolve.BOOK.remember(listener_id, [
+                resolve.Item(suggestion, aliases=["yes", "yeah", "yep", "sure", "correct", "right", suggestion.lower()])
+            ])
+            clarify_text = "Did you mean %s?" % suggestion
+            return {
+                "text": clarify_text,
+                "generated_by": "typo-clarification",
+                "tool_results": [],
+                "understood": suggestion,
+                "heard": understood["heard"],
+                "understood_why": "typo_clarify",
+            }
         if tz_offset_minutes is not None:
             # Times are said in the listener's own clock, as the page reports it.
             rec = ctx.store.listener(listener_id)
@@ -132,13 +138,8 @@ def main():
     log = logging.getLogger("sideline")
     from .voice import capabilities
     caps = capabilities()
-    per_hour = 3600 // max(1, CONFIG.poll_seconds)
-    log.info("poll: every %ds while a match is in play, so one uses %d of the plan's %d calls an hour "
-             "(a match not yet started is checked every 5 minutes, a finished one once)",
-             CONFIG.poll_seconds, per_hour, HOURLY_CALLS)
-    if per_hour * 2 > HOURLY_CALLS:
-        log.warning("poll: over half the hourly limit goes on one match; the rest is for questions "
-                    "(searches, previews, standings). Raise SIDELINE_POLL_SECONDS if the feed starts refusing.")
+    log.info("poll: every %ds while a match is in play (a match not yet started is checked every 5 minutes, a finished one once)",
+             CONFIG.poll_seconds)
     log.info("provider=%s state=%s bedrock=%s",
              ctx.provider.name,
              type(ctx.store).__name__.replace("Store", "").lower(),

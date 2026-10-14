@@ -25,6 +25,7 @@ def read_by_code():
         r'''|environ\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]''')
     names = {}
     files = (glob.glob(os.path.join(ROOT, "sideline", "**", "*.py"), recursive=True)
+             + glob.glob(os.path.join(ROOT, "simulator", "**", "*.py"), recursive=True)
              + glob.glob(os.path.join(ROOT, "scripts", "*.py")))
     for path in files:
         for a, b in pattern.findall(open(path, encoding="utf-8").read()):

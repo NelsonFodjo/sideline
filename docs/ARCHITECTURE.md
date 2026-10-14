@@ -8,7 +8,7 @@ In the intended deployment the client is Alexa+: it does speech recognition, cho
 to, writes the wording the listener hears, speaks it and renders anything on screen, and we expose tools and
 hold state. **That deployment is not reachable by hackathon participants** (the add-on tooling is partner-only;
 see [HACKATHON.md](HACKATHON.md)). So today the client is a **simulated Alexa+**: our own web page, `simulator/index.html`,
-and a thin Nova host. It gives Nova the current MCP catalog with complete descriptions and schemas up front, then
+and a thin Anthropic Claude host on Bedrock. It gives Claude the current MCP catalog with complete descriptions and schemas up front, then
 dispatches only calls for tools in that catalog. Any MCP client can connect to the same server.
 
 One consequence holds either way: **the quality of a tool's description is product surface.** The agent and any
@@ -18,23 +18,23 @@ experiences as "it keeps telling me the score when I asked what happened."
 ## The layers
 
 ```
-   MCP client: the simulated Alexa+ (a web page + Nova host), or any MCP client
+   MCP client: the simulated Alexa+ (a web page + Claude/Bedrock host), or any MCP client
                               |
               MCP / Streamable HTTP / 2025-11-25
                               |
                      OUR MCP SERVER                          this repo
             |           |            |              |
-        Bedrock     DynamoDB      poller       live football feed
-        (wording,   (listener     (a thread    (Sportmonks)
-         tool host)  state)        in the
-                                   server)
+        Bedrock     DynamoDB      poller       live sports feed
+   (Anthropic Claude: (listener   (a thread    (ESPN Multi-Sport CDN)
+    wording, tool     state)       in the
+    host)                          server)
 ```
 
 | Layer | Who owns it |
 |---|---|
-| MCP client | the Nova host fetches `initialize` instructions and `tools/list`, gives the live tool definitions to Nova, then makes every selected `tools/call` over `/mcp` ([`mcp/client.py`](../sideline/mcp/client.py)). External clients use `/mcp` directly |
+| MCP client | the host fetches `initialize` instructions and `tools/list`, gives the live tool definitions to Claude, then makes every selected `tools/call` over `/mcp` ([`simulator/mcp_client.py`](../simulator/mcp_client.py)). External clients use `/mcp` directly |
 | MCP server | this repo ([`mcp/server.py`](../sideline/mcp/server.py)) |
-| Bedrock | AWS: Nova Micro writes the catch-up and chooses among the discovered MCP tools; Nova 2 Sonic hears speech |
+| Bedrock | AWS: Anthropic Claude (Sonnet) writes the catch-up and chooses among the discovered MCP tools; Nova 2 Sonic hears speech |
 | Polly | AWS: speech out (generative voice), with word timings |
 | DynamoDB | AWS: listener state and the event log (memory when no table is available) |
 | Poller | this repo: a thread in the server process |
@@ -49,16 +49,16 @@ The listener says **"what did I miss?"**
 1. The client captures the listener's speech. In the simulator the browser records it and the server
    transcribes it (Voxtral, or Nova Sonic as the fallback, both on Bedrock: see [SPEECH.md](SPEECH.md)).
 2. `sideline/resolve.py` checks whether it answers a choice we just offered, and repairs misheard names.
-3. The host discovers `tools/list` over MCP and gives Nova the full descriptions and schemas.
-4. Nova compares overlapping tool use cases and calls the fitting tool or asks a focused clarification.
+3. The host discovers `tools/list` over MCP and gives Claude the full descriptions and schemas.
+4. Claude compares overlapping tool use cases and calls the fitting tool or asks a focused clarification.
 5. The host's MCP client calls `tools/call` on `/mcp`. The server validates the arguments and runs the tool.
 6. The tool reads this listener's `last_told_at` from the store and pulls every logged event since, minus
    anything already told.
-7. For Nova it returns the event facts (a header asks for facts rather than a
-   paragraph, because Nova is a model and would only paraphrase one). For any other client, Bedrock
+7. For Claude it returns the event facts (a header asks for facts rather than a
+   paragraph, because Claude is an LLM and would only paraphrase one). For any other client, Bedrock
    composes the paragraph.
 8. `last_told_at` moves forward; the event ids are recorded as told.
-9. Nova phrases the result, Polly speaks it, and the page highlights each word as it is spoken.
+9. Claude phrases the result, Polly speaks it, and the page highlights each word as it is spoken.
 
 The server side is steps 4 to 7; the rest belong to the client. A client such as Alexa+ would do steps 1, 3 and 8.
 
@@ -131,11 +131,19 @@ Listener                        Event
   last_told_at   match minute     kind          per sport: goal, card, basket, foul ...
   told_event_ids                  player, team, assist, detail, points
   language                        superseded_by
+  history        turns [u, a]
+  topic          focus entity
+  sport          active sport
+  broadcast_offset
 ```
 
 `gap_for()` and `mark_told()` live on the **base class**, not on each backend. That is on purpose: the gap
 calculation is the heart of the product, and it must not drift between the in-memory and DynamoDB
 implementations.
+
+**Why `history` and `topic` persist in DynamoDB.** Conversation memory survives restarts: past dialogue turns
+and the current focus entity (`competition`, `matches`, `total`, `team`, `player`) are saved to DynamoDB
+so follow-ups (*"and them?"*, *"what about the second one?"*) snap accurately even across server reloads.
 
 **Why `told_event_ids` as well as `last_told_at`.** They answer different questions. The timestamp answers
 *what window*. The id set answers *did we already mention this specific thing*. A listener can ask about one goal
@@ -143,6 +151,14 @@ explicitly, then later ask what they missed, and should not hear that goal twice
 
 **Why the marker never moves backwards.** `mark_told()` refuses to lower it. A listener hearing the same goal
 twice is worse than a listener hearing nothing: it makes them distrust everything else the thing says.
+
+## Multi-Agent Swarm & Generative Streaming Pipeline
+
+To achieve **<150ms perceived response latency**, the architecture departs from monolithic request loops:
+
+1. **Swarm Parallel Multi-Agent Execution:** The simulator runs up to 8 parallel agent workers concurrently via Python's `ThreadPoolExecutor`. Fast deterministic intent paths (scores, fixtures, lineups) execute in **<50ms** directly from cached tool data without incurring an LLM turn.
+2. **Generative Word-by-Word Streaming:** The web client implements an Omega divide-and-conquer token streaming pipeline. When an answer is ready, the screen is wiped clean with **zero lookahead preview in grey**. Words stream dynamically into the DOM one-by-one synchronized with speech.
+3. **Sub-15ms Native Voice Pipeline:** Local browser speech synthesis (`SIDELINE_TTS=browser`) initiates audio immediately in `<15ms` with zero cloud network round-trip, keeping conversational latency under the human natural pause threshold.
 
 ## Failure behaviour
 

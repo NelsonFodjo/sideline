@@ -1,5 +1,6 @@
-"""How the listener likes answers: how much to say, and in which language."""
+"""How the listener likes answers: how much to say, preferred sport, and in which language."""
 
+from .. import sports
 from ..mcp.errors import ToolError
 
 _DETAIL = {"brief": "Okay, I'll keep answers brief.", "normal": "Okay, back to normal answers.",
@@ -7,12 +8,24 @@ _DETAIL = {"brief": "Okay, I'll keep answers brief.", "normal": "Okay, back to n
 
 
 def run(ctx, args, listener_id):
-    detail, language = args.get("detail"), (args.get("language") or "").strip()
-    if not detail and not language:
-        raise ToolError("What would you like changed: how much I say, or the language?",
-                        {"reason": "needs_choice"})
+    detail = args.get("detail")
+    language = (args.get("language") or "").strip()
+    sport = (args.get("sport") or "").strip().lower()
+    if sport in ("soccer", "association football"):
+        sport = "football"
+    if not detail and not language and not sport:
+        known = " or ".join(sports.known())
+        raise ToolError("What would you like changed: your sport (%s), how much I say, or the language?" % known,
+                        {"reason": "needs_choice", "sports": sports.known(), "fork": sports.known()})
     rec = ctx.store.listener(listener_id)
     said = []
+    if sport:
+        if sport in sports.known():
+            rec["sport"] = sport
+            said.append("Okay, I'll focus on %s." % sport)
+        else:
+            raise ToolError("I only cover %s." % " and ".join(sports.known()),
+                            {"reason": "unknown_sport", "sports": sports.known()})
     if detail:
         rec["detail"] = detail
         said.append(_DETAIL[detail])
@@ -22,4 +35,4 @@ def run(ctx, args, listener_id):
         said.append("Okay, I'll answer in English." if english else "Okay, I'll answer in %s." % language)
     ctx.store.save_listener(rec)
     return " ".join(said), {"detail": rec.get("detail"), "language": rec.get("language"),
-                            "generated_by": "template"}, None
+                            "sport": rec.get("sport"), "generated_by": "template"}, None

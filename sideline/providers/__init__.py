@@ -1,9 +1,9 @@
 from .base import Provider, ProviderUnavailable
-from .sportmonks import SportmonksProvider
+from .espn import EspnProvider
 
-__all__ = ["Provider", "ProviderUnavailable", "SportmonksProvider", "build"]
+__all__ = ["Provider", "ProviderUnavailable", "EspnProvider", "build"]
 
 
-def build(token):
-    """The live football feed (Sportmonks). There is no recorded or demo provider."""
-    return SportmonksProvider(token)
+def build(token=None):
+    """The live multi-sport feed (ESPN). Zero-auth, real-time CDN."""
+    return EspnProvider()

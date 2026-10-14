@@ -17,9 +17,9 @@ def _score(f):
     return "%s %s, %s %s" % (f["home"], f["score"]["home"], f["away"], f["score"]["away"])
 
 
-def _outcome(f, team_id):
+def _outcome(f, team_id, team_name=None):
     """W, D or L for the team, or None when the side cannot be told."""
-    mine, theirs = (f["score"]["home"], f["score"]["away"]) if f.get("home_id") == team_id \
+    mine, theirs = (f["score"]["home"], f["score"]["away"]) if (team_id and f.get("home_id") == team_id) or (team_name and _is_team(f.get("home"), team_name)) \
         else (f["score"]["away"], f["score"]["home"])
     return "W" if mine > theirs else "L" if mine < theirs else "D"
 
@@ -51,7 +51,7 @@ def run(ctx, args, listener_id):
             raise ToolError("I can't see any recent results for %s%s." % (name, " against %s" % opponent if opponent else ""),
                             {"reason": "no_match", "team": name})
         items = ["%s, %s" % (_score(f), clock.say_day(clock.kickoff(f), tz_minutes=tz)) for f in done[:LAST]]
-        form = "".join(_outcome(f, data["team_id"]) for f in done[:LAST])
+        form = "".join(_outcome(f, data.get("team_id"), data.get("team")) for f in done[:LAST])
         spoken = "%s last %s: %s." % (possessive(name), "result" if len(items) == 1 else "%d results" % len(items), ". ".join(items))
         return spoken, {"team": name, "which": "last", "form": form, "matches": [
             {"home": f["home"], "away": f["away"], "score": f["score"], "kickoff": f.get("kickoff")}

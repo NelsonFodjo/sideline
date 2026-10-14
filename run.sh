@@ -27,17 +27,32 @@ if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) 
 fi
 
 VENV="$ROOT/.venv"
-if [ ! -x "$VENV/bin/python" ]; then
+VENV_PYTHON=""
+if [ -x "$VENV/bin/python" ]; then
+    VENV_PYTHON="$VENV/bin/python"
+elif [ -x "$VENV/Scripts/python.exe" ]; then
+    VENV_PYTHON="$VENV/Scripts/python.exe"
+elif [ -x "$VENV/Scripts/python" ]; then
+    VENV_PYTHON="$VENV/Scripts/python"
+fi
+
+if [ -z "$VENV_PYTHON" ]; then
     echo "Creating Sideline's isolated Python environment..."
     if ! "$PYTHON" -m venv "$VENV"; then
         echo "Could not create .venv. Install Python's venv/ensurepip support and try again." >&2
         exit 1
     fi
+    if [ -x "$VENV/bin/python" ]; then
+        VENV_PYTHON="$VENV/bin/python"
+    elif [ -x "$VENV/Scripts/python.exe" ]; then
+        VENV_PYTHON="$VENV/Scripts/python.exe"
+    elif [ -x "$VENV/Scripts/python" ]; then
+        VENV_PYTHON="$VENV/Scripts/python"
+    fi
 fi
 
-VENV_PYTHON="$VENV/bin/python"
-if ! "$VENV_PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)'; then
-    echo "The Python in .venv is too old. Remove .venv and rerun with Python 3.8 or newer." >&2
+if [ -z "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)'; then
+    echo "The Python in .venv is too old or could not be found. Remove .venv and rerun with Python 3.8 or newer." >&2
     exit 1
 fi
 

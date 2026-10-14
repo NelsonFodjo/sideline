@@ -14,8 +14,9 @@ def _say(form):
     return ", ".join(_WORDS[c] for c in (form or "").upper() if c in _WORDS)
 
 
-def _letters(f, team_id):
-    mine, theirs = (f["score"]["home"], f["score"]["away"]) if f.get("home_id") == team_id \
+def _letters(f, team_id, team_name=None):
+    from . import _is_team
+    mine, theirs = (f["score"]["home"], f["score"]["away"]) if (team_id and f.get("home_id") == team_id) or (team_name and _is_team(f.get("home"), team_name)) \
         else (f["score"]["away"], f["score"]["home"])
     return "W" if mine > theirs else "L" if mine < theirs else "D"
 
@@ -34,7 +35,7 @@ def run(ctx, args, listener_id):
             if not recent:
                 raise ToolError("I don't have recent results for %s." % team, {"reason": "no_match", "team": team})
             last = recent[:5][::-1]                              # oldest first, as the form is read
-            form = "".join(_letters(f, data["team_id"]) for f in last)
+            form = "".join(_letters(f, data.get("team_id"), data.get("team")) for f in last)
             return ("%s recently: %s." % (data["team"], _say(form)),
                     {"team": data["team"], "form": form, "generated_by": "template"}, None)
     fx = resolve_fixture(ctx, args, listener_id, prefers="coming")

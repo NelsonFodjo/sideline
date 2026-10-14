@@ -1,0 +1,4 @@
+# Enforce LF endings on shell scripts to prevent bash syntax errors on Windows
+*.sh text eol=lf
+*.py text eol=lf
+*.md text eol=lf

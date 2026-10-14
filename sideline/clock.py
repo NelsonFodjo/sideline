@@ -213,6 +213,9 @@ def say_fixture(fx, tz_minutes=None, at=None, with_day=True, with_zone=True):
     """
     names = "%s against %s" % (fx.get("home"), fx.get("away"))
     if fx.get("status") in FINISHED:
+        sc = fx.get("score")
+        if sc and sc.get("home") is not None and sc.get("away") is not None:
+            return "%s %d, %s %d, finished" % (fx.get("home"), sc["home"], fx.get("away"), sc["away"])
         return names + ", finished"
     minute = fx.get("minute") or 0
     if minute > 0:

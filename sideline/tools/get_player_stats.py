@@ -16,8 +16,16 @@ def run(ctx, args, listener_id):
         bits.append("%s %s" % (s["appearances"], "appearance" if s["appearances"] == 1 else "appearances"))
     if s.get("goals") is not None:
         bits.append("%s %s" % (s["goals"], "goal" if s["goals"] == 1 else "goals"))
+    if s.get("points") is not None:
+        bits.append("%s %s" % (s["points"], "point" if s["points"] == 1 else "points"))
     if s.get("assists") is not None:
         bits.append("%s %s" % (s["assists"], "assist" if s["assists"] == 1 else "assists"))
+    if s.get("rebounds") is not None:
+        bits.append("%s %s" % (s["rebounds"], "rebound" if s["rebounds"] == 1 else "rebounds"))
+    if s.get("steals") is not None:
+        bits.append("%s %s" % (s["steals"], "steal" if s["steals"] == 1 else "steals"))
+    if s.get("blocks") is not None:
+        bits.append("%s %s" % (s["blocks"], "block" if s["blocks"] == 1 else "blocks"))
     if not bits:
         raise ToolError("I can't find season figures for %s." % player, {"reason": "no_match", "player": player})
     spoken = "%s%s this season: %s." % (s.get("name") or player, " for %s" % s["team"] if s.get("team") else "",

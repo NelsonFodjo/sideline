@@ -75,6 +75,8 @@ class Listener(dict):
             "offset_source": None,
             "offset_calibrated": False,
             "locale": None,
+            "history": [],
+            "topic": {},
         })
 
 

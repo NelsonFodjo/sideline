@@ -45,6 +45,60 @@ _ORDINALS = {
         "third one", "option three", "number 3"},
 }
 _ORDINAL_COUNT = {0: 1, 1: 2, 2: 3}
+_AFFIRMATIONS = {"yes", "yeah", "yep", "sure", "correct", "right", "that one", "yea", "yup", "ok", "okay"}
+
+POPULAR_TEAMS = [
+    "Arsenal", "Aston Villa", "Bournemouth", "Brentford", "Brighton", "Chelsea",
+    "Crystal Palace", "Everton", "Fulham", "Ipswich Town", "Leicester City", "Liverpool",
+    "Manchester City", "Manchester United", "Newcastle United", "Nottingham Forest",
+    "Southampton", "Tottenham Hotspur", "West Ham United", "Wolverhampton Wanderers",
+    "Real Madrid", "Barcelona", "Atletico Madrid", "Athletic Bilbao", "Real Sociedad",
+    "Real Betis", "Villarreal", "Sevilla", "Valencia", "Girona", "Bayern Munich",
+    "Borussia Dortmund", "Bayer Leverkusen", "RB Leipzig", "PSG", "Monaco", "Marseille",
+    "Lyon", "Lille", "Juventus", "Inter Milan", "AC Milan", "Napoli", "Roma", "Lazio",
+    "Atalanta", "Benfica", "Sporting CP", "Porto", "Ajax", "Feyenoord", "Celtic", "Rangers",
+    "Boston Celtics", "Los Angeles Lakers", "Golden State Warriors", "Miami Heat",
+    "Milwaukee Bucks", "Denver Nuggets", "Kansas City Chiefs", "San Francisco 49ers",
+    "Philadelphia Eagles", "Dallas Cowboys", "New York Yankees", "Los Angeles Dodgers",
+    "Wolves", "Spurs", "Barca",
+]
+
+POPULAR_COMPETITIONS = [
+    "UEFA Champions League", "Champions League", "English Premier League", "Premier League",
+    "La Liga", "Serie A", "Bundesliga", "Ligue 1", "UEFA Europa League", "Europa League",
+    "Major League Soccer", "MLS", "NBA", "NFL", "MLB", "NHL", "FA Cup", "Carabao Cup",
+]
+
+_COMMON_WORDS = {
+    "what", "whats", "where", "when", "which", "who", "whom", "how", "why",
+    "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+    "do", "does", "did", "can", "could", "will", "would", "should", "shall",
+    "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "with",
+    "about", "against", "between", "into", "through", "during", "before", "after",
+    "above", "below", "from", "up", "down", "out", "off", "over", "under",
+    "again", "further", "then", "once", "here", "there", "all", "any", "both",
+    "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not",
+    "only", "own", "same", "so", "than", "too", "very", "score", "match", "game",
+    "fixture", "fixtures", "matches", "games", "today", "tomorrow", "yesterday",
+    "tonight", "live", "minute", "time", "clock", "table", "standings", "lineup",
+    "lineups", "squad", "roster", "stats", "statistics", "report", "recap", "summary",
+    "update", "form", "injuries", "injury", "referee", "official", "tell", "show",
+    "give", "look", "see", "hear", "listen", "total", "many", "them",
+    "they", "their", "theirs", "him", "her", "his", "hers", "that", "this", "these", "those",
+    "want", "please", "like", "play", "playing", "start", "starting", "next",
+    "miss", "missed", "since", "halftime", "half", "full", "fulltime", "extra",
+    "captain", "refereeing", "referee", "booked", "booking", "penalty", "card",
+    "red", "yellow", "goal", "goals", "scored", "scorer", "decision", "var",
+    "check", "substitution", "sub", "subs", "bench", "coach", "manager", "stadium",
+    "pitch", "went", "gone", "already", "winning", "losing", "tied", "draw", "lead",
+    "leading", "trail", "trailing", "kickoff", "just", "came", "come", "first", "second",
+}
+
+def popular_teams():
+    return list(POPULAR_TEAMS)
+
+def popular_competitions():
+    return list(POPULAR_COMPETITIONS)
 
 # Sounds a listener's accent or a recogniser cannot tell apart. Mapping them to
 # one class makes "Gamba" and "Gamma", "Kyoto" and "Kioto", "Saka" and "Sacha"
@@ -195,7 +249,14 @@ def items_from_candidates(candidates):
         if not home or not away:
             continue
         say = "%s against %s" % (home, away)
-        out.append(Item(say, aliases=[home, away, "%s v %s" % (home, away)], label=say,
+        aliases = [home, away, "%s v %s" % (home, away)]
+        if c.get("sport"):
+            aliases.extend([
+                "%s in %s" % (home, c["sport"]),
+                "%s %s" % (home, c["sport"]),
+                "%s %s" % (c["sport"], home),
+            ])
+        out.append(Item(say, aliases=aliases, label=say,
                         ref=c.get("fixture_id")))
     return out
 
@@ -209,11 +270,32 @@ def items_from_names(names):
     return out
 
 
+def items_from_sports(sports_list):
+    out = []
+    sport_aliases = {
+        "football": ["soccer", "association football"],
+        "basketball": ["hoops", "nba", "basket ball", "wnba"],
+        "american_football": ["nfl", "football", "college football", "american football"],
+        "baseball": ["mlb", "baseball"],
+        "hockey": ["nhl", "ice hockey", "hockey"],
+        "cricket": ["cricket", "ipl", "t20"],
+        "rugby": ["rugby", "six nations"],
+        "tennis": ["tennis", "grand slam"],
+    }
+    for s in sports_list or []:
+        if s:
+            aliases = sport_aliases.get(s.lower(), [])
+            out.append(Item(s, aliases=aliases, label=s))
+    return out
+
+
 def offers_from_tool_results(tool_results):
     for r in tool_results or []:
         detail = r.get("detail") or {}
         if detail.get("candidates"):
             return items_from_candidates(detail["candidates"])
+        if detail.get("sports"):
+            return items_from_sports(detail["sports"])
     return []
 
 
@@ -299,17 +381,37 @@ def snap(listener_id, text, names=(), now=None):
     """Decide what the listener meant. Returns a dict:
 
         {"text": what to act on, "heard": what was said, "changed": bool,
-         "why": "ordinal" | "offer" | "name" | None, "matched": label or None}
+         "why": "ordinal" | "offer" | "name" | "affirmation" | "typo_clarify" | "typo_autocorrect" | None,
+         "matched": label or None, "clarify": bool, "suggestion": str or None}
     """
     heard = (text or "").strip()
-    res = {"text": heard, "heard": heard, "agent_text": heard, "changed": False,
-           "why": None, "matched": None}
-    tokens = words(heard)
+    cleaned = heard
+    for pat, rep in [
+        (re.compile(r"\b(what|which)\s+march\b", re.I), r"\1 match"),
+        (re.compile(r"\b(what|which)\s+marches\b", re.I), r"\1 matches"),
+        (re.compile(r"\bprevious\s+mergers\b", re.I), "previous matches"),
+        (re.compile(r"\bprevious\s+merger\b", re.I), "previous match"),
+        (re.compile(r"\bmatches\s+that\s+fin\b", re.I), "matches that finished"),
+        (re.compile(r"\btireny\b", re.I), "Tierney"),
+    ]:
+        cleaned = pat.sub(rep, cleaned)
+    changed_acoustic = (cleaned != heard)
+    res = {"text": cleaned, "heard": heard, "agent_text": cleaned, "changed": changed_acoustic,
+           "why": "acoustic_repair" if changed_acoustic else None, "matched": None, "clarify": False, "suggestion": None}
+    tokens = words(cleaned)
     if not tokens:
         return res
 
     offers = BOOK.get(listener_id, now)
     if offers:
+        phrase = " ".join(tokens)
+        if (phrase in _AFFIRMATIONS or any(t in _AFFIRMATIONS for t in tokens)) and len(offers) >= 1:
+            it = offers[0]
+            res.update(text=it.say, agent_text=it.agent_say, changed=True, why="affirmation",
+                       matched=it.label)
+            BOOK.clear(listener_id)
+            return res
+
         idx = _ordinal(tokens, len(offers))
         if idx is not None:
             it = offers[idx]
@@ -317,8 +419,7 @@ def snap(listener_id, text, names=(), now=None):
                        matched=it.label)
             BOOK.clear(listener_id)
             return res
-        # An answer is short. A long sentence is a new question that happens to
-        # contain a name, and is left to the name repair below.
+
         if len(tokens) <= 6:
             item, score, _ = choose(tokens, offers)
             if item is not None:
@@ -328,20 +429,58 @@ def snap(listener_id, text, names=(), now=None):
                 BOOK.clear(listener_id)
                 return res
 
-    pool = list(items_from_names(names))
+    candidate_pool = list(names) + POPULAR_TEAMS + POPULAR_COMPETITIONS
+    pool_items = list(items_from_names(candidate_pool))
     if offers:
-        pool += offers
-    fixed = fix_names(heard, pool) if pool else heard
+        pool_items += offers
+
+    fixed = fix_names(heard, pool_items) if pool_items else heard
     if fixed != heard:
-        # Capitals and accents restored ("hector" -> "Héctor") are tidying, not
-        # a different understanding: use them, but do not announce a correction.
         real = _fold(fixed) != _fold(heard)
-        res.update(text=fixed, changed=real, why="name" if real else None)
+        res.update(text=fixed, agent_text=fixed, changed=real, why="name" if real else None)
+        return res
+
+    # If sentence was not repaired by fix_names, check for entity typos needing clarification
+    best_typo_score = 0.0
+    best_typo_cand = None
+
+    for tok in tokens:
+        if len(tok) >= 4 and tok not in _COMMON_WORDS:
+            exact_match = False
+            for cand in candidate_pool:
+                cand_toks = words(cand)
+                if tok in cand_toks:
+                    exact_match = True
+                    break
+            if exact_match:
+                continue
+
+            for cand in candidate_pool:
+                cand_toks = words(cand)
+                # Skip 3-letter acronym candidates (e.g. MLS, NBA, NFL) for 4+ letter tokens
+                if len(cand) <= 3:
+                    continue
+                sub_sims = [similarity([tok], [cw]) for cw in cand_toks if len(cw) >= 4]
+                sim = max(similarity([tok], cand_toks), max(sub_sims) if sub_sims else 0.0)
+                if sim > best_typo_score:
+                    best_typo_score = sim
+                    best_typo_cand = cand
+
+    if best_typo_cand and 0.72 <= best_typo_score < NAME_MIN:
+        res.update(
+            clarify=True,
+            suggestion=best_typo_cand,
+            changed=True,
+            why="typo_clarify",
+            matched=best_typo_cand
+        )
+        return res
+
     return res
 
 
 # ------------------------------------------------- the two calls the app makes
-def match_names(ctx, listener_id, limit=60):
+def match_names(ctx, listener_id, limit=80):
     """Teams and players of the match this listener follows, then the teams on today (the cached day list)."""
     names = []
     try:
@@ -354,10 +493,13 @@ def match_names(ctx, listener_id, limit=60):
     except Exception:                                          # noqa: BLE001
         pass
     try:
-        # The teams on today too, so a team nobody has followed yet ("Sønderjyske") is still
-        # repaired when it is heard as "Sunderjuska". One cached list, no extra feed call.
         names += teams_today_ranked(ctx)
     except Exception:                                          # noqa: BLE001  a courtesy
+        pass
+    try:
+        if hasattr(ctx, "provider") and hasattr(ctx.provider, "known_teams"):
+            names += ctx.provider.known_teams()
+    except Exception:                                          # noqa: BLE001
         pass
     seen, out = set(), []
     for n in names:

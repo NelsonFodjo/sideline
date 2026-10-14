@@ -36,14 +36,14 @@ def main():
         assert directory and os.path.isdir(directory), "the folder is created"
 
         # secrets are replaced wherever they would appear
-        os.environ["SPORTMONKS_TOKEN"] = "tok_1234567890_secret"
+        os.environ["AWS_SECRET_ACCESS_KEY"] = "tok_1234567890_secret"
         audit.record("tool", tool="x", args={"q": "hello tok_1234567890_secret"}, problem="bad token tok_1234567890_secret")
         logging.getLogger("sideline.test").warning("calling with tok_1234567890_secret now")
         row = json.loads(lines(directory)[0])
         assert "tok_1234567890_secret" not in json.dumps(row) and "***" in row["args"]["q"] and "***" in row["problem"], row
         text = "\n".join(lines(directory, "sideline", "log"))
         assert "tok_1234567890_secret" not in text and "calling with *** now" in text, text
-        os.environ.pop("SPORTMONKS_TOKEN")
+        os.environ.pop("AWS_SECRET_ACCESS_KEY", None)
         assert row["kind"] == "tool" and row["time"].count(":") >= 2, "a timestamped line"
         print("ok  one JSON line per record and a text log; a secret is replaced with *** in both")
 

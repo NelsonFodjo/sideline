@@ -50,6 +50,7 @@ class Reference(object):
         self.fixture_id = a.get("fixture_id")
         self.team = (a.get("team") or "").strip()
         self.opponent = (a.get("opponent") or "").strip()
+        self.sport = (a.get("sport") or "").strip().lower() or None
         self.when = a.get("when") if a.get("when") in WHENS else None
         self.date = _near_year(_date(a.get("date")))
         self.prefers = prefers                    # "played", "coming" or None
@@ -156,7 +157,7 @@ def _other_side_fit(fx, name):
     return best
 
 
-def score_all(cands, ref, followed, tz, now=None, discussed=None):
+def score_all(cands, ref, followed, tz, now=None, discussed=None, preferred_sport=None):
     """[(score, fixture)], best first. Scores are between 0 and 1.25 and mean 'how likely this is the one'."""
     now = now or clock.now()
     today = (now + datetime.timedelta(minutes=int(tz or 0))).date()
@@ -208,21 +209,28 @@ def score_all(cands, ref, followed, tz, now=None, discussed=None):
             s *= FOLLOWED_LIFT
         if discussed is not None and fx["fixture_id"] == discussed and not (ref.when or ref.date):   # a time they said wins
             s *= DISCUSSED_LIFT
+        if preferred_sport:
+            cand_sport = (fx.get("sport") or "football").lower()
+            if cand_sport == preferred_sport.lower():
+                s *= 1.35
+            else:
+                s *= 0.65
         scored.append((s, fx))
     scored.sort(key=lambda p: -p[0])
     return scored
 
 
 # ---------------------------------------------------------------------- decide
-def say_option(fx, tz):
+def say_option(fx, tz, multi_sport=False):
     """One option as it is read out in a fork: the score and day for a played match, the time for one still to come."""
     k = kind(fx)
+    sport_suffix = (" in %s" % (fx.get("sport") or "football")) if multi_sport else ""
     if k == "played":
         ko = clock.kickoff(fx)
         day = clock.say_day(ko, tz_minutes=tz) if ko else ""
-        return "%s %s, %s %s%s" % (fx["home"], fx["score"]["home"], fx["away"], fx["score"]["away"],
-                                   ", " + day if day else "")
-    return clock.say_fixture(fx, tz)
+        return "%s %s, %s %s%s%s" % (fx["home"], fx["score"]["home"], fx["away"], fx["score"]["away"],
+                                   ", " + day if day else "", sport_suffix)
+    return clock.say_fixture(fx, tz) + sport_suffix
 
 
 def decide(scored):
@@ -241,7 +249,8 @@ def resolve_match(ctx, ref, rec, tz, question_hint=None):
     cands = candidates(ctx, ref, rec, tz)
     recent = rec.get("discussed") or {}
     talked = recent.get("fixture_id") if time.time() - (recent.get("at") or 0) <= DISCUSSED_SECONDS else None
-    scored = score_all(cands, ref, rec.get("following"), tz, discussed=talked)
+    preferred_sport = ref.sport or rec.get("sport")
+    scored = score_all(cands, ref, rec.get("following"), tz, discussed=talked, preferred_sport=preferred_sport)
     outcome, picked = decide(scored)
     if outcome == "one":
         fx = dict(picked)
@@ -250,7 +259,9 @@ def resolve_match(ctx, ref, rec, tz, question_hint=None):
         fx["alternatives"] = len(scored) - 1
         return fx
     if outcome == "fork":
-        options = ", or ".join("%d, %s" % (i + 1, say_option(f, tz)) for i, f in enumerate(picked))
+        sports_in_picked = {f.get("sport") or "football" for f in picked}
+        multi_sport = len(sports_in_picked) > 1
+        options = ", or ".join("%d, %s" % (i + 1, say_option(f, tz, multi_sport=multi_sport)) for i, f in enumerate(picked))
         lead = "I can see more than one %s match. Which one: " % ref.team if ref.team else "Which match do you mean: "
         raise ToolError("%s%s?" % (lead, options),
                         {"reason": "ambiguous", "candidates": picked, "fork": True})

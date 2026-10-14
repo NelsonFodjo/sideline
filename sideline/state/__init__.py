@@ -44,5 +44,6 @@ def build(kind, **kw):
             return MemoryStore()
     if kind == "dynamo":
         from .dynamo import DynamoStore
+        LOG.info("state: DynamoDB table %r (explicit)", table)
         return DynamoStore(table, region)
     raise ValueError("unknown state backend: %s" % kind)

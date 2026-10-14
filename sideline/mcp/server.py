@@ -282,7 +282,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         # A query string is not part of the route.
-        if urlparse(self.path).path in ("/", "/simulator", "/simulator/", "/index.html"):
+        if urlparse(self.path).path in ("/", "/simulator", "/simulator/", "/index.html", "/simulator/index.html"):
             return self._serve_simulator()
         if self.path == "/health":
             return self._send(200, {"ok": True, "protocol": PROTOCOL_VERSION,
@@ -366,14 +366,24 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/voice/stt":
             mime = self.headers.get("X-Audio-Type") or "audio/webm"
             hint = ""
+            listener_id = self.server.resolve_listener(self.headers)
             hinter = getattr(self.server, "voice_hint", None)
             if hinter:
-                hint = hinter(self.server.resolve_listener(self.headers))
+                hint = hinter(listener_id)
             out = voice.transcribe(raw, mime, hint)
             if not out:
                 return self._send(503, {"error": "no speech provider configured"})
             LOG.info("stt (%s): %s", out["provider"], out["text"][:60])
             audit.record("stt", provider=out["provider"], heard=out["text"], bytes=len(raw))
+            if self.headers.get("X-Run-Agent") == "1" and out.get("text") and getattr(self.server, "agent_runner", None):
+                try:
+                    tz_raw = self.headers.get("X-Tz-Offset")
+                    tz = int(tz_raw) if tz_raw and tz_raw.lstrip("-").isdigit() else None
+                    cut = self.headers.get("X-Interrupted")
+                    chat_res = self.server.agent_runner(out["text"].strip(), listener_id, tz, cut)
+                    out["chat"] = chat_res
+                except Exception as ce:
+                    LOG.warning("direct agent chaining failed: %s", ce)
             return self._send(200, out)
 
         if self.path == "/voice/tts":
@@ -393,11 +403,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._voice()
         if self.path == "/agent/chat":
             if not self._origin_ok():
+                length = int(self.headers.get("Content-Length") or 0)
+                if length and length < 65536:
+                    self.rfile.read(length)
                 return self._send(403, {"error": "origin not allowed"})
             return self._agent_chat(self._listener())
         if self.path.rstrip("/") != "/mcp":
             return self._send(404, {"error": "not found"})
         if not self._origin_ok():
+            length = int(self.headers.get("Content-Length") or 0)
+            if length and length < 65536:
+                self.rfile.read(length)
             return self._send(403, {"error": "origin not allowed"})
         listener_id = self._listener()
         _REQUEST.agent = self.headers.get("X-Sideline-Agent") == "1"

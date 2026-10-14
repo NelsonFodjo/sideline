@@ -46,14 +46,23 @@ def run(ctx, args, listener_id):
         when = "today"
     day = _date(args.get("date"))
     competition = (args.get("competition") or "").strip()
+    sport = (args.get("sport") or "").strip().lower()
     live_only = bool(args.get("live_only"))
-    tz = clock.zone_from(ctx.store.listener(listener_id))
+    finished_only = bool(args.get("finished_only"))
+    rec = ctx.store.listener(listener_id)
+    tz = clock.zone_from(rec)
+    sport = sport or rec.get("sport")
 
     def on_day(offset):
         found = [f for f in day_fixtures(ctx, offset, tz)
                  if f.get("home") and f.get("away") and _matches(f, competition)
-                 and (not live_only or ((f.get("minute") or 0) > 0 and f.get("status") not in FINISHED))]
-        found.sort(key=_rank)
+                 and (not sport or (f.get("sport") or "football").lower() == sport)
+                 and (not live_only or ((f.get("minute") or 0) > 0 and f.get("status") not in FINISHED))
+                 and (not finished_only or f.get("status") in FINISHED)]
+        if finished_only:
+            found.sort(key=lambda fx: (fx.get("kickoff") or ""), reverse=True)
+        else:
+            found.sort(key=_rank)
         return found
 
     offset = OFFSETS[when]
@@ -65,7 +74,15 @@ def run(ctx, args, listener_id):
         when = clock.say_day(noon, tz_minutes=tz)
     fixtures = on_day(offset)
     skipped = None
-    if not fixtures and not live_only and offset >= 0:
+
+    if finished_only and not fixtures and offset == 0:
+        # If no matches finished today yet, check yesterday
+        fixtures = on_day(-1)
+        if fixtures:
+            skipped, offset = "today", -1
+            when = "yesterday"
+
+    if not fixtures and not live_only and not finished_only and offset >= 0:
         # "the next matches" on a quiet day: say so, then name the next day that has some
         for ahead in range(offset + 1, offset + 1 + LOOK_AHEAD_DAYS):
             fixtures = on_day(ahead)
@@ -79,14 +96,21 @@ def run(ctx, args, listener_id):
     where = (" in %s%s" % ("the " if competition.lower().endswith(("league", "cup", "championship")) else "", competition)
              if competition else "")
     if not fixtures:
-        what = "live matches" if live_only else "matches"
+        what = "completed matches" if finished_only else "live matches" if live_only else "matches"
         raise ToolError("I can't see any %s%s %s." % (what, where, when),
                         {"reason": "no_match", "when": when, "competition": competition})
 
     shown = fixtures[:LISTED]
     # the intro names the day, so each match carries only its time
     items = [clock.say_fixture(f, tz, with_day=False, with_zone=False) for f in shown]
-    if live_only:
+    if finished_only:
+        phrase = clock.zone_phrase(tz)
+        zone = ", in %s" % phrase if phrase else ""
+        if skipped:
+            intro = "No matches have finished today yet%s. From yesterday's matches%s%s:" % (where, where, zone)
+        else:
+            intro = "Finished matches%s%s:" % (where, " today" if when == "today" else " from yesterday")
+    elif live_only:
         intro = "Live now%s:" % where
     else:
         phrase = clock.zone_phrase(tz)          # said once here, not after every time
@@ -100,9 +124,10 @@ def run(ctx, args, listener_id):
     if rest > 0:
         spoken += " And %d more. Ask for a team or a competition to narrow it down." % rest
     structured = {"when": when, "competition": competition or None, "live_only": live_only,
+                  "finished_only": finished_only,
                   "total": len(fixtures),
                   "skipped": skipped, "matches": [{"home": f["home"], "away": f["away"], "competition": f.get("competition"),
                                "kickoff": f.get("kickoff"), "minute": f.get("minute") or 0,
-                               "status": f.get("status")} for f in shown],
+                               "status": f.get("status"), "score": f.get("score")} for f in shown],
                   "generated_by": "template"}
     return spoken, structured, None

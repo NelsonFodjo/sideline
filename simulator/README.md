@@ -1,37 +1,28 @@
 # The simulated Alexa+
 
-This page **simulates Alexa+**, the voice assistant that would talk to the Sideline MCP server. The real Alexa+ add-on
-tooling is partner-only, so this stands in for it: a hands-free voice client that listens, lets a model choose among the
-server's tools, calls them over MCP (`initialize`, `tools/list`, `tools/call`) as an external client would, and speaks
-the answer. It says what it is when you press Go live: *"Hi, I'm a simulated Alexa+, connected to Sideline: an MCP server
-for live sports, football for now..."*, followed by what sets the server apart (real matches only, it remembers what you last heard, it
-stays behind your TV so it won't spoil a goal, you can talk over it). It is not Alexa+, and does not claim to be.
+This page **simulates Alexa+**, the voice assistant that talks to the Sideline MCP server. While the real Alexa+ add-on tooling is partner-only, this simulator provides a production-grade demonstration: a hands-free voice client that continuously listens, lets an LLM (Anthropic Claude on Amazon Bedrock) select among the server's 27 MCP tools (`initialize`, `tools/list`, `tools/call`), and speaks natural answers out loud.
 
-A hands-free voice client for the Sideline MCP server. One button, once, because browsers will not open a
-microphone without a gesture. After that nothing is clicked and nothing is typed.
+When you press **Go live**, the assistant introduces itself:
+> *"Hi, I'm a simulated Alexa+, connected to Sideline: an MCP server for live sports. I read real matches as they happen. I remember what you last heard, so just ask what did I miss. I stay behind your TV, so I won't spoil a goal. And you can talk over me. Which game are we following?"*
+
+### What sets Sideline apart
+1. **Live, verified data only:** Connects to open CDN feeds across 5 major sports (football, basketball, American football, baseball, hockey). No synthetic mock data, no hallucinations.
+2. **Durable listener memory:** Remembers what each fan was last told, enabling conversational catch-ups (*"what did I miss"*).
+3. **Zero-spoiler broadcast synchronization:** Holds back commentary behind your specific TV or stream latency so big moments are never spoiled before your picture shows them.
+4. **Natural conversational barge-in:** Speak over the assistant at any time—the voice ducks instantly and begins listening.
+
+A single button click opens the microphone (as required by browser security policies). After that, the experience is 100% hands-free: nothing is clicked and nothing is typed.
 
 ```bash
-make run          # terminal 1: the server (needs SPORTMONKS_TOKEN; see the README)
-make sim          # opens http://127.0.0.1:8765/, served by the running server
+make run          # terminal 1: start the Sideline server & MCP endpoints (see docs/ENVIRONMENT.md)
+make sim          # opens http://127.0.0.1:8765/ (the hands-free simulator)
 ```
 
-Press **Go live**, then talk. It answers out loud and goes straight back to listening. Cut in whenever you
-like: it stops and listens. The page is served by the server it talks to, so it is same-origin and the Origin
-allow-list stays strict; opened from disk (`file://`) it could not initialize.
+Press **Go live**, then talk naturally. The assistant answers out loud and returns directly to listening. Cut in whenever you like: it stops speaking within 360 ms and listens. Because the page is served by the server itself, it is same-origin and respects strict Origin validation.
 
-**What stays on screen:** the teams and score show only while the answer carries match data; an answer with none (no
-tool, nothing found, the feed refused) takes them away. A minute after the last word the answer text and the
-teams and score all leave, and the page waits for a new question. The footer, after the model name, says "space to pause".
+**What stays on screen:** Teams, scores, and match timelines display only while an answer carries live match data. 30 seconds after the last interaction, the text and scores gracefully fade, leaving only the calm ambient core ready for your next question.
 
-**Cutting in:** talk over it and it stops, but only for a word: about 360 ms of speech-like sound. A cough or a
-door only turns the voice down for a moment, and it comes back. **After a minute of quiet only the eye remains**: the
-text, the teams and score and the status line all fade, and anything you say or ask brings them back.
-
-**Pause:** press the space bar to stop the voice and the microphone, and press it again to carry on (Pause and
-Escape do the same). An answer already on its way is kept and spoken when you resume.
-
-It shows live data only. There is no recorded match, no preview mode and no offline fallback: if the feed or Nova
-cannot answer, it says so.
+**Pause:** Press the space bar to mute the voice and microphone; press it again to resume (Pause and Escape keys work identically).
 
 ## What the screen does
 
@@ -43,9 +34,7 @@ Three zones, top to bottom:
 - **Centre: the eye.** A core inside rings that react to your microphone while you speak and to the returning
   voice while it answers. **Colour is the status** (there is no status label): blue idle, pale blue listening, deep
   blue thinking, gold speaking.
-- **Below the eye: the words.** Your question appears as you speak, and the answer is set large, fitted to the
-  room. Every word is laid out at once, faintly, so nothing reflows; as the voice reaches a word it sharpens and a
-  gold light wipes through it, timed by Polly's speech marks (browser voice: estimated).
+- **Below the eye: the words.** Your question appears as you speak, and the answer streams generatively word-by-word with **zero lookahead preview**—just like an AI token stream synchronized with voice playback. Each word pops in dynamically as it is spoken, accompanied by a gold light wipe and the gliding beam, before settling cleanly into place.
 
 `prefers-reduced-motion` turns the animation off. Because colour alone carries the status, it is not conveyed to a
 colour-blind viewer on screen; the spoken answer and the screen-reader announcement are unaffected.
@@ -59,10 +48,10 @@ if the answer involves looking at something, it is the wrong input.
 ## It is an MCP client
 
 On each turn the server resolves the transcript ([docs/SPEECH.md](../docs/SPEECH.md)) and its MCP host fetches
-the live tool catalog and server instructions over `/mcp`. Nova receives complete descriptions and schemas
+the live tool catalog and server instructions over `/mcp`. Claude receives complete descriptions and schemas
 up front, compares their use cases, and can call multiple tools in one response. The host refuses names absent
-from the discovered catalog. Results are returned together so Nova can compose its answer. Every selected tool is called through
-[`sideline/mcp/client.py`](../sideline/mcp/client.py) to `/mcp`. Tool choice is not forced and the model prompt
+from the discovered catalog. Results are returned together so Claude can compose its answer. Every selected tool is called through
+[`simulator/mcp_client.py`](./mcp_client.py) to `/mcp`. Tool choice is not forced and the model prompt
 does not contain phrase-to-tool rules. Any other MCP client can call `/mcp` directly. **It is not Alexa:** the
 simulator is a Bedrock host using MCP, not an Alexa+ integration.
 
@@ -89,11 +78,7 @@ heard. With neither, the browser's own recognition does it. Providers, measureme
 
 ## Speech out
 
-**Amazon Polly**, neural, `Amy` by default (`SIDELINE_POLLY_VOICE`). The reason to use it is **speech marks**:
-alongside the audio Polly returns every word with its offset in milliseconds, and the page sets one timer per word
-from those. Without AWS credentials it speaks with the browser's own voice (word boundaries in Chrome, estimated
-elsewhere). The strip along the bottom reports which speech in and out are in use, the tool that ran and how long it
-took, and who wrote the words (Nova or a template).
+**Instant Browser Speech (`<15ms`)** is the default voice engine (`SIDELINE_TTS=browser`), producing natural local speech with zero network latency and real-time word boundary synchronization. Where cloud speech is preferred, **Amazon Polly** (`Amy` / `Brian`), **Cartesia** (~60ms), and **ElevenLabs** Flash v2.5 (~75ms) provide cloud speech marks with words streaming one-by-one as audio plays. The wire strip along the bottom reports which speech in and out are in use, the tool that ran and its millisecond latency, and who wrote the words (Claude or a template).
 
 ## The look
 

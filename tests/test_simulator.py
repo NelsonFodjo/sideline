@@ -171,7 +171,7 @@ def main():
     assert 'id="hint"' in page and "to pause" in page, "the footer says how to pause"
     assert "function hideMatch" in page and "else hideMatch()" in page and "var aboutMatch" in page, "no match data, no match header"
     assert "fadeSaid(false); hideMatch();" in page, "the teams leave with the text after a minute"
-    assert "IDLE_MS=60000" in page, "the text leaves a minute after the last word"
+    assert "IDLE_MS=30000" in page, "the text leaves 30s after the last word"
     # A noise is not a word: a barge-in needs about 360 ms of speech, the voice ducks at the first
     # sign and comes back if it was noise, the start of the word is kept, and only the eye remains
     # after a minute of quiet.

@@ -4,8 +4,8 @@
     python3 scripts/next_matches.py          # the next 10 days
     python3 scripts/next_matches.py 21       # the next 21 days
 
-The free plan covers only a few leagues, so a match to follow has to be in one of them. This asks the
-feed for each day (one call a day, well inside the hourly limit) and lists kick-offs in your own time zone.
+The feed covers global football, NFL, NBA, MLB, and NHL. This asks the
+feed for each day (cached and fast) and lists kick-offs in your own time zone.
 """
 
 import datetime
@@ -20,11 +20,8 @@ from sideline.providers import ProviderUnavailable  # noqa: E402
 
 
 def main():
-    if not CONFIG.sportmonks_token:
-        print(" FAIL  no token: set SPORTMONKS_TOKEN (see .env.example)")
-        return 1
     days = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 10
-    provider = providers.build(CONFIG.sportmonks_token)
+    provider = providers.build()
     try:
         leagues = provider.competitions()
     except ProviderUnavailable as e:

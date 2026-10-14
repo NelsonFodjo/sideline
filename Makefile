@@ -4,7 +4,7 @@ export PYTHONPATH := .:tests
 
 .PHONY: run sim test env verify-data next-matches route-check logs log-report aws-check create-table stt-check compare-stt clean
 
-run:              ## start the server (bootstraps dependencies; needs SPORTMONKS_TOKEN)
+run:              ## start the server (bootstraps dependencies; live ESPN multi-sport)
 	PY="$(PY)" ./run.sh
 
 sim:              ## open the voice simulator (served by the running server)
@@ -16,7 +16,7 @@ sim:              ## open the voice simulator (served by the running server)
 test:             ## full suite, offline
 	@for t in $(sort $(wildcard tests/test_*.py)); do \
 		echo "=== $$t"; \
-		env SIDELINE_LOG_DIR=off SIDELINE_BEDROCK=off SIDELINE_STATE=memory SPORTMONKS_TOKEN= \
+		env SIDELINE_LOG_DIR=off SIDELINE_BEDROCK=off SIDELINE_STATE=memory \
 		    AWS_ACCESS_KEY_ID= AWS_SECRET_ACCESS_KEY= \
 		    $(PY) $$t || exit 1; \
 	done
@@ -31,13 +31,13 @@ logs:             ## follow today's log file
 log-report:       ## summarise the call logs: tools used, speed, declines, speech (ARGS=2026-10-17 for one day)
 	$(PY) scripts/log_report.py $(ARGS)
 
-next-matches:     ## the next matches in the leagues the token covers (to plan a demo; ARGS=21 for three weeks)
+next-matches:     ## the next matches across all covered sports (to plan a demo; ARGS=21 for three weeks)
 	$(PY) scripts/next_matches.py $(ARGS)
 
 route-check:      ## does the voice agent pick the right tool? (real Nova, invented data, no feed calls)
 	$(PY) scripts/route_check.py
 
-verify-data:      ## check the football feed token and quota (add ARGS=--tools to run the core tools)
+verify-data:      ## check the live ESPN feed (add ARGS=--tools to run the core tools)
 	$(PY) scripts/verify_data.py $(ARGS)
 
 aws-check:        ## check the AWS integrations layer by layer

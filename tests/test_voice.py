@@ -71,9 +71,16 @@ class FakeVoxtral:
                 "usage": {"inputTokens": 40, "outputTokens": 6}}
 
 
-def set_env(stt="auto", aws=False, have_sonic=False):
+def set_env(stt="auto", aws=False, have_sonic=False, groq="", tts="auto", cartesia="", elevenlabs=""):
     voice.STT_PROVIDER = stt
+    voice.TTS_PROVIDER = tts
     voice._have_aws_credentials = lambda: aws
+    voice._groq_key = lambda: groq
+    voice._have_groq_key = lambda: bool(groq)
+    voice._cartesia_key = lambda: cartesia
+    voice._have_cartesia_key = lambda: bool(cartesia)
+    voice._elevenlabs_key = lambda: elevenlabs
+    voice._have_elevenlabs_key = lambda: bool(elevenlabs)
     voice.HAVE_SONIC = have_sonic
     voice.HAVE_BOTO3 = True
     voice._DISABLED.clear()
@@ -83,8 +90,14 @@ def main():
     pcm = pcm_of(speech_like(1.5))
 
     # ------------------------------------------------------ choosing
-    # Measured (docs/SPEECH.md): Voxtral matched the third-party benchmark and Sonic was too slow to lead,
-    # so Voxtral leads, Sonic is the fallback, then the browser. Everything stays inside AWS.
+    # Groq leads when GROQ_API_KEY is present; Voxtral and Sonic on Bedrock are fallbacks.
+    set_env(groq="test-key", aws=True, have_sonic=True)
+    assert voice.stt_order() == ["groq", "voxtral", "sonic"]
+    assert voice.capabilities()["stt"] == "groq"
+    set_env(groq="test-key", aws=False)
+    assert voice.stt_order() == ["groq"]
+
+    # When Groq is not configured, AWS Bedrock order applies
     set_env(aws=True, have_sonic=True)
     assert voice.stt_order() == ["voxtral", "sonic"]
     assert voice.capabilities()["stt"] == "voxtral"
@@ -92,12 +105,16 @@ def main():
     assert voice.stt_order() == ["voxtral"], "no streaming SDK: Voxtral still works (it needs only boto3)"
     set_env(aws=False, have_sonic=True)
     caps = voice.capabilities()
-    assert caps["stt"] is None and "AWS credentials" in caps["stt_hint"], caps
+    assert caps["stt"] is None and "GROQ_API_KEY or AWS credentials" in caps["stt_hint"], caps
     set_env(stt="off", aws=True, have_sonic=True)
     assert voice.stt_order() == []
-    print("ok  auto order is Voxtral, then Nova Sonic, then the browser; all on Bedrock")
+    print("ok  auto order is Groq (when key is set), then Voxtral, then Nova Sonic")
 
     # naming a provider means that provider, and never a silent swap
+    set_env(stt="groq", groq="", aws=True, have_sonic=True)
+    assert voice.stt_order() == [], "groq forced but no key: not Voxtral"
+    set_env(stt="groq", groq="test-key", aws=True, have_sonic=True)
+    assert voice.stt_order() == ["groq"]
     set_env(stt="sonic", aws=True, have_sonic=False)
     assert voice.stt_order() == [], "sonic forced but not installed: not Voxtral"
     set_env(stt="voxtral", aws=True, have_sonic=True)
@@ -225,6 +242,59 @@ def main():
     assert hears.hint == "Saka"
     print("ok  Sonic: a blip falls back for one clip, AccessDenied takes it out of rotation, the hint is passed")
 
+    # ------------------------------------------------------ Groq request & errors
+    import urllib.error
+    import urllib.request
+    real_urlopen = urllib.request.urlopen
+    try:
+        sent = {}
+
+        def mock_urlopen(req, timeout=None, context=None):
+            sent["url"] = req.full_url
+            sent["headers"] = dict(req.headers)
+            sent["body"] = req.data
+
+            class MockResp:
+                def read(self):
+                    return json.dumps({"text": "Who is refereeing?"}).encode("utf-8")
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    pass
+
+            return MockResp()
+
+        urllib.request.urlopen = mock_urlopen
+        set_env(groq="test-secret")
+        out = voice.transcribe(long_pcm, "audio/pcm", hint="Arsenal, Saka, Ødegaard")
+        assert out == {"text": "Who is refereeing?", "provider": "groq"}, out
+        assert sent["url"] == voice.GROQ_URL
+        assert sent["headers"]["Authorization"] == "Bearer test-secret"
+        assert b"whisper-large-v3-turbo" in sent["body"]
+        assert b"Arsenal, Saka" in sent["body"]
+        assert b"RIFF" in sent["body"]
+
+        # 429: temporary rate limit
+        def mock_429(req, timeout=None, context=None):
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, io.BytesIO(b""))
+
+        urllib.request.urlopen = mock_429
+        assert voice.transcribe(long_pcm) is None
+        assert "groq" not in voice._DISABLED
+
+        # 401: auth failure disables Groq for this run
+        def mock_401(req, timeout=None, context=None):
+            raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, io.BytesIO(b""))
+
+        urllib.request.urlopen = mock_401
+        assert voice.transcribe(long_pcm) is None
+        assert "groq" in voice._DISABLED
+        print("ok  Groq: fast ASR with vocabulary hint, 429 retries, 401 disables for run")
+    finally:
+        urllib.request.urlopen = real_urlopen
+
     # ------------------------------------------------------ vocabulary
     set_env(aws=True)
     ctx = make_ctx(start_minute=0)
@@ -343,7 +413,47 @@ def main():
         assert voice.synthesize(text) is None, "a client that cannot be built means the browser voice, not a crashed request"
     finally:
         voice._polly_client, voice.POLLY_ENGINE = real_client, real_engine
-    print("ok  the natural voice, an answer in one piece: one mark per word as written, a generative failure falls back to neural, neural on request")
+    # ------------------------------------------------------ TTS capabilities & providers
+    set_env(tts="browser")
+    assert voice.capabilities()["tts"] == "browser"
+    set_env(tts="auto", cartesia="cart-key")
+    assert voice.capabilities()["tts"] == "cartesia"
+    set_env(tts="auto", elevenlabs="eleven-key")
+    assert voice.capabilities()["tts"] == "elevenlabs"
+    set_env(tts="auto", aws=True)
+    assert voice.capabilities()["tts"] == "polly"
+    set_env(tts="auto", aws=False)
+    assert voice.capabilities()["tts"] == "browser"
+
+    # Elevenlabs mock synthesis
+    real_urlopen = urllib.request.urlopen
+    try:
+        def mock_el_urlopen(req, timeout=None, context=None):
+            class MockResp:
+                def read(self):
+                    return json.dumps({
+                        "audio_base64": "ZXhhbXBsZQ==",
+                        "alignment": {
+                            "characters": ["A", "r", "s", "e", "n", "a", "l"],
+                            "character_start_times_seconds": [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3],
+                            "character_end_times_seconds": [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35],
+                        }
+                    }).encode("utf-8")
+                def __enter__(self):
+                    return self
+                def __exit__(self, *a):
+                    pass
+            return MockResp()
+
+        urllib.request.urlopen = mock_el_urlopen
+        set_env(tts="elevenlabs", elevenlabs="test-key")
+        res = voice.synthesize("Arsenal")
+        assert res["provider"] == "elevenlabs"
+        assert res["audio"] == "ZXhhbXBsZQ=="
+        assert len(res["marks"]) == 1 and res["marks"][0]["value"] == "Arsenal"
+    finally:
+        urllib.request.urlopen = real_urlopen
+    print("ok  TTS selection: browser (<15ms), Cartesia (~60ms), ElevenLabs (~75ms), or AWS Polly")
 
     print("\nvoice: all good")
 

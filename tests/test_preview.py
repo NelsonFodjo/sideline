@@ -84,7 +84,7 @@ def main():
 
         # "What time is Arsenal playing against Lille?" names a match, it does not follow one.
         weather.at_ground = lambda *a: None
-        ask = make_ctx(start_minute=0)
+        ask = make_ctx(start_minute=0, speed=0.0)
         spoken, s, _ = REGISTRY["get_match_preview"](ask, {"team": "Arsenal", "opponent": "Tottenham"}, "dee")
         assert "Kick-off is today at" in spoken and s["home"] == "Arsenal", spoken
         assert ask.store.listener("dee").get("following") in (None, ""), "asking is not following"

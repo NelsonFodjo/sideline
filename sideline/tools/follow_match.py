@@ -34,15 +34,30 @@ def run(ctx, args, listener_id):
         return "Okay, I've stopped following %s." % what, {"stopped": True, "fixture_id": fid, "generated_by": "template"}, None
 
     fx = None
+    rec = ctx.store.listener(listener_id)
+    sport = (args.get("sport") or "").strip().lower() or rec.get("sport")
     if fixture_id:
         fx = ctx.provider.fixture(fixture_id)
+    elif not team:
+        if args.get("sport") and args["sport"] in sports.known():
+            rec["sport"] = args["sport"]
+            ctx.store.save_listener(rec)
+            return "Okay, I'm set for %s. Which match would you like to follow?" % args["sport"], {
+                "sport": args["sport"], "generated_by": "template"}, None
+        known = " or ".join(sports.known())
+        raise ToolError("Which sport are you following: %s?" % known,
+                        {"reason": "needs_sport", "sports": sports.known(), "fork": sports.known()})
     else:
         matches = find_matches(ctx, team, args.get("opponent"), tz=tz0) if team else []
+        if sport and matches:
+            sport_matches = [m for m in matches if (m.get("sport") or "football").lower() == sport]
+            if sport_matches:
+                matches = sport_matches
         if not matches and team and "team_matches" in getattr(ctx.provider, "capabilities", ()):
             # Nothing within a day: follow the team's next match, however far off. The poller waits for it.
             from .. import finder
             try:
-                nxt = finder.resolve_match(ctx, finder.Reference(dict(args, when="next")), ctx.store.listener(listener_id), tz0)
+                nxt = finder.resolve_match(ctx, finder.Reference(dict(args, when="next")), rec, tz0)
                 matches = [nxt]
             except ToolError as e:
                 if (e.detail or {}).get("fork"):
@@ -51,15 +66,17 @@ def run(ctx, args, listener_id):
             fx = matches[0]
         elif len(matches) > 1:
             # Ambiguity is the listener's to resolve, not ours to guess.
+            options = ", or ".join(
+                ("%s in %s" % (clock.say_fixture(m, tz0), m.get("sport", "football")))
+                if len({x.get("sport") or "football" for x in matches}) > 1 else clock.say_fixture(m, tz0)
+                for m in matches[:3]
+            )
             raise ToolError(
-                "I can see more than one %s match today. Which one - %s?" % (
-                    team, ", or ".join(clock.say_fixture(m, tz0) for m in matches[:3])),
-                {"reason": "ambiguous", "candidates": matches[:3]})
+                "I can see more than one %s match today. Which one - %s?" % (team, options),
+                {"reason": "ambiguous", "candidates": matches[:3], "fork": True})
 
     if not fx:
         raise not_found(ctx, team, args.get("opponent"), tz0)
-
-    rec = ctx.store.listener(listener_id)
 
     # Arm the spoiler guard NOW, before the listener can ask anything.
     # Alexa+ gives us the device locale at no cost, and it is a better

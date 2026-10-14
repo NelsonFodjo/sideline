@@ -8,6 +8,7 @@ the thing that breaks silently when somebody tidies the wording.
 If you edit a description, run this.
 """
 
+import conftest  # noqa: F401  (puts the repo root on sys.path)
 from sideline.mcp.registry import by_name
 
 EXPECTED = {
