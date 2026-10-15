@@ -76,7 +76,7 @@ def main():
     proc = _start(8799)
     try:
         health = _wait_for_health(proc, 8799)
-        assert health["protocol"] == "2025-11-25" and health["tools"] == 27, health
+        assert health["protocol"] == "2025-11-25" and health["tools"] == 30, health
         assert "mode" not in health, "there is no demo/live mode any more"
         status, page = _get(8799, "/")
         assert status == 200 and "Sideline" in page
@@ -94,7 +94,7 @@ def main():
             json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}).encode(),
             {"Content-Type": "application/json", "Mcp-Session-Id": sid})
         with urllib.request.urlopen(req, timeout=2) as resp:
-            assert len(json.loads(resp.read())["result"]["tools"]) == 27
+            assert len(json.loads(resp.read())["result"]["tools"]) == 30
         print("ok  `python -m sideline` serves on a clean shell with zero setup:",
               "%d tools, spec %s, the simulator page, MCP tools/list" % (
                   health["tools"], health["protocol"]))
@@ -114,7 +114,7 @@ def main():
          "        raise ImportError('blocked for this test')\n"
          "sys.meta_path.insert(0, Block())\n"
          "import sideline.app, sideline.tools, sideline.language.bedrock\n"
-         "import sideline.state, sideline.providers, sideline.sync, sideline.voice\n"
+         "import sideline.state, sideline.providers, sideline.sync, simulator.voice\n"
          "print('ok')"],
         cwd=ROOT, env=_clean_env(), capture_output=True, text=True)
     assert r.returncode == 0, "the package needs boto3 to import:\n" + r.stderr

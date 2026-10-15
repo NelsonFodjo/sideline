@@ -12,12 +12,12 @@ start watching it. See poller.py.
 import time
 
 from .. import clock, sports, sync
-from ..status import FINISHED
+from ..status import FINISHED, has_started
 from ..mcp.errors import ToolError
 
 
 def run(ctx, args, listener_id):
-    from . import find_matches, not_found
+    from . import find_matches, matches_from_schedule, not_found
     tz0 = clock.zone_from(ctx.store.listener(listener_id))
     team = (args.get("team") or "").strip()
     fixture_id = args.get("fixture_id")
@@ -48,7 +48,9 @@ def run(ctx, args, listener_id):
         raise ToolError("Which sport are you following: %s?" % known,
                         {"reason": "needs_sport", "sports": sports.known(), "fork": sports.known()})
     else:
-        matches = find_matches(ctx, team, args.get("opponent"), tz=tz0) if team else []
+        matches = matches_from_schedule(ctx, team, args.get("opponent"), tz=tz0) if team else []
+        if matches is None:                              # a feed with no schedules, or a team it does not know: scan
+            matches = find_matches(ctx, team, args.get("opponent"), tz=tz0)
         if sport and matches:
             sport_matches = [m for m in matches if (m.get("sport") or "football").lower() == sport]
             if sport_matches:
@@ -103,22 +105,26 @@ def run(ctx, args, listener_id):
         rec["broadcast_offset"], rec["offset_source"] = sync.prior_for(rec.get("locale"))
         rec["offset_calibrated"] = False
     rec["discussed"] = {"fixture_id": fx["fixture_id"], "at": time.time()}      # what they follow is what they mean next
-    ctx.store.save_listener(rec)
-    ctx.store.save_fixture({"fixture_id": fx["fixture_id"], **fx})
+    # Two independent writes: at once, they cost one round trip to the state table instead of two.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        for done in [pool.submit(ctx.store.save_listener, rec),
+                     pool.submit(ctx.store.save_fixture, {"fixture_id": fx["fixture_id"], **fx})]:
+            done.result()
 
     # Backfill the event log now rather than waiting for the next poll
     # cycle. Someone who joins on the hour mark and immediately asks what
     # they missed should get the match so far, not silence for fifteen
     # seconds. The poller takes over from here.
     from ..poller import poll_once
-    poll_once(ctx)
+    poll_once(ctx, only=fx["fixture_id"])
 
     minute = fx.get("minute") or 0
     sp = sports.for_fixture(fx)
     tz = clock.zone_from(rec)
     if fx.get("status") in FINISHED:
         spoken = "That %s has finished. %s." % (sp.game, sp.say_score(fx))
-    elif minute <= 0:
+    elif not has_started(fx):
         spoken = ("Following %s against %s. Not started yet. %s"
                   % (fx["home"], fx["away"], clock.say_kickoff(fx, sp.start_word, tz_minutes=tz))).strip()
     else:
@@ -127,8 +133,12 @@ def run(ctx, args, listener_id):
     if not rec.get("offset_calibrated") and fx.get("status") not in FINISHED:
         # Say it once, here, so the listener knows the anchor exists.
         # Repeating it on every answer would be nagging.
-        spoken += (" Tell me when you hear %s and I'll make sure I never "
-                   "get ahead of your picture." % sp.start_word)
+        if has_started(fx):                           # already under way: the start is long gone, ask for something they can hear now
+            spoken += (" Say \"goal\" the moment you hear one, or tell me the minute on your screen, and I'll make "
+                       "sure I never get ahead of your picture.")
+        else:
+            spoken += (" Tell me when you hear %s and I'll make sure I never "
+                       "get ahead of your picture." % sp.start_word)
 
     structured = {"fixture_id": fx["fixture_id"], "home": fx["home"],
                   "away": fx["away"], "minute": minute, "status": fx.get("status"),

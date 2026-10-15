@@ -16,10 +16,10 @@ def main():
     # Capabilities cover the full tool surface
     try:
         registry.limit_to(EspnProvider.capabilities)
-        assert len(registry.public_tools()) == 27, "ESPN provider covers all 27 public MCP tools"
+        assert len(registry.public_tools()) == 30, "ESPN provider covers all 30 public MCP tools"
     finally:
         registry.limit_to(None)
-    print("ok  ESPN capabilities cover all 27 tools")
+    print("ok  ESPN capabilities cover all 30 tools")
 
     # Fixture normalization logic test
     sample_raw = {
@@ -138,7 +138,7 @@ def main():
             ]
         }
     }
-    p._cache["https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/summary?event=401915417"] = (1e12, sample_stats_summary)
+    p.cache.set("https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/summary?event=401915417", sample_stats_summary, 1e9)
     p._event_meta["401915417"] = ("soccer", "football", "uefa.champions")
     m_stats = p.match_stats("401915417")
     assert "Arsenal" in m_stats and "Lille" in m_stats
@@ -173,7 +173,7 @@ def main():
             }
         ]
     }
-    p._cache["https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/summary?event=401915417"] = (1e12, sample_form_summary)
+    p.cache.set("https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/summary?event=401915417", sample_form_summary, 1e9)
     form_res = p.form("401915417")
     assert form_res.get("home") == "LWDWW"
     assert form_res.get("away") == "WLWDL"
@@ -205,7 +205,7 @@ def main():
             }
         ]
     }
-    p._cache["https://site.api.espn.com/apis/v2/sports/soccer/eng.1/standings"] = (1e12, sample_standings_doc)
+    p.cache.set("https://site.api.espn.com/apis/v2/sports/soccer/eng.1/standings", sample_standings_doc, 1e9)
     tbl = p.standings("Premier League")
     assert len(tbl) >= 1
     assert tbl[0]["team"] == "Arsenal" and tbl[0]["position"] == 1 and tbl[0]["points"] == 16
@@ -223,7 +223,7 @@ def main():
         "coach": [{"displayName": "Mikel Arteta"}]
     }
     p._team_index["arsenal"] = ("soccer", "eng.1", "359", "Arsenal")
-    p._cache["https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/teams/359/roster"] = (1e12, sample_roster)
+    p.cache.set("https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/teams/359/roster", sample_roster, 1e9)
     sq = p.squad("Arsenal")
     assert sq["team"] == "Arsenal"
     assert sq["coach"] == "Mikel Arteta"
@@ -246,7 +246,7 @@ def main():
             }
         ]
     }
-    p._cache["https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/statistics"] = (1e12, sample_stats_doc)
+    p.cache.set("https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/statistics", sample_stats_doc, 1e9)
     top = p.top_scorers("Premier League")
     assert len(top) == 1 and top[0]["player"] == "Erling Haaland" and top[0]["goals"] == 10
     print("ok  top_scorers: league leading scorers with goals and teams")

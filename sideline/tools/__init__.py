@@ -18,8 +18,9 @@ product and a screen-only fact is a bug, not a feature.
 import datetime
 import time
 
-from .. import clock
-from ..status import FINISHED
+from .. import clock, names
+from ..state.store import backdate
+from ..status import FINISHED, has_started, is_live
 # The tool modules import the helpers below, so they are imported last (see the end of this file).
 
 # What listeners call teams, when it is not the feed's name. Short on purpose: a nickname that
@@ -46,7 +47,7 @@ def _is_team(fx_side, name):
     want, side = _words(NICKNAMES.get(" ".join(_words(name)), name)), _words(fx_side)
     if not want or not side:
         return False
-    if " ".join(want) in " ".join(side):
+    if names.whole_words(want, side):                  # whole words: "Villa" is not Villarreal, "Arsenal" is "Arsenal W"
         return True
     return resolve.similarity(want, side) >= 0.82
 
@@ -86,6 +87,36 @@ def day_fixtures(ctx, offset, tz=None):
             seen.add(fx.get("fixture_id"))
             out.append(fx)
     return out
+
+
+def matches_from_schedule(ctx, team, opponent=None, offsets=(0, 1, -1), tz=None):
+    """The same answer as find_matches (today first, then tomorrow, then yesterday), from the team's own schedule: a
+    few requests instead of a scoreboard per sport per day. None means the feed cannot say (it has no schedules, or
+    does not know the team) and the caller should scan; an empty list means the team has nothing within those days."""
+    try:
+        data = ctx.provider.team_matches(team)
+    except NotImplementedError:
+        return None
+    if not data:
+        return None
+    pool = data["recent"] + data["upcoming"]
+    if opponent:
+        pool = [fx for fx in pool if _is_team(fx.get("home"), opponent) or _is_team(fx.get("away"), opponent)]
+    shift = datetime.timedelta(minutes=int(tz or 0))
+    today = (clock.now() + shift).date()
+    by_day = {}
+    for fx in pool:
+        ko = clock.kickoff(fx)
+        if ko is not None:
+            by_day.setdefault(((ko + shift).date() - today).days, []).append(fx)
+    live = [fx for fx in pool if is_live(fx)]
+    for off in offsets:
+        hits = list(by_day.get(off, []))
+        if off == 0:                                   # a match that began last night and is still going is today's
+            hits += [fx for fx in live if fx not in hits]
+        if hits:
+            return hits
+    return []
 
 
 def find_matches(ctx, team, opponent=None, offsets=(0, 1, -1), tz=None):
@@ -199,6 +230,9 @@ def no_team(ctx, team):
         return ToolError("I can't find %s. Did you mean %s?" % (team, close),
                          {"reason": "no_match", "team": team, "did_you_mean": close})
     leagues = covered_leagues(ctx)
+    if len(leagues) > 6:                  # twenty league names read aloud help nobody: ask for the full name instead
+        return ToolError("I can't find %s. Try the full name, or tell me which league they play in." % team,
+                         {"reason": "no_match", "team": team, "covered": leagues})
     if leagues:
         return ToolError("I can't find %s in the leagues I cover: %s. Which team do you mean?" % (team, say_list(leagues)),
                          {"reason": "no_match", "team": team, "covered": leagues})
@@ -256,23 +290,27 @@ def events_for(ctx, fx):
     the one the poller was watching."""
     fid = fx["fixture_id"]
     logged = ctx.store.events(fid)
-    if logged or not (fx.get("status") in FINISHED or (fx.get("minute") or 0) > 0):
-        return logged
-    try:
-        for e in ctx.provider.events(fid, since_minute=0):
-            ctx.store.append_event(e)
-    except NotImplementedError:
-        return logged
-    return ctx.store.events(fid)
+    if not logged and has_started(fx):
+        try:
+            ctx.store.append_events([backdate(e, fx.get("real_minute") or fx.get("minute"))
+                                     for e in ctx.provider.events(fid, since_minute=0)])
+        except NotImplementedError:
+            pass
+        logged = ctx.store.events(fid)
+    if fx.get("broadcast_offset"):
+        logged = ctx.store.on_screen(fid, fx["broadcast_offset"])[0]       # what has reached their screen, by the clock
+    return logged
 
 
-def resolve_fixture(ctx, args, listener_id, prefers=None):
+def resolve_fixture(ctx, args, listener_id, prefers=None, followed_first=False):
     """The match the listener means (see sideline/finder.py for how).
 
     A fixture id they were given; else the team, opponent, day or date they named, across the matches the feed can
     see (a match already played counts, as does one still to come); else the match they are following. Several
     plausible matches are not guessed between: that is a ToolError listing them, so they can pick. `prefers` says
     what the question is about, "played" (who scored) or "coming" (who is playing), which breaks ties.
+    `followed_first`: with nothing named, the match they follow comes before the one they merely asked about - for
+    "what did I miss" and the delay, which are about their own game, not a passing question about another.
     """
     from .. import finder
     from ..mcp.errors import ToolError
@@ -296,6 +334,8 @@ def resolve_fixture(ctx, args, listener_id, prefers=None):
         # comes first, then the one they are following. A match is never picked that they did not ask about.
         recent = rec.get("discussed") or {}
         fid = recent.get("fixture_id") if time.time() - (recent.get("at") or 0) <= DISCUSSED_SECONDS else None
+        if followed_first and rec.get("following"):
+            fid = None
         fx = ctx.provider.fixture(fid) if fid else None
         if fx:
             fx = dict(fx, found_by="discussed")
@@ -327,18 +367,27 @@ def resolve_fixture(ctx, args, listener_id, prefers=None):
     # The broadcast delay applies in ONE place: to the match being followed while it is in play. Every tool downstream
     # sees the match as the listener's screen shows it. A match already played, or one they are not watching, has no delay.
     offset = rec.get("broadcast_offset") or 0
-    if offset and rec.get("following") == fx["fixture_id"] and (fx.get("minute") or 0) > 0 and fx.get("status") not in FINISHED:
+    if offset and rec.get("following") == fx["fixture_id"] and is_live(fx):
         fx = dict(fx)
-        fx["real_minute"] = fx.get("minute") or 0
-        fx["minute"] = max(0, (fx.get("minute") or 0) - offset // 60)
+        real = fx.get("minute") or 0
+        shown, floor = ctx.store.on_screen(fx["fixture_id"], offset)
+        # Their minute is the feed's minus the delay (rounded up: the feed's minute is whole), or the latest event they
+        # have seen if that is later; never as far as an event that has not reached them.
+        minute = max([real - clock.delay_minutes(offset)] + [e["minute"] for e in shown if e["minute"] <= real])
+        if floor is not None:
+            minute = min(minute, floor - 1)
+        fx["real_minute"] = real
+        fx["minute"] = max(0, minute)
         fx["broadcast_offset"] = offset
-        fx["score"] = ctx.store.score_at(fx["fixture_id"], fx["minute"]) or fx["score"]
+        from .. import sports
+        if shown or floor is not None:       # events are logged: the score is what their screen has shown, not the feed's
+            fx["score"] = sports.for_fixture(fx).score_from(shown, fx.get("home"), real)
     return fx
 
 
 from . import (follow_match, get_capabilities, get_competitions, get_event_detail, get_fixtures,
                get_head_to_head, get_injuries, get_lineups, get_match_preview, get_match_report, get_match_stats,
-               get_my_matches, get_player_stats, get_schedule, get_squad, get_standings, get_team_form, get_team_stats,
+               get_my_matches, get_news, get_standouts, get_player_profile, get_player_stats, get_schedule, get_squad, get_standings, get_team_form, get_team_stats,
                get_top_scorers, search, set_favourites, set_preferences, get_match_state, get_officials, get_player_context,
                sync_broadcast_delay, what_did_i_miss)
 
@@ -353,6 +402,9 @@ REGISTRY = {
     "get_schedule": get_schedule.run,
     "get_match_stats": get_match_stats.run,
     "get_player_stats": get_player_stats.run,
+    "get_player_profile": get_player_profile.run,
+    "get_news": get_news.run,
+    "get_standouts": get_standouts.run,
     "get_injuries": get_injuries.run,
     "get_team_form": get_team_form.run,
     "get_squad": get_squad.run,

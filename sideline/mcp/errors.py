@@ -46,6 +46,12 @@ class InvalidParams(RpcError):
     code = INVALID_PARAMS
 
 
+# What a listener hears when something went wrong that is not "there is no such match": the feed is down, a tool
+# crashed, the model failed. Said the same way everywhere, and it tells them what to do next.
+ERROR_SPOKEN = ("Sorry, an error occurred. Please try rephrasing your question for a better search, "
+                "or try again later.")
+
+
 class ToolError(Exception):
     """A tool ran but could not do the job.
 

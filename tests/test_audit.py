@@ -82,7 +82,8 @@ def main():
         print("ok  a tool call, a feed refusal and a decline each leave a line with tool, arguments, outcome and speed")
 
         # Bedrock's own token counts are kept, one line per model call.
-        from sideline.language import agent, bedrock
+        from simulator import agent
+        from sideline.language import bedrock
 
         class Model:
             def converse(self, **kw):

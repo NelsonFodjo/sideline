@@ -26,6 +26,7 @@ import threading
 import time
 
 from . import clock
+from .state.store import backdate, event_key
 from .status import OVER
 
 LOG = logging.getLogger("sideline.poller")
@@ -35,7 +36,8 @@ OVERLAP_MINUTES = 3
 # The fast interval (SIDELINE_POLL_SECONDS) is for a match in play. A match that has not started
 # cannot change, so it is looked at only now and then, and kept to the fast rate from shortly
 # before the kick-off. A match that is over is read once (below).
-MISSES_BEFORE_GIVING_UP = 3          # a followed id the feed does not know costs a call each cycle, for nothing
+MISSES_BEFORE_BACKING_OFF = 3         # an id the feed does not know costs a call each cycle: after this many in a row, look less often
+BACKOFF_SECONDS = 300
 WAITING_SECONDS = 300
 LEAD_SECONDS = 600
 
@@ -43,11 +45,13 @@ LEAD_SECONDS = 600
 # alone: every poll is a call against the feed's hourly limit.
 
 
-def poll_once(ctx):
-    """One cycle: read every followed match once and log what is new."""
+def poll_once(ctx, only=None):
+    """One cycle: read every followed match once and log what is new. `only` reads just that match (a listener who has
+    just followed one needs its events, not a sweep of every match anyone follows)."""
     try:
-        fixtures = ctx.store.all_followed_fixtures()
-    except AttributeError:
+        fixtures = [only] if only is not None else ctx.store.all_followed_fixtures()
+    except Exception as e:                                      # noqa: BLE001 - a store hiccup (throttle, expired credential) skips a cycle
+        LOG.warning("could not list the followed matches this cycle: %s", e)
         fixtures = []
     found = 0
     done = ctx.__dict__.setdefault("finished_fixtures", set())
@@ -57,25 +61,32 @@ def poll_once(ctx):
             continue
         try:
             fx = ctx.provider.fixture(fid)
+            misses = ctx.__dict__.setdefault("missing_fixtures", {})
             if not fx:
-                misses = ctx.__dict__.setdefault("missing_fixtures", {})
                 misses[fid] = misses.get(fid, 0) + 1
-                if misses[fid] >= MISSES_BEFORE_GIVING_UP:
-                    done.add(fid)
-                    LOG.warning("fixture %s is not known to the feed; no longer polled", fid)
+                if misses[fid] >= MISSES_BEFORE_BACKING_OFF:
+                    due[fid] = time.time() + BACKOFF_SECONDS      # not "never": a blip must not lose a live match for good
+                    misses[fid] = 0
+                    LOG.warning("fixture %s was not found %d times in a row; trying again in %ds",
+                                fid, MISSES_BEFORE_BACKING_OFF, BACKOFF_SECONDS)
                 continue
+            misses.pop(fid, None)                                  # found: the count is of misses in a row
             ctx.store.save_fixture({"fixture_id": fid, **fx})
             known = ctx.store.events(fid)
             high = max([e["minute"] for e in known], default=0)
             since = max(0, high - OVERLAP_MINUTES)
-            for e in ctx.provider.events(fid, since_minute=since):
-                before = len(ctx.store.events(fid))
-                ctx.store.append_event(e)
-                if len(ctx.store.events(fid)) > before:
-                    found += 1
-                    LOG.info("logged %s on %s' in fixture %s",
-                             e["kind"], e["minute"], fid)
-                    _handle_var(ctx, fid, e)
+            batch = [backdate(e, fx.get("minute")) for e in ctx.provider.events(fid, since_minute=since)]
+            seen = {event_key(e) for e in known}
+            fresh = []
+            for e in batch:
+                if event_key(e) not in seen:
+                    seen.add(event_key(e))
+                    fresh.append(e)
+            ctx.store.append_events(batch)           # all of them, so a detail the feed filled in later is merged
+            for e in fresh:
+                found += 1
+                LOG.info("logged %s on %s' in fixture %s", e["kind"], e["minute"], fid)
+                _handle_var(ctx, fid, e)
             if fx.get("status") in OVER:
                 done.add(fid)
             elif fx.get("status") == "NS":
@@ -120,7 +131,10 @@ class Poller(threading.Thread):
     def run(self):
         LOG.info("poller started, every %ds", self.interval)
         while not self._halt.is_set():
-            poll_once(self.ctx)
+            try:
+                poll_once(self.ctx)
+            except Exception:                                      # noqa: BLE001 - nothing may end the thread: a gap beats a dead server
+                LOG.exception("poll cycle failed; carrying on")
             self._halt.wait(self.interval)
 
     def stop(self):

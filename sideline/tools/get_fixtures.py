@@ -14,7 +14,7 @@ import datetime
 from .. import clock
 from ..finder import _date
 from ..mcp.errors import ToolError
-from ..status import FINISHED
+from ..status import FINISHED, is_live
 from . import day_fixtures
 
 LISTED = 5
@@ -22,9 +22,19 @@ LOOK_AHEAD_DAYS = 10     # an empty day looks this far for the next one with mat
 OFFSETS = {"yesterday": -1, "today": 0, "tomorrow": 1}
 
 
+# What a listener means by "anything big": the main European competitions, then the rest as the feed lists them.
+_IMPORTANT = ("uefa.champions", "uefa.europa", "uefa.europa.conf", "eng.1", "esp.1", "ita.1", "ger.1", "fra.1",
+              "uefa.nations", "fifa.world", "conmebol.libertadores", "afc.champions", "usa.1", "afc.cup")
+
+
+def _importance(fx):
+    slug = fx.get("league_id")
+    return _IMPORTANT.index(slug) if slug in _IMPORTANT else len(_IMPORTANT)
+
+
 def _rank(fx):
-    live = (fx.get("minute") or 0) > 0 and fx.get("status") not in FINISHED
-    return (0 if live else 1, fx.get("kickoff") or "")
+    live = is_live(fx)
+    return (0 if live else 1, _importance(fx), fx.get("kickoff") or "")
 
 
 def _matches(fx, competition):
@@ -57,10 +67,11 @@ def run(ctx, args, listener_id):
         found = [f for f in day_fixtures(ctx, offset, tz)
                  if f.get("home") and f.get("away") and _matches(f, competition)
                  and (not sport or (f.get("sport") or "football").lower() == sport)
-                 and (not live_only or ((f.get("minute") or 0) > 0 and f.get("status") not in FINISHED))
+                 and (not live_only or is_live(f))
                  and (not finished_only or f.get("status") in FINISHED)]
         if finished_only:
-            found.sort(key=lambda fx: (fx.get("kickoff") or ""), reverse=True)
+            found.sort(key=lambda fx: (fx.get("kickoff") or ""), reverse=True)     # newest first...
+            found.sort(key=_importance)                                              # ...but the big competitions first
         else:
             found.sort(key=_rank)
         return found
@@ -103,6 +114,13 @@ def run(ctx, args, listener_id):
     shown = fixtures[:LISTED]
     # the intro names the day, so each match carries only its time
     items = [clock.say_fixture(f, tz, with_day=False, with_zone=False) for f in shown]
+    if not competition and len({f.get("competition") for f in fixtures}) > 1:
+        # several competitions in one list: say which, each time it changes ("Champions League: ...")
+        last = None
+        for i, f in enumerate(shown):
+            if f.get("competition") and f["competition"] != last:
+                items[i] = "%s: %s" % (f["competition"], items[i])
+            last = f.get("competition")
     if finished_only:
         phrase = clock.zone_phrase(tz)
         zone = ", in %s" % phrase if phrase else ""

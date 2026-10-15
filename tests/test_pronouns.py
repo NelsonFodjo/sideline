@@ -4,7 +4,7 @@ A sighted viewer looks at the screen. We cannot, so we resolve from
 recency - and refuse rather than guess when recency gives us nothing.
 """
 
-from conftest import make_ctx
+from conftest import age_events, make_ctx
 
 from sideline.mcp.errors import ToolError
 from sideline.poller import poll_once
@@ -22,6 +22,7 @@ def main():
     ctx = make_ctx(start_minute=35)
     _run(ctx, "follow_match", team="Arsenal")
     poll_once(ctx)
+    age_events(ctx)
 
     spoken, s, _ = _run(ctx, "get_player_context", player="he")
     assert s["resolved_from_pronoun"] is True
@@ -33,15 +34,17 @@ def main():
     ctx2 = make_ctx(start_minute=52)
     _run(ctx2, "follow_match", team="Arsenal")
     poll_once(ctx2)
+    age_events(ctx2)
     spoken2, s2, _ = _run(ctx2, "get_player_context", player="that player")
     assert s2["player"]["name"] == "Bissouma", s2["player"]
     assert "just booked" in spoken2
     print("ok  'that player' after a booking -> the booked player")
 
-    # 78' - nothing has happened for sixteen minutes. Refuse.
-    ctx3 = make_ctx(start_minute=78)
+    # 80' - nothing has happened for eighteen minutes (seventeen on the listener's own screen, a minute behind). Refuse.
+    ctx3 = make_ctx(start_minute=80)
     _run(ctx3, "follow_match", team="Arsenal")
     poll_once(ctx3)
+    age_events(ctx3)
     try:
         _run(ctx3, "get_player_context", player="he")
         raise AssertionError("should have raised")

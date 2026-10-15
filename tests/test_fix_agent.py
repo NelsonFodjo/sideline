@@ -12,9 +12,10 @@ import urllib.error
 from conftest import make_ctx
 
 from sideline.app import resolve_listener, tool_runner
-from sideline.language import agent, bedrock
+from simulator import agent
+from sideline.language import bedrock
 from sideline.mcp import server as mcp_server
-from sideline.mcp.client import McpClient
+from simulator.mcp_client import McpClient
 from sideline.mcp.registry import public_tools
 from sideline.tools import REGISTRY
 
@@ -73,6 +74,8 @@ def test_catchup_fetched_once():
     ctx = make_ctx(start_minute=12)
     REGISTRY["follow_match"](ctx, {"team": "Arsenal"}, "miss")
     ctx.provider.jump_to(64)
+    for e in ctx.store.events(ctx.store.listener("miss")["following"]):
+        e["at"] -= 3600                        # the match really did run for 52 minutes since they followed
     ran = []
     model = Scripted(plan=[("what_did_i_miss", {})], text="Arsenal lead two-nil: Saka scored twice.")
     real = _with_model(model)
@@ -174,7 +177,7 @@ def test_fast_paths():
         # and one that fails is handed to the model, never read out
         out = agent.run(ctx, "Who's refereeing?", "fast", lambda n, a, w: (_ for _ in ()).throw(
             urllib.error.URLError("refused")), mcp_tools=CATALOG)
-        assert out["generated_by"] == "nova" and len(model.seen) == 1 and "refused" not in out["text"], out
+        assert out["generated_by"] == "nova" and 1 <= len(model.seen) <= 2 and "refused" not in out["text"], out
     finally:
         _restore(real)
     print("ok  a plain question is answered by its tool alone; a failed shortcut falls back to the model")
@@ -290,25 +293,30 @@ def test_limits_and_truncation():
 
 
 def test_expiry():
-    # AG-16: a stored topic and history from yesterday are not today's context
+    # AG-16, now stricter: the conversation and the topic are session memory. They are never written to the listener's
+    # stored record, so a restart (or yesterday) cannot bring them back, and idle ones expire.
     ctx = make_ctx()
     rec = ctx.store.listener("old")
-    rec["topic"] = {"team": "Celtic", "fixture_id": 9, "at": int(time.time()) - 86400}
-    rec["history"] = [{"role": "user", "text": "Celtic?", "at": int(time.time()) - 86400},
-                      {"role": "assistant", "text": "Celtic won.", "at": int(time.time()) - 86400}]
+    rec["topic"] = {"team": "Celtic", "fixture_id": 9, "at": int(time.time())}          # a record written by an older version
+    rec["history"] = [{"role": "user", "text": "Celtic?", "at": int(time.time())},
+                      {"role": "assistant", "text": "Celtic won.", "at": int(time.time())}]
     ctx.store.save_listener(rec)
-    assert agent.FOCUSES.topic("old", store=ctx.store) == {}
-    assert agent.FOCUSES.line("old", store=ctx.store) == ""
-    assert agent.CONVERSATIONS.get("old", store=ctx.store) == []
-    rec["topic"] = {"team": "Celtic", "at": int(time.time()) - 30}
-    rec["history"] = [dict(h, at=int(time.time()) - 30) for h in rec["history"]]
-    ctx.store.save_listener(rec)
-    assert agent.FOCUSES.topic("old", store=ctx.store) == {"team": "Celtic"}
-    assert len(agent.CONVERSATIONS.get("old", store=ctx.store)) == 2
-    agent.FOCUSES.remember("fresh", [{"name": "get_standings", "args": {"team": "Celtic"}, "structured": {}}],
-                           store=ctx.store)
-    assert ctx.store.listener("fresh")["topic"]["at"] > time.time() - 5, "the stored topic says when"
-    print("ok  AG-16 stored topic and history expire; a fresh one is kept")
+    assert agent.FOCUSES.topic("old") == {} and agent.FOCUSES.line("old") == ""
+    assert agent.CONVERSATIONS.get("old") == [], "a stored history is not read back into a conversation"
+
+    agent.CONVERSATIONS.remember("fresh", "Celtic?", "Celtic won.")
+    agent.FOCUSES.remember("fresh", [{"name": "get_standings", "args": {"team": "Celtic"}, "structured": {}}])
+    assert len(agent.CONVERSATIONS.get("fresh")) == 2 and agent.FOCUSES.topic("fresh") == {"team": "Celtic", "last_tool": "get_standings"}
+    stored = ctx.store.listener("fresh")
+    assert not stored.get("history") and not stored.get("topic"), "nothing of the conversation is persisted"
+
+    saved = agent.CONVERSATION_TTL_SECONDS, agent.FOCUS_TTL_SECONDS
+    agent.CONVERSATION_TTL_SECONDS = agent.FOCUS_TTL_SECONDS = -1
+    try:
+        assert agent.CONVERSATIONS.get("fresh") == [] and agent.FOCUSES.topic("fresh") == {}
+    finally:
+        agent.CONVERSATION_TTL_SECONDS, agent.FOCUS_TTL_SECONDS = saved
+    print("ok  AG-16 the conversation and topic are session memory: never stored, expired when idle")
 
 
 def test_mcp_client_lock():

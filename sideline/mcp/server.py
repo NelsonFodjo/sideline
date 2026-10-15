@@ -34,6 +34,7 @@ Implementation notes that matter:
 Zero third-party dependencies. See docs/ARCHITECTURE.md for why.
 """
 
+import hmac
 import json
 import logging
 import os
@@ -46,7 +47,7 @@ from urllib.parse import unquote, urlparse
 
 from .. import audit
 from ..providers.base import ProviderUnavailable
-from .errors import (InvalidParams, InvalidRequest, MethodNotFound, ParseError,
+from .errors import (ERROR_SPOKEN, InvalidParams, InvalidRequest, MethodNotFound, ParseError,
                      RpcError, ToolError)
 from .registry import by_name, public_tools
 from .schema import validate
@@ -86,7 +87,7 @@ _CONTENT_LENGTH = re.compile(r"[0-9]{1,15}")
 
 SIMULATOR_ROUTES = ("/", "/simulator", "/simulator/", "/index.html", "/simulator/index.html")
 
-# Set per request from the X-Sideline-Agent header (see mcp/client.py): the voice
+# Set per request from the X-Sideline-Agent header (see simulator/mcp_client.py, an optional add-on): the voice
 # agent asks tools for facts, not for model-written paragraphs.
 _REQUEST = threading.local()
 
@@ -215,7 +216,20 @@ class Dispatcher:
         if not isinstance(args, dict):
             raise InvalidParams("arguments must be an object")
 
-        validate(args, spec["inputSchema"])
+        try:
+            validate(args, spec["inputSchema"])
+        except InvalidParams as e:
+            # Bad arguments are the tool call's failure, not the protocol's (MCP 2025-11-25): a result the model can
+            # read and correct, instead of an error object most clients never show it.
+            LOG.info("tool %s: invalid arguments: %s", name, e)
+            audit.record("tool", tool=name, args=args, ok=False, reason="invalid_arguments", problem=str(e)[:200],
+                         listener=listener_id, via="agent" if getattr(_REQUEST, "agent", False) else "client")
+            return {
+                "content": [{"type": "text", "text": "The arguments were not valid: %s. Check the tool's input schema "
+                                                     "and call it again." % e}],
+                "structuredContent": {"reason": "invalid_arguments", "problem": str(e)},
+                "isError": True,
+            }
 
         started = time.time()
         try:
@@ -231,8 +245,7 @@ class Dispatcher:
                          ms=round((time.time() - started) * 1000), listener=listener_id,
                          via="agent" if getattr(_REQUEST, "agent", False) else "client")
             return {
-                "content": [{"type": "text", "text":
-                             "The match data feed said: %s. Try again shortly." % e}],
+                "content": [{"type": "text", "text": ERROR_SPOKEN}],
                 "structuredContent": {"reason": "provider_unavailable",
                                       "problem": str(e)},
                 "isError": True,
@@ -246,6 +259,18 @@ class Dispatcher:
             return {
                 "content": [{"type": "text", "text": e.spoken}],
                 "structuredContent": e.detail,
+                "isError": True,
+            }
+        except RpcError:
+            raise
+        except Exception as e:                           # noqa: BLE001 - a crash in a tool is the tool's, not the protocol's
+            LOG.exception("tool %s failed: %s", name, e)
+            audit.record("tool", tool=name, args=args, ok=False, reason="tool_error", problem=str(e)[:200],
+                         ms=round((time.time() - started) * 1000), listener=listener_id,
+                         via="agent" if getattr(_REQUEST, "agent", False) else "client")
+            return {
+                "content": [{"type": "text", "text": ERROR_SPOKEN}],
+                "structuredContent": {"reason": "tool_error", "problem": type(e).__name__},
                 "isError": True,
             }
         took = (time.time() - started) * 1000
@@ -315,6 +340,16 @@ def interrupted(value):
     return text or None
 
 
+def _optional(name):
+    """A module from the simulator add-on, or None when this checkout does not have it. The MCP server itself needs
+    nothing outside the `sideline` package."""
+    try:
+        import importlib
+        return importlib.import_module("simulator." + name)
+    except ImportError:
+        return None
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "sideline/1.0"
     protocol_version = "HTTP/1.1"
@@ -330,6 +365,21 @@ class Handler(BaseHTTPRequestHandler):
         if not origin:
             return True  # non-browser client; Alexa+ sends none
         return self.server.origin_allowed(origin)
+
+    def _unauthorized(self):
+        """True (after answering 401) when a token is required and this request does not carry it.
+
+        Off unless SIDELINE_AUTH_TOKEN is set. A static bearer token is not OAuth: it keeps a public deployment from
+        being open, and it is what a client with a header field (Claude, the MCP Inspector, a gateway) can send today."""
+        token = self.server.auth_token
+        if not token:
+            return False
+        given = (self.headers.get("Authorization") or "").strip()
+        if given[:7].lower() == "bearer " and hmac.compare_digest(given[7:].strip().encode("utf-8"),
+                                                                    token.encode("utf-8")):
+            return False
+        self._send(401, {"error": "unauthorized"}, {"WWW-Authenticate": 'Bearer realm="sideline"'})
+        return True
 
     def _protocol_ok(self):
         asked = self.headers.get("MCP-Protocol-Version")
@@ -453,10 +503,15 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/voice/capabilities":
             if not self._origin_ok():
                 return self._send(403, {"error": "origin not allowed"})
+            if self._unauthorized():
+                return None
             # Simulator support, not part of the MCP surface. The browser
             # asks once at load whether to post audio here or fall back
-            # to its own engine. See sideline/voice.py.
-            from ..voice import capabilities
+            # to its own engine. See simulator/voice.py.
+            voice = _optional("voice")
+            if voice is None:
+                return self._send(404, {"error": "not found"})
+            capabilities = voice.capabilities
             # Setup hints name credentials and install commands: for the
             # developer's console and CLI check, never for a listener's
             # screen, so they are not sent to the page at all.
@@ -466,6 +521,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
         if not self._origin_ok():
             return self._send(403, {"error": "origin not allowed"})
+        if self._unauthorized():
+            return None
         if self._session_error():
             return None
         sid = self.headers.get("Mcp-Session-Id")
@@ -508,6 +565,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
         if not self._origin_ok():
             return self._send(403, {"error": "origin not allowed"})
+        if self._unauthorized():
+            return None
         if not self._protocol_ok():
             return self._rpc_error(InvalidRequest("unsupported MCP-Protocol-Version"), None, 400)
         sid = self.headers.get("Mcp-Session-Id")
@@ -541,8 +600,8 @@ class Handler(BaseHTTPRequestHandler):
     def _voice(self, route):
         """/voice/stt and /voice/tts. Simulator only, same-origin like /mcp: a page on another
         origin must not be able to spend this server's speech credits."""
-        from .. import voice
-        if route not in ("/voice/stt", "/voice/tts"):
+        voice = _optional("voice")
+        if voice is None or route not in ("/voice/stt", "/voice/tts"):
             return self._send(404, {"error": "not found"})
         if not self._origin_ok():
             return self._send(403, {"error": "origin not allowed"})
@@ -595,15 +654,21 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         route = self._route()
         if route.startswith("/voice/"):
+            if self._unauthorized():
+                return None
             return self._voice(route)
         if route == "/agent/chat":
             if not self._origin_ok():
                 return self._send(403, {"error": "origin not allowed"})
+            if self._unauthorized():
+                return None
             return self._agent_chat(self._listener())
         if route.rstrip("/") != "/mcp":
             return self._send(404, {"error": "not found"})
         if not self._origin_ok():
             return self._send(403, {"error": "origin not allowed"})
+        if self._unauthorized():
+            return None
 
         raw = self._read_body(MCP_MAX_BODY_BYTES)
         if raw is None:
@@ -650,7 +715,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             result = self.server.agent_runner(question, listener_id, tz, cut, name)
         except Exception as e:                           # noqa: BLE001
-            from ..language.agent import AgentUnavailable
+            AgentUnavailable = getattr(_optional("agent"), "AgentUnavailable", ())
             audit.record("agent", question=question, ok=False, error=str(e) or type(e).__name__,
                          ms=round((time.time() - asked_at) * 1000), listener=listener_id)
             if isinstance(e, AgentUnavailable):
@@ -761,6 +826,7 @@ class McpServer(ThreadingHTTPServer):
                  agent_runner=None):
         ThreadingHTTPServer.__init__(self, addr, Handler)
         self.agent_runner = agent_runner
+        self.auth_token = ""                       # set by the app from SIDELINE_AUTH_TOKEN; empty means no check
         self.sessions = Sessions()
         self.dispatcher = Dispatcher(tool_runner, self.sessions)
         self.resolve_listener = resolve_listener

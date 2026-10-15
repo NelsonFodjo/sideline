@@ -108,8 +108,8 @@ class Basketball(SportProfile):
                 bits = ["%s scored two %s" % (who or "Someone", w)]
             else:
                 bits = ["%s made a free throw %s" % (who or "Someone", w)]
-            if e.get("detail"):
-                d = e["detail"]
+            d = e.get("detail") or ""
+            if d and not (who and who.lower() in d.lower()):         # keep a note like "dunk"; drop a sentence that restates him
                 bits.append(d[:1].lower() + d[1:])
             if e.get("assist") and not brief:
                 bits.append("set up by %s" % e["assist"])

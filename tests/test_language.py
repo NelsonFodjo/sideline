@@ -154,6 +154,8 @@ def main():
                                           team="Arsenal"))
     ctx.provider.jump_to(80)
     poll_once(ctx)
+    for e in ctx.store.events(fid):
+        e["at"] -= 3600                        # the match really did run on to 80'
     first, st, _ = REGISTRY["what_did_i_miss"](ctx, {}, "many-goals")
     assert st["mode"] == "milestones"
     spoken_goals = sum(1 for i in range(8) if "Extra %d" % i in first)

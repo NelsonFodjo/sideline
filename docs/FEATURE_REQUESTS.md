@@ -78,3 +78,37 @@ observation about the current platform.
 SDK and checked by our own nine tests (`tests/test_mcp_protocol.py`). That
 is grading our own work. No official suite was found in the reading done for
 this project.
+
+### FR-07 — Guidance on how many MCP tools a voice assistant can choose among
+
+**Urgency: important**
+
+**What** A published limit, or a recommended pattern, for the size of a tool list a host model is expected to handle:
+how many tools, how long their descriptions may be, and whether a host narrows the list before the model sees it.
+
+**Why it matters** This server offers 30 tools, about 8,000 tokens of descriptions on every turn
+(`scripts/bench.py`, `docs/bench-baseline.json`). With the whole list offered, the models we tried on Bedrock sent a
+clear request to the wrong tool, or to none, on a measurable share of 79 test phrasings (FL-25). We do not know what
+Alexa+ does with a server's tool list, so we cannot tell whether to ship fewer, larger tools or many small ones. That is
+the first design choice every MCP author makes, and nothing we read answers it.
+
+### FR-08 — State the retry behaviour and error types of Bedrock Converse calls
+
+**Urgency: nice-to-have**
+
+**What** In the Converse documentation, say what the SDK's retry setting counts, and which error codes are worth one
+quick retry (throttling, service unavailable, model not ready) and which are not.
+
+**Why it matters** `max_attempts=1` still made two attempts (FL-21), so a connect timeout cost double what we had
+budgeted. During routing evaluations on an on-demand account, runs of 79 calls were throttled often enough to change the
+score until the harness waited and retried. Both are discoverable only by measuring.
+
+### FR-09 — Make truncation visible in ESPN's public scoreboard
+
+**Urgency: nice-to-have** (a third-party API, not an AWS one)
+
+**What** Return a total and a "more available" flag with the scoreboard response, and document `limit`.
+
+**Why it matters** The scoreboard silently stops at 100 events unless `limit=500` is passed (FL-23). A client that does
+not know sees a day with matches missing and no sign that anything was cut off. For a product that must not say a match
+does not exist, silence is the worst failure.

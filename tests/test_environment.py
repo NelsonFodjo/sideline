@@ -1,10 +1,11 @@
 """No dead settings, no undocumented ones.
 
-Four places describe the environment variables: the code that reads them,
-`config.VARIABLES` (what `make env` prints), `.env.example`, and
-docs/ENVIRONMENT.md. They must name exactly the same set. A variable that is
-declared but never read is dead weight a judge has to wonder about; one that is
-read but undocumented is a trap. Either fails here.
+Three places describe every environment variable: the code that reads them,
+`config.VARIABLES` (what `make env` prints) and docs/ENVIRONMENT.md. They must name
+exactly the same set. A variable that is declared but never read is dead weight a
+judge has to wonder about; one that is read but undocumented is a trap. Either fails
+here. `.env.example` is deliberately short: only what someone sets, each one a real
+variable, every secret blank.
 """
 
 import glob
@@ -47,7 +48,7 @@ def main():
     code = read_by_code()
     registry = {n for n, *_ in config.VARIABLES}
     sources = {"read by the code": set(code), "config.VARIABLES": registry,
-               ".env.example": in_env_example(), "docs/ENVIRONMENT.md": in_environment_doc()}
+               "docs/ENVIRONMENT.md": in_environment_doc()}
 
     everything = set().union(*sources.values())
     problems = []
@@ -58,15 +59,20 @@ def main():
             problems.append("  %-28s missing from: %s   (read in: %s)"
                             % (name, "; ".join(missing), where))
     assert not problems, "environment variables out of step:\n" + "\n".join(problems)
-    print("ok  %d environment variables: read by the code, in config.VARIABLES, "
-          ".env.example and docs/ENVIRONMENT.md, exactly the same set" % len(registry))
+    print("ok  %d environment variables: read by the code, in config.VARIABLES "
+          "and docs/ENVIRONMENT.md, exactly the same set" % len(registry))
+    unknown = in_env_example() - registry
+    assert not unknown, ".env.example names settings that do not exist: %s" % ", ".join(sorted(unknown))
+    print("ok  .env.example lists only real settings (%d of %d: the ones someone sets)"
+          % (len(in_env_example()), len(registry)))
 
     assert all(desc.strip() for _, _, _, desc in config.VARIABLES)
     secrets = {n for n, secret, *_ in config.VARIABLES if secret}
     example = open(os.path.join(ROOT, ".env.example"), encoding="utf-8").read()
-    for n in secrets:
+    for n in secrets & in_env_example():
         assert re.search(r"^%s=\s*$" % n, example, re.M), "%s must be blank in .env.example" % n
-    print("ok  every secret is blank in .env.example")
+    assert {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} <= in_env_example(), "the AWS keys are what people fill in"
+    print("ok  every secret in .env.example is blank")
 
     # the retired settings must not come back through the side door
     retired = ("SIDELINE_MODE", "SIDELINE_PROVIDER", "SIDELINE_REPLAY", "SIDELINE_CATCHUP_MODE",

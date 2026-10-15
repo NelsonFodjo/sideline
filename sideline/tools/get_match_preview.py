@@ -13,7 +13,7 @@ import re
 
 from .. import clock, sports, weather
 from ..providers.base import ProviderUnavailable
-from ..status import FINISHED
+from ..status import FINISHED, has_started
 
 LOG = logging.getLogger("sideline.preview")
 
@@ -63,7 +63,7 @@ def run(ctx, args, listener_id):
     tz = fx.get("tz_offset_minutes")
     sp = sports.for_fixture(fx)
     status = fx.get("status")
-    started = (fx.get("minute") or 0) > 0 or status in FINISHED
+    started = has_started(fx)
     missing = []
 
     parts = [_who(fx), _place(fx)]

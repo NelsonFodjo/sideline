@@ -208,7 +208,7 @@ Every match tool (`get_match_state`, `get_lineups`, `get_officials`, `get_match_
 a played one included, can be named. Which match is meant, and when to list the options instead of guessing, is
 [FINDER.md](FINDER.md).
 
-### The other sixteen: discovery, tables, numbers, people, you
+### The other nineteen: discovery, tables, numbers, people, news, you
 
 Each is one intent, each names its neighbour in its description so routing never has to guess, and each is read-only
 except the two that remember. All of them say what is missing instead of guessing it.
@@ -221,7 +221,11 @@ except the two that remember. All of them say what is missing instead of guessin
 | Teams, with no match | `get_squad`, `get_team_stats`, `get_team_form` | Players by position with the manager and captain (a position gives the names); the season so far; the last results as won/drew/lost (pass `team`). None needs a match to be followed. |
 | Played matches | `get_match_report` | The result and goals first, then cards, substitutions or VAR by name (`part`). Any match that has been played: the events come from the feed once and are kept. Returned as written. |
 | The match | `get_match_stats`, `get_team_form`, `get_injuries` | The numbers, the last results as won/drew/lost, who is out and why. |
-| People | `get_player_stats` | A player's season; `get_player_context` stays for what he just did. |
+| People | `get_player_profile` | Who a player is, whatever match is on: name, age, nationality, position, club, shirt number; then an offer. The feed has no honours, so it says "I can't give his major titles" instead of leaving them out. |
+| | `get_player_stats` | A player's season, **club and country kept apart** (a goal for his country is not a goal for his club). ESPN gives starts, so starts is what is said. |
+| | `get_player_context` | What a named player did in this match: position, number, goals, shots, saves, and the moments he was in. "He" after a match is over is asked about, never guessed. |
+| | `get_standouts` | Who did the most in a match, by what is counted (goals, assists, shots on target, saves). It says plainly that the feed has no ratings. |
+| News | `get_news` | The top three headlines on a team, a competition or football, each with its age; `which` gives one headline's summary. ESPN's feed, said to be ESPN's. |
 | You | `set_favourites`, `get_my_matches` | Only names the listener gave are stored. "Are my teams on" then needs no name. Nothing is pushed: Alexa+ cannot be spoken first. |
 | | `set_preferences` | "Brief", "normal" or "full", and a language. The detail reaches the agent's instructions; the language is what `what_did_i_miss` already translates to. |
 | Meta | `get_capabilities` | Read from the tools actually offered, so it is true for this feed. |
@@ -247,7 +251,8 @@ Every tool returns `(spoken_text, structured, ui_payload)`.
 - **`structured`** — machine-readable detail. Includes `generated_by`,
   so anyone reading a response can see whether a model was involved in
   producing the words.
-- **`ui_payload`** — the MCP Apps card for screened devices, or `None`.
+- **`ui_payload`** — the data a screen could draw (returned as `_meta.sideline.ui`; our own field, not an MCP Apps
+  resource), or `None`.
 
 **The rule that governs all of them:** nothing essential may live only in
 the UI payload. A listener on a voice-only Echo must get the whole answer

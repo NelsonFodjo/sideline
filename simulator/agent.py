@@ -39,6 +39,9 @@ SYSTEM = (
     "answering from memory or saying you can't. All available tool descriptions and schemas are already "
     "provided; pick the tool whose description fits the whole question, call only what you need, and ask one "
     "short question when the match or team is unclear. "
+    "Statements are requests too: \"I support Arsenal\" saves a favourite, \"keep it short\" or \"speak French\" "
+    "sets a preference, \"who was the best player\" asks for the standouts: call the matching tool, never just "
+    "acknowledge. "
     "If a tool fails, say briefly that you couldn't get it just now; never read out errors, ids, field names "
     "or code. "
     "Reply only with the words to be spoken: 1 to 3 short, complete sentences unless asked for more; no lists, "
@@ -50,50 +53,103 @@ SYSTEM = (
 STATEFUL_TOOLS = frozenset(("what_did_i_miss", "get_lineups", "get_event_detail", "follow_match",
                             "set_preferences", "set_favourites", "sync_broadcast_delay"))
 
+_SOCIAL = re.compile(r"^\W*(hi|hello|hey|thanks|thank you|cheers|ok|okay|great|nice|cool|bye|goodbye|good night|"
+                    r"yes|yeah|yep|no|nope|never mind|nevermind|stop|cancel)\W*$", re.I)
+_FACT_OPENER = re.compile(r"\b(who|whom|whose|when|where|which|how (many|much|old|long|far|tall)|"
+                          r"what time|what('s| is| was| were) (the|their|his|her|its)|tell me (more )?about|"
+                          r"more about|did (they|he|she|we)|has (he|she|they)|have (they|we)|what did i miss|catch me up|"
+                          r"what('s| has| have)? ?happened|anything (new|else)|any(thing)? update|the score|"
+                          r"how('s| is) the (game|match) going)\b", re.I)
+
+
+def _asks_for_a_fact(question):
+    """Does this ask for something a tool knows (a name in it, or who/when/where/how many), and not chat or thanks?
+
+    Only these are held to a tool when the model first answers without one; "are you still around?" is left to the model.
+    """
+    q = (question or "").strip()
+    if not q or _SOCIAL.match(q):
+        return False
+    words = re.findall(r"[A-Za-z][A-Za-z'.-]*", q)
+    proper_noun = any(w[:1].isupper() and w not in ("I", "I'm", "I'll", "I've", "I'd") for w in words[1:])
+    return bool(_FACT_OPENER.search(q)) or proper_noun
+
+
+# What a listener can ask of the assistant's memory. Anchored to the start of what they say (after "please", "okay"...):
+# "I'll never forget that goal" is conversation, not an instruction.
+_ASK = r"^\W*(?:(?:please|ok|okay|hey|alright|now|just|can you|could you|will you)\W+)*"
+_FORGET_ALL = re.compile(_ASK + r"(?:forget (?:everything|all) (?:about me|you (?:know|remember))|forget me\b|"
+                         r"(?:delete|wipe|erase|clear) (?:all )?(?:of )?(?:my|everything about me)(?: (?:data|info|information|"
+                         r"profile|details|settings|preferences))?\b|reset everything)", re.I)
+_FORGET_CHAT = re.compile(_ASK + r"(?:forget (?:that|this|it|what (?:i|we) (?:just )?(?:said|asked|talked about)|"
+                          r"(?:the|our|this) (?:conversation|chat|last (?:thing|question))|everything we (?:said|talked about))|"
+                          r"start (?:over|afresh|fresh|again)|new topic|(?:clear|reset) (?:the |our |this )?(?:conversation|chat)|"
+                          r"never ?mind (?:that|all that|what i said)|let'?s change the subject)", re.I)
+
+
+def _forget_scope(question):
+    """"everything" (the stored profile too), "conversation" (this session only), or None."""
+    q = question or ""
+    if _FORGET_ALL.match(q):
+        return "everything"
+    if _FORGET_CHAT.match(q):
+        return "conversation"
+    return None
+
+
+def _forget(ctx, scope, listener_id, tool_runner, tool_specs):
+    """Obey "forget that" and "forget everything about me" without a model call.
+
+    The conversation and the topic are session memory and are dropped here. What is kept about a listener (the match
+    they follow, their teams, settings and what they have heard) lives in the MCP server, so "everything" asks it
+    to erase that through its own tool, as any other client would.
+    """
+    from sideline import resolve
+    CONVERSATIONS.forget(listener_id)
+    FOCUSES.forget(listener_id)
+    resolve.BOOK.clear(listener_id)
+    if scope == "everything":
+        _, is_error, record = _run_tool("set_preferences", {"forget": "everything"}, listener_id, tool_runner, tool_specs)
+        from sideline.mcp.errors import ERROR_SPOKEN
+        return {"text": ERROR_SPOKEN if is_error else record.get("spoken") or ERROR_SPOKEN, "generated_by": "forget",
+                "tool_results": [record]}
+    text = "Okay, starting fresh."
+    try:
+        rec = ctx.store.listener(listener_id)
+        fx = ctx.store.fixture(rec.get("following")) if rec.get("following") else None
+        if fx:
+            text += " I'm still following %s against %s." % (fx.get("home"), fx.get("away"))
+    except Exception:                                      # noqa: BLE001  a courtesy
+        pass
+    return {"text": text, "generated_by": "forget", "tool_results": []}
+
+
 class AgentUnavailable(Exception):
     """Nova could not complete an agent turn."""
 
 
 class ConversationMemory:
-    """Small, bounded conversational context per listener, backed durably by DynamoDB."""
+    """What was said this session, per listener: in this process only, bounded, forgotten after 30 idle minutes.
+
+    Not written to the listener's DynamoDB record. A restart clears it, which is intended: the conversation is
+    disposable, while what the listener follows, supports and has heard, and their settings, are durable and live in the
+    MCP server's state. Nothing the listener said is kept past the session, and `forget` ends it on request.
+    """
 
     def __init__(self):
         self._conversations = OrderedDict()
         self._lock = threading.Lock()
 
-    def get(self, listener_id, store=None):
+    def get(self, listener_id):
         now = time.monotonic()
         with self._lock:
             entry = self._conversations.get(listener_id)
             if entry and (now - entry[0] <= CONVERSATION_TTL_SECONDS):
                 self._conversations.move_to_end(listener_id)
                 return list(entry[1])
-        if store:
-            try:
-                rec = store.listener(listener_id)
-                raw_history = rec.get("history") or []
-                if raw_history:
-                    history = []
-                    oldest = time.time() - CONVERSATION_TTL_SECONDS
-                    for h in raw_history[-MAX_HISTORY_MESSAGES:]:
-                        role = h.get("role")
-                        text = h.get("text")
-                        # Yesterday's conversation is not today's context (AG-16): an undated turn counts as old.
-                        if (h.get("at") or 0) < oldest:
-                            continue
-                        if role and text:
-                            history.append({"role": role, "content": [{"text": text}]})
-                    while history and history[0]["role"] != "user":
-                        history.pop(0)                 # a conversation sent to the model starts with the listener
-                    if history:
-                        with self._lock:
-                            self._conversations[listener_id] = (now, history)
-                    return list(history)
-            except Exception as exc:
-                LOG.warning("Failed to load conversation history from store: %s", exc)
         return []
 
-    def remember(self, listener_id, question, answer, store=None):
+    def remember(self, listener_id, question, answer):
         now = time.monotonic()
         with self._lock:
             entry = self._conversations.get(listener_id)
@@ -102,28 +158,14 @@ class ConversationMemory:
                 {"role": "user", "content": [{"text": question}]},
                 {"role": "assistant", "content": [{"text": answer}]},
             ])
-            trimmed = history[-MAX_HISTORY_MESSAGES:]
-            self._conversations[listener_id] = (now, trimmed)
+            self._conversations[listener_id] = (now, history[-MAX_HISTORY_MESSAGES:])
             self._conversations.move_to_end(listener_id)
             while len(self._conversations) > MAX_CONVERSATIONS:
                 self._conversations.popitem(last=False)
-        if store:
-            try:
-                rec = store.listener(listener_id)
-                persisted = []
-                for msg in trimmed:
-                    role = msg.get("role")
-                    txt = ""
-                    for c in msg.get("content", []):
-                        if isinstance(c, dict) and "text" in c:
-                            txt += c["text"] + " "
-                    txt = txt.strip()
-                    if role and txt:
-                        persisted.append({"role": role, "text": txt, "at": int(time.time())})
-                rec["history"] = persisted
-                store.save_listener(rec)
-            except Exception as exc:
-                LOG.warning("Failed to persist conversation history to store: %s", exc)
+
+    def forget(self, listener_id):
+        with self._lock:
+            self._conversations.pop(listener_id, None)
 
 
 CONVERSATIONS = ConversationMemory()
@@ -172,7 +214,7 @@ COMP_PATTERNS = [
 class Focus:
     """What the listener was last talking about: a match, competition, total, team, player.
 
-    Backed durably by DynamoDB per listener to maintain conversational continuity across turns.
+    Session memory: in this process only, like the conversation (see ConversationMemory).
     """
 
     def __init__(self):
@@ -228,27 +270,14 @@ class Focus:
             topic["last_tool"] = name
         return topic
 
-    def topic(self, listener_id, store=None):
+    def topic(self, listener_id):
         with self._lock:
             kept = self._by.get(listener_id)
         if kept and time.monotonic() - kept[0] <= FOCUS_TTL_SECONDS:
             return dict(kept[1])
-        if store:
-            try:
-                rec = store.listener(listener_id)
-                top = dict(rec.get("topic") or {})
-                # A stored topic carries when it was last true; an old one (or an undated one) is not today's
-                # context (AG-16), or yesterday's match and team would be read into today's questions.
-                age = time.time() - (top.pop("at", None) or 0)
-                if top and age <= FOCUS_TTL_SECONDS:
-                    with self._lock:
-                        self._by[listener_id] = (time.monotonic() - age, top)
-                    return dict(top)
-            except Exception as exc:
-                LOG.warning("Failed to load topic from store: %s", exc)
         return {}
 
-    def remember(self, listener_id, records, store=None):
+    def remember(self, listener_id, records):
         topic = self._topic(records)
         if not topic:
             return
@@ -262,13 +291,11 @@ class Focus:
             self._by[listener_id] = (time.monotonic(), merged)
             while len(self._by) > MAX_CONVERSATIONS:
                 self._by.pop(next(iter(self._by)))
-        if store:
-            try:
-                rec = store.listener(listener_id)
-                rec["topic"] = dict(merged, at=int(time.time()))
-                store.save_listener(rec)
-            except Exception as exc:
-                LOG.warning("Failed to persist topic to store: %s", exc)
+
+    def forget(self, listener_id):
+        with self._lock:
+            self._by.pop(listener_id, None)
+            self._pending.pop(listener_id, None)
 
     def set_pending(self, listener_id, question):
         with self._lock:
@@ -279,15 +306,9 @@ class Focus:
             kept = self._pending.pop(listener_id, None)
         return kept[1] if kept and time.monotonic() - kept[0] <= FOCUS_TTL_SECONDS else None
 
-    def line(self, listener_id, store=None):
+    def line(self, listener_id):
         with self._lock:
             kept = self._by.get(listener_id)
-        if not kept or time.monotonic() - kept[0] > FOCUS_TTL_SECONDS:
-            kept = None
-            if store:
-                top = self.topic(listener_id, store=store)
-                if top:
-                    kept = (time.monotonic(), top)
         if not kept or time.monotonic() - kept[0] > FOCUS_TTL_SECONDS:
             return ""
         topic = kept[1]
@@ -311,6 +332,22 @@ class Focus:
 
 
 FOCUSES = Focus()
+
+
+def _following(ctx, listener_id):
+    """The match this listener follows, said to the model straight from the store: the agent's own memory of the
+    conversation is lost with a restart, the follow is not. Without it a model rightly asks "which match?" of a listener
+    who is already following one, on the first question after the server came back."""
+    try:
+        rec = ctx.store.listener(listener_id)
+        fx = ctx.store.fixture(rec.get("following")) if rec.get("following") else None
+    except Exception:                                          # noqa: BLE001 - a prompt line is never worth a failed answer
+        return ""
+    if not fx or not fx.get("home") or not fx.get("away"):
+        return ""
+    return (" The listener is following %s against %s. 'The score', 'the line-ups', 'what did I miss', 'who is booked' and "
+            "similar are about THIS match: call the tool without a team or a fixture id, and do not ask which match." %
+            (fx["home"], fx["away"]))
 
 def _usage(usage):
     """Bedrock's own token counts for one call (Converse returns them), as plain integers."""
@@ -634,9 +671,40 @@ def _keyword_re(word):
     return found
 
 
-def _keywords(name):
+_EXAMPLE_FILLER = frozenset("the and for that this them they have does what when where which with about from into your you are was were "
+                            "has had his her its our not any all can how who why get set".split())
+_EXAMPLE_PHRASE = re.compile(r"'((?:[^']|(?<=\w)'(?=\w)){4,70})'")       # an apostrophe inside a word ("what's") is not a quote
+
+
+def _example_keywords(spec):
+    """Words and short phrases from the examples a tool's description gives ("Say: 'who is Haaland', 'how old is Saka'").
+
+    The descriptions already say how a listener asks for each tool, so the shortlist reads them: a tool added tomorrow is
+    reachable as soon as it is described, with no table to remember to extend. Capitalised words (names a listener
+    would fill in) are dropped; what is left is how the question is put.
+    """
+    found = set()
+    for phrase in _EXAMPLE_PHRASE.findall((spec or {}).get("description") or ""):
+        tokens = [t for t in re.findall(r"[A-Za-z']+", phrase)]
+        lower = []
+        for t in tokens:
+            if t[:1].isupper() and t != tokens[0]:
+                break                                           # a name: the phrase is over
+            lower.append(t.lower())
+        if len(lower) >= 2:
+            found.add(_normalise(" ".join(lower[:5])))          # "who is", "how old is", "whats the latest on"
+        for t in lower:
+            t = _normalise(t)
+            if len(t) >= 4 and t not in _EXAMPLE_FILLER:
+                found.update((t, t[:-1] if t.endswith("s") else t + "s"))      # goalkeeper / goalkeepers
+    found.discard("")
+    return found
+
+
+def _keywords(name, spec=None):
     words = set(_TOOL_KEYWORDS.get(name, ()))
     words.update(w for w in name.split("_") if len(w) > 2 and w not in _NAME_STOPWORDS)
+    words.update(_example_keywords(spec))
     return words
 
 
@@ -650,10 +718,16 @@ def _select_candidate_tools(question, mcp_tools, context_topic=None):
     text = _normalise(question)
     chosen = set(n for n in _CORE_TOOLS if n in live)
     scored = []
+    words_of = {name: _keywords(name, live[name]) for name in live}
+    shared = {}                                          # in how many tools' vocabularies each word appears
+    for words in words_of.values():
+        for word in words:
+            shared[word] = shared.get(word, 0) + 1
     for name in live:
         if name in chosen:
             continue
-        score = sum(2 if " " in word else 1 for word in _keywords(name) if _keyword_re(word).search(text))
+        # a word many tools share ("what's the") says little; one only this tool uses ("table", "news") says a lot
+        score = sum((2 if " " in word else 1) / float(shared[word]) for word in words_of[name] if _keyword_re(word).search(text))
         if score:
             scored.append((-score, name))
     chosen.update(name for _, name in sorted(scored)[:MAX_EXTRA_TOOLS])
@@ -789,11 +863,10 @@ def _fast_plan(question, tool_specs, topic, ctx):
 
 def _try_fast_path(question, listener_id, tool_runner, tool_specs, ctx=None):
     """Answer a plain, unambiguous question with one read-only tool and no model call, or return None."""
-    store = ctx.store if ctx else None
-    topic = FOCUSES.topic(listener_id, store=store)
+    topic = FOCUSES.topic(listener_id)
     counted = _how_many(question, topic)
     if counted:
-        CONVERSATIONS.remember(listener_id, question, counted, store=store)
+        CONVERSATIONS.remember(listener_id, question, counted)
         return {"text": counted, "generated_by": "fast", "tool_results": []}
 
     plan = _fast_plan(question, tool_specs, topic, ctx)
@@ -806,15 +879,16 @@ def _try_fast_path(question, listener_id, tool_runner, tool_specs, ctx=None):
         # Read-only, so nothing was used up: the model takes it from here and can explain.
         return None
     text = " ".join(record["spoken"].split())
-    CONVERSATIONS.remember(listener_id, question, text, store=store)
-    FOCUSES.remember(listener_id, [record], store=store)
+    CONVERSATIONS.remember(listener_id, question, text)
+    FOCUSES.remember(listener_id, [record])
     return {"text": text, "generated_by": "fast", "tool_results": [record]}
 
 
 # ------------------------------------------------------------------ the model loop
 # A single factual tool whose sentence is already ear-ready is said as it is, saving a second model call. Never a tool
 # that only returns facts for the model (what_did_i_miss for the agent speaks "").
-_SAID_AS_IS = frozenset(("get_fixtures", "get_match_state", "get_officials", "get_lineups", "get_injuries",
+_SAID_AS_IS = frozenset(("get_player_profile", "get_news", "get_standouts",
+                         "get_fixtures", "get_match_state", "get_officials", "get_lineups", "get_injuries",
                          "get_head_to_head", "get_match_preview", "get_team_form", "get_match_stats", "get_team_stats",
                          "get_player_stats", "get_match_report", "get_capabilities", "get_schedule", "get_standings",
                          "get_top_scorers", "get_squad"))
@@ -864,6 +938,16 @@ def _text_only(messages):
     return out
 
 
+_TRACE = threading.local()
+
+
+def _trace_calls():
+    """The model calls made so far for this question: each one's time, tokens and stop reason. For the developer log."""
+    if not hasattr(_TRACE, "calls"):
+        _TRACE.calls = []
+    return _TRACE.calls
+
+
 def _ask(system, messages, tool_config=None):
     """One Converse call. Any failure is AgentUnavailable: the listener hears that we're unavailable, not why."""
     from sideline.language import bedrock
@@ -875,12 +959,17 @@ def _ask(system, messages, tool_config=None):
     }
     if tool_config:
         request["toolConfig"] = tool_config
+    started = time.time()
     try:
         response = _converse(**request) or {}
     except Exception as exc:
+        _trace_calls().append({"ms": round((time.time() - started) * 1000), "error": type(exc).__name__})
         LOG.warning("Nova agent request failed: %s", exc)
         raise AgentUnavailable("Bedrock Converse request failed") from exc
-    audit.record("tokens", source="agent", model=bedrock.MODEL_ID, **_usage(response.get("usage")))
+    used = _usage(response.get("usage"))
+    _trace_calls().append({"ms": round((time.time() - started) * 1000), "input_tokens": used["input"],
+                           "output_tokens": used["output"], "stop": response.get("stopReason")})
+    audit.record("tokens", source="agent", model=bedrock.MODEL_ID, **used)
     if response.get("stopReason") in ("guardrail_intervened", "content_filtered"):
         raise AgentUnavailable("Bedrock withheld the answer (%s)" % response["stopReason"])
     return response
@@ -902,8 +991,18 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None,
 
     Every failure leaves as AgentUnavailable, so /agent/chat answers 503 and never a 500 (AG-14).
     """
+    _trace_calls()[:] = []
+    started = time.time()
     try:
-        return _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_instructions)
+        result = _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_instructions)
+        if isinstance(result, dict):
+            from sideline.language import bedrock
+            result["debug"] = {"ms": round((time.time() - started) * 1000), "model": getattr(bedrock, "MODEL_ID", ""),
+                               "model_calls": list(_trace_calls()),
+                               "tools": [{"name": r.get("name"), "args": r.get("args"), "ms": r.get("ms"),
+                                          "ok": not r.get("is_error"), "declined": bool(r.get("declined"))}
+                                         for r in result.get("tool_results") or []]}
+        return result
     except AgentUnavailable:
         raise
     except Exception as exc:                               # noqa: BLE001
@@ -917,8 +1016,7 @@ def _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_in
     if not bedrock.available():
         raise AgentUnavailable("Bedrock is disabled or boto3 is unavailable")
 
-    store = ctx.store if ctx else None
-    messages = CONVERSATIONS.get(listener_id, store=store)
+    messages = CONVERSATIONS.get(listener_id)
     pending = FOCUSES.take_pending(listener_id)
     asked = question
     if pending and "(fixture_id" in question and not _FOLLOW_INTENT.search(pending):
@@ -935,10 +1033,14 @@ def _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_in
     # A scripted test model (it records .calls) sees the whole catalog and every turn, with no shortcuts.
     scripted = hasattr(bedrock.client(), "calls")
 
+    scope = _forget_scope(question)
+    if scope:
+        return _forget(ctx, scope, listener_id, tool_runner, tool_specs)
+
     if not scripted and not interrupted and not pending:
         conv_answer = _match_conversational(question)
         if conv_answer:
-            CONVERSATIONS.remember(listener_id, question, conv_answer, store=store)
+            CONVERSATIONS.remember(listener_id, question, conv_answer)
             return {"text": conv_answer, "generated_by": "conversational", "tool_results": []}
         fast_result = _try_fast_path(question, listener_id, tool_runner, tool_specs, ctx=ctx)
         if fast_result is not None:
@@ -953,19 +1055,22 @@ def _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_in
     system = SYSTEM
     if mcp_instructions:
         system += "\n\nMCP server instructions: " + mcp_instructions
-    system += _today(ctx, listener_id) + _preference(ctx, listener_id, detail) + FOCUSES.line(listener_id, store=store)
+    system += (_today(ctx, listener_id) + _preference(ctx, listener_id, detail) + FOCUSES.line(listener_id)
+               + _following(ctx, listener_id))
 
     tool_results = []
-    weather_retried = live_retried = False
+    weather_retried = live_retried = tool_forced = False
 
     def finish(text, how):
-        CONVERSATIONS.remember(listener_id, question, text, store=store)
-        FOCUSES.remember(listener_id, tool_results, store=store)
+        CONVERSATIONS.remember(listener_id, question, text)
+        FOCUSES.remember(listener_id, tool_results)
         return {"text": text, "generated_by": how, "model": getattr(bedrock, "MODEL_ID", ""),
                 "tool_results": tool_results}
 
     for _ in range(MAX_TURNS):
-        response = _ask(system, messages, tool_config)
+        # After a first answer given with no tool, the next call must use one (Converse toolChoice "any").
+        response = _ask(system, messages, dict(tool_config, toolChoice={"any": {}}) if tool_forced and tool_config
+                        else tool_config)
         message = response.get("output", {}).get("message")
         if not isinstance(message, dict):
             text = _spoken_from_tools(tool_results)
@@ -980,6 +1085,14 @@ def _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_in
             text = _answer_text(response, message, max_sentences) or _spoken_from_tools(tool_results)
             if not text:
                 raise AgentUnavailable("Bedrock returned no answer text")
+            if not tool_results and not tool_forced and _asks_for_a_fact(question):
+                # A fact about a match, team or player must come from a tool, never from what the model remembers
+                # ("tell me more about Nuno Mendes" was once answered from memory, with no tool called).
+                tool_forced = True
+                messages.append({"role": "user", "content": [{"text": (
+                    "[Do not answer from memory. Call the tool that fits what the listener asked, and say only what it "
+                    "returns.]")}]})
+                continue
             if _denies_live(text) and not tool_results and not live_retried:
                 live_retried = True
                 messages.append({"role": "user", "content": [{"text": (
@@ -1092,6 +1205,15 @@ def _execute_single_request(request, tool_specs, question, listener_id, tool_run
 
 
 def _execute_tool(name, args, listener_id, tool_runner, tool_specs=None):
+    """_run_tool, with the arguments and the time it took noted on the record (for the developer log)."""
+    started = time.time()
+    content, is_error, record = _run_tool(name, args, listener_id, tool_runner, tool_specs)
+    record["args"] = args if isinstance(args, dict) else None
+    record["ms"] = round((time.time() - started) * 1000)
+    return content, is_error, record
+
+
+def _run_tool(name, args, listener_id, tool_runner, tool_specs=None):
     """Validate and run one tool. Returns (content, is_error, record); never raises.
 
     A record with is_error is never spoken: a tool's own refusal (declined) is for the model to relay, and bad

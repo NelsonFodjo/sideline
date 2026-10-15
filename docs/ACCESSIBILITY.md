@@ -2,8 +2,8 @@
 
 This is a product for people who cannot see a screen. Rules we hold
 ourselves to, and the reasoning. The reasoning is ours; **it is not drawn
-from user research or cited sources**. One blind person has since tried the
-product informally and it worked (see the limits below).
+from user research or cited sources**. The team reports that one blind person has since
+tried the product informally (see the limits below).
 Where an automated test pins a rule it is named.
 
 | Rule | Pinned by a test? |
@@ -39,10 +39,10 @@ asks again rather than picking one. See [SPEECH.md](SPEECH.md).
 
 ## 1. The screen is never the only place a fact lives
 
-Tools declare a UI resource in `_meta` (the MCP Apps pattern, which the
-Alexa+ QuickStart mentions as optional): `get_match_state` a scoreboard
-card, `get_lineups` the eleven, catch-up a timeline. **Whether any Alexa+
-client renders these is unverified**; no participant can reach one.
+Tool results carry the data a screen could draw (`_meta.sideline.ui`: a scoreboard for `get_match_state`, the eleven for
+`get_lineups`, a timeline for catch-up, a table for `get_match_stats`). This is our own field, **not** an MCP Apps
+resource: the server does not serve one, and whether any Alexa+ client would render it is unverified, since no
+participant can reach one.
 
 **But every one of those facts is also in `spoken_text`.** The card is an
 enhancement for a sighted person in the room — a partner, a child, a
@@ -146,10 +146,10 @@ option (FR-01 in FEATURE_REQUESTS.md).
 
 Stated plainly, because a judge will ask.
 
-- **Tried by a blind person, and it worked.** A real microphone, spoken
-  questions and spoken answers. This first session confirms the approach
-  holds with a real listener; the next step is wider listening across a
-  full match and more people.
+- **One informal session with a blind listener, reported by the team.** A real microphone, spoken
+  questions and spoken answers. It is one person, with no notes or measurements kept, so it is an
+  encouraging first sign and not evidence; the next step is wider listening across a full match and
+  more people.
 - **English only in practice.** `translate()` exists and is wired into the
   catch-up, but no language other than English has been checked by a
   speaker for correctness or register, and it has never been called against

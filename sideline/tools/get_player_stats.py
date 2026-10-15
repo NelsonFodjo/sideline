@@ -4,6 +4,26 @@ from ..mcp.errors import ToolError
 from . import feed
 
 
+def _count(n, one, many):
+    return "no %s" % many if n == 0 else "%s %s" % (n, one if n == 1 else many)
+
+
+def _join(bits):
+    return ", ".join(bits[:-1]) + " and " + bits[-1] if len(bits) > 1 else bits[0]
+
+
+def _bits(s):
+    """The figures in `s` that the feed gave, each said as a person would (zero is "no goals", not left out)."""
+    bits = []
+    for key, one, many in (("starts", "start", "starts"), ("appearances", "appearance", "appearances"),
+                           ("goals", "goal", "goals"), ("points", "point", "points"), ("assists", "assist", "assists"),
+                           ("rebounds", "rebound", "rebounds"), ("steals", "steal", "steals"),
+                           ("blocks", "block", "blocks")):
+        if s.get(key) is not None:
+            bits.append(_count(s[key], one, many))
+    return bits
+
+
 def run(ctx, args, listener_id):
     player = (args.get("player") or "").strip()
     team = (args.get("team") or "").strip() or None
@@ -11,23 +31,12 @@ def run(ctx, args, listener_id):
     if not s:
         raise ToolError("I can't find season figures for %s." % player,
                         {"reason": "no_match", "player": player})
-    bits = []
-    if s.get("appearances") is not None:
-        bits.append("%s %s" % (s["appearances"], "appearance" if s["appearances"] == 1 else "appearances"))
-    if s.get("goals") is not None:
-        bits.append("%s %s" % (s["goals"], "goal" if s["goals"] == 1 else "goals"))
-    if s.get("points") is not None:
-        bits.append("%s %s" % (s["points"], "point" if s["points"] == 1 else "points"))
-    if s.get("assists") is not None:
-        bits.append("%s %s" % (s["assists"], "assist" if s["assists"] == 1 else "assists"))
-    if s.get("rebounds") is not None:
-        bits.append("%s %s" % (s["rebounds"], "rebound" if s["rebounds"] == 1 else "rebounds"))
-    if s.get("steals") is not None:
-        bits.append("%s %s" % (s["steals"], "steal" if s["steals"] == 1 else "steals"))
-    if s.get("blocks") is not None:
-        bits.append("%s %s" % (s["blocks"], "block" if s["blocks"] == 1 else "blocks"))
+    bits = _bits(s)
     if not bits:
         raise ToolError("I can't find season figures for %s." % player, {"reason": "no_match", "player": player})
     spoken = "%s%s this season: %s." % (s.get("name") or player, " for %s" % s["team"] if s.get("team") else "",
-                                       ", ".join(bits))
+                                       _join(bits))
+    country = s.get("international")
+    if country and any(country.values()):
+        spoken += " For his country: %s." % _join(_bits(country))
     return spoken, {"player": s, "generated_by": "template"}, None

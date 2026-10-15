@@ -118,7 +118,7 @@ tool(
     "What happened in a match",
     "What happened in a match that was played or is on (not one to come: get_match_preview): result, goals, assists, cards, substitutions, VAR. Say: 'what happened in the Celtic game', 'who scored', 'who got booked', 'anyone sent off', 'who came on'. Set `part` when they ask for one thing. Not who played (get_lineups); not what you missed (what_did_i_miss).",
     _obj({"fixture_id": _fixture,
-          "part": {"type": "string", "enum": ["all", "goals", "cards", "substitutions", "var"],
+          "part": {"type": "string", "enum": ["all", "goals", "cards", "substitutions", "var", "penalties"],
                    "description": "goals for 'who scored', cards for 'any cards' or 'sent off', substitutions for 'who came on', var for VAR. Omit only for the whole story."}}),
     output_hint="the result and goals, or one part in full: goals, cards, substitutions or VAR decisions",
 )
@@ -212,7 +212,7 @@ tool(
 tool(
     "get_player_context",
     "Who a player is",
-    "Who a player is and what he has done in this match. Say: 'who is he', 'what number is Saka', 'has he scored before' (pass 'he' as said). Not season totals (get_player_stats).",
+    "Who a player is and what he has done in this match. Say: 'who is he', 'what number is Saka', 'has he scored before' (pass 'he' as said). Not season totals (get_player_stats); not who someone is in general (get_player_profile).",
     _obj({"player": {"type": "string", "minLength": 2, "maxLength": 60,
                      "description": "Name as the listener said it; partial is fine. "
                                     "Or a bare pronoun - 'he', 'that player' - "
@@ -220,6 +220,40 @@ tool(
           "fixture_id": _fixture},
          ["player"]),
     output_hint="position, number, team, involvement in this match",
+)
+
+tool(
+    "get_player_profile",
+    "Who a player is",
+    "Who a player is, wherever he plays and whether or not a match is on: name, age, nationality, position, club. Say: 'tell me more about Nuno Mendes', 'who is Haaland', 'how old is Saka', 'where is he from'. Ask it first for any open question about a person. Not this season's goals (get_player_stats); not what he did in a match (get_player_context); not 'who is he' about the player just seen (get_player_context).",
+    _obj({"player": {"type": "string", "minLength": 2, "maxLength": 60,
+                     "description": "Full or partial name as the listener said it. Never a pronoun: use the name from the conversation."},
+          "team": {"type": "string", "maxLength": 60,
+                   "description": "His team, if known: several players can share a name."}},
+         ["player"]),
+    output_hint="name, age, nationality, position, club, shirt number, and what to ask next",
+)
+
+tool(
+    "get_news",
+    "The latest news",
+    "The latest headlines on a team, a competition, or football in general, from ESPN. Say: 'any news on PSG', 'what's the latest on Arsenal', 'football news', 'Champions League news'; with `which` for 'tell me about the second one'. Not scores or results (get_match_report); not who a player is (get_player_profile).",
+    _obj({"team": {"type": "string", "maxLength": 60, "description": "The team, if they named one."},
+          "competition": {"type": "string", "maxLength": 60, "description": "The competition, if they named one."},
+          "which": {"type": "integer", "minimum": 1, "maximum": 5,
+                    "description": "Only to hear more of one headline already read: 1 for the first."}}),
+    output_hint="the top three headlines, each with its age; or one headline's summary",
+)
+
+tool(
+    "get_standouts",
+    "Who stood out in a match",
+    "The players who did the most in a match, by what is counted: goals, assists, shots, saves. Say: 'who was the best player', 'who was the most dangerous', 'who played well', 'man of the match', 'who stood out'. It says plainly that there are no ratings. Not one named player (get_player_context); not the goals only (get_match_report).",
+    _obj({"fixture_id": _fixture, "team": _team,
+          "opponent": {"type": "string", "maxLength": 60, "description": "The other team, if they named it."},
+          "when": {"type": "string", "enum": ["last", "next", "yesterday", "today", "tomorrow"],
+                   "description": "Only if they said when."}}),
+    output_hint="up to four players with their goals, assists, shots or saves, and what it was ranked by",
 )
 
 tool(
@@ -367,13 +401,16 @@ tool(
 tool(
     "set_preferences",
     "How I like answers",
-    "How the listener likes answers, their preferred sport, and in which language. Say: 'keep it short', 'give me more detail', 'I follow basketball', 'I follow football', 'speak French', 'back to normal'.",
+    "How the listener likes answers, their preferred sport, and in which language. Say: 'keep it short', 'give me more detail', 'I follow basketball', 'I follow football', 'speak French', 'back to normal', 'forget everything about me'.",
     _obj({"detail": {"type": "string", "enum": ["brief", "normal", "full"],
                      "description": "How much to say."},
           "sport": {"type": "string",
                     "description": "The sport the listener is following, e.g. 'football', 'basketball', 'nfl', 'baseball', 'hockey'."},
           "language": {"type": "string", "maxLength": 30,
-                       "description": "The language to answer in, e.g. 'French'. 'English' to reset."}}),
+                       "description": "The language to answer in, e.g. 'French'. 'English' to reset."},
+          "forget": {"type": "string", "enum": ["everything"],
+                     "description": "'everything' erases all that is kept about the listener: the match they follow, "
+                                    "their teams, their settings and what they have heard. Only when they ask for it."}}),
     output_hint="what was remembered",
 )
 
@@ -408,7 +445,7 @@ TOOL_REQUIRES = {
     "get_lineups": "lineups", "get_player_context": "lineups", "get_officials": "officials",
     "get_head_to_head": "h2h", "get_match_stats": "stats", "get_injuries": "injuries",
     "get_team_form": "form", "get_standings": "standings", "get_top_scorers": "top_scorers",
-    "get_player_stats": "player_stats", "search": "search", "get_competitions": "competitions",
+    "get_player_stats": "player_stats", "get_player_profile": "player_profile", "get_news": "news", "get_standouts": "lineups", "search": "search", "get_competitions": "competitions",
     "get_squad": "squad", "get_team_stats": "team_stats", "get_match_report": "events",
 }
 

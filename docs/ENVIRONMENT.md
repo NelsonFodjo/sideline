@@ -35,11 +35,12 @@ has nothing to answer with and listener state is kept in memory.
 | `SIDELINE_LOG_DIR` | `logs` | Folder for daily log files (a text log and a JSON line per call); off disables. Git-ignored. |
 | `SIDELINE_LOG_KEEP_DAYS` | `14` | Days of log files to keep; older ones are deleted. |
 | `SIDELINE_ALLOWED_ORIGINS` | `localhost,127.0.0.1` | Browser origins allowed (DNS-rebinding guard). |
+| `SIDELINE_AUTH_TOKEN` | *(none)* | Secret, 16+ characters. When set, every route except `/health` and the simulator page needs `Authorization: Bearer <token>`. Set it before exposing the server. |
 | `AWS_REGION` | `us-east-1` | Region for Bedrock, DynamoDB and Polly. |
 | `AWS_ACCESS_KEY_ID` | *(none)* | AWS credentials (with the secret below). **Secret.** |
 | `AWS_SECRET_ACCESS_KEY` | *(none)* | AWS credentials (with the key id above). **Secret.** |
 | `SIDELINE_BEDROCK` | `auto` | auto (on when AWS credentials are present), on, or off. |
-| `SIDELINE_BEDROCK_MODEL` | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | Bedrock model or inference-profile id. |
+| `SIDELINE_BEDROCK_MODEL` | `amazon.nova-pro-v1:0` | Bedrock model or inference-profile id. |
 | `SIDELINE_STATE` | `auto` | auto (DynamoDB if it answers, else memory), memory, or dynamo. |
 | `SIDELINE_TABLE` | `sideline` | DynamoDB table name. |
 | `GROQ_API_KEY` | *(none)* | Groq API key for Whisper Large v3 Turbo speech-to-text (~200ms). **Secret.** |
@@ -51,7 +52,7 @@ has nothing to answer with and listener state is kept in memory.
 | `SIDELINE_POLLY_ENGINE` | `generative` | Polly engine: generative (most natural, falls back to neural) or neural. |
 | `SIDELINE_STT` | `auto` | Speech in: auto (Groq, then Voxtral/Sonic on Bedrock), groq, voxtral, sonic, or off. |
 | `SIDELINE_WEATHER` | `on` | on adds the weather at the ground to a match preview (city and country go to Open-Meteo); off does not. |
-| `SIDELINE_LIVE_CAPTION` | `browser` | browser types interim words while you speak (audio also reaches the browser vendor); off does not. |
+| `SIDELINE_LIVE_CAPTION` | `off` | browser types interim words while you speak (audio also reaches the browser vendor); off does not. |
 
 ## Notes
 

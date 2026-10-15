@@ -48,7 +48,7 @@ def test_conversational_bypass():
 def test_candidate_tool_selection():
     # Tier 2 Top-K Schema Pruning: Prunes 27 tools down to a core plus the best keyword matches
     all_tools = public_tools()
-    assert len(all_tools) == 27
+    assert len(all_tools) == 30
 
     # Query about referee
     ref_tools = agent._select_candidate_tools("who is refereeing?", all_tools)

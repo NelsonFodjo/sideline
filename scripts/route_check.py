@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Does Nova pick the right MCP tool? Real Nova, invented match data, no feed calls.
+"""Does the model pick the right MCP tool? Real Nova, invented match data, no feed calls.
 
     python3 scripts/route_check.py
 
@@ -22,10 +22,14 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 os.environ.setdefault("SIDELINE_PORT", "8797")
 os.environ.setdefault("SIDELINE_STATE", "memory")     # never write test listeners to a real table
 
-from conftest import FOOTBALL  # noqa: E402
+# Not `from conftest import FOOTBALL`: conftest switches Bedrock OFF as a side effect (it is for the unit tests), and a
+# check of what a real model does with the tools needs it on.
+FOOTBALL = os.path.join(ROOT, "tests", "fixtures", "football-arsenal-tottenham.json")
 from support import ReplayProvider  # noqa: E402
 
 from sideline import app  # noqa: E402
+
+PACE_SECONDS = 1.0                                            # between lines, so a whole run stays under the on-demand rate limit
 
 CASES = [
     ("Follow the Arsenal game", "follow_match"), ("I'm watching Arsenal against Spurs", "follow_match"),
@@ -67,30 +71,51 @@ CASES = [
     ("who scored in the Arsenal game", "get_match_report"), ("were there any cards in the Spurs game yesterday", "get_match_report"),
     ("who came on as a substitute in the Arsenal match", "get_match_report"),
     ("how did the Arsenal Lille game finish", "get_match_report"),
+    # Tools added later: who someone is, the news, and who stood out.
+    ("tell me more about Bukayo Saka", "get_player_profile"), ("who is Martin Odegaard", "get_player_profile"),
+    ("how old is Saka", "get_player_profile"), ("any news on Arsenal", "get_news"), ("what's the latest on Tottenham", "get_news"),
+    ("who was the best player", "get_standouts"), ("who was the most dangerous player in that match", "get_standouts"),
+    ("who played well", "get_standouts"),
 ]
 
 
 def main():
-    provider = ReplayProvider(FOOTBALL, speed=10000.0, start_minute=0)
+    provider = ReplayProvider(FOOTBALL, speed=0.0, start_minute=0)      # frozen: a running replay ends the match mid-check
     provider.jump_to(40)
     ctx, srv, _ = app.build(provider=provider)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     time.sleep(0.4)
     run = srv.agent_runner
     cases = CASES
-    wrong = []
+    wrong, unscored = [], []
     for i, (said, want, *setup) in enumerate(cases):
-        try:
-            for before in (setup[0] if setup else []):          # some lines only make sense after another
-                run(before, "route-%d" % i, 240, None)
-            got = [t["name"] for t in run(said, "route-%d" % i, 240, None)["tool_results"]]
-        except Exception as e:                                       # noqa: BLE001
-            got = ["error: %s" % type(e).__name__]
+        got = None
+        for attempt in range(4):                                     # a throttled call says nothing about routing: wait, retry
+            try:
+                if "--cold" not in sys.argv and not setup:           # --cold: nothing followed, as a first-ever question
+                    from sideline.tools import REGISTRY
+                    REGISTRY["follow_match"](ctx, {"team": "Arsenal"}, "route-%d-%d" % (i, attempt))
+                for before in (setup[0] if setup else []):          # some lines only make sense after another
+                    run(before, "route-%d-%d" % (i, attempt), None, None)
+                got = [t["name"] for t in run(said, "route-%d-%d" % (i, attempt), None, None)["tool_results"]]
+            except Exception as e:                                   # noqa: BLE001
+                got = ["error: %s" % type(e).__name__]
+            if got and got[0].startswith("error: AgentUnavailable") and attempt < 3:
+                time.sleep(8 * (attempt + 1))
+                continue
+            break
+        time.sleep(PACE_SECONDS)
+        if got and got[0].startswith("error: "):
+            unscored.append(said)                                    # still throttled after retries: not counted either way
+            print("  SKIP  %-46s %s" % (said, got), flush=True)
+            continue
         if want not in got:
             wrong.append((said, want, got))
             print("  MISS  %-46s wanted %-20s got %s" % (said, want, got), flush=True)
-    print("%d of %d routed to the right tool (all tools from MCP tools/list offered)"
-          % (len(cases) - len(wrong), len(cases)))
+    scored = len(cases) - len(unscored)
+    print("%d of %d routed to the right tool with %s (all tools from MCP tools/list offered)%s"
+          % (scored - len(wrong), scored, os.environ.get("SIDELINE_BEDROCK_MODEL", "the configured model"),
+             "; %d not scored (throttled)" % len(unscored) if unscored else ""))
     return 1 if wrong else 0
 
 

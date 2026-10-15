@@ -9,7 +9,8 @@ import datetime
 from conftest import make_ctx
 
 from sideline import clock, finder
-from sideline.language import agent, bedrock
+from simulator import agent
+from sideline.language import bedrock
 from sideline.mcp.errors import ToolError
 from sideline.providers.base import CAPABILITIES, Provider
 from sideline.state.store import Event

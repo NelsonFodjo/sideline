@@ -26,9 +26,9 @@ import datetime
 import math
 import time
 
-from . import clock, resolve
+from . import clock, names, resolve
 from .mcp.errors import ToolError
-from .status import CALLED_OFF, FINISHED
+from .status import CALLED_OFF, FINISHED, is_live
 
 WHENS = ("last", "next", "yesterday", "today", "tomorrow")
 FORK_MAX = 4                  # options read out; more than this is too many to hold in the head by ear
@@ -96,9 +96,19 @@ def kind(fx):
         return "played"
     if status in CALLED_OFF:
         return "off"
-    if (fx.get("minute") or 0) > 0:
+    if is_live(fx):
         return "live"
     return "coming"
+
+
+def _last_night(fx, tz, today):
+    """A match already played that kicked off in the small hours of today: last night to anyone who saw it, though the
+    calendar (the feed's UTC) calls it today. This is every US evening game for a listener in Europe or Africa."""
+    ko = clock.kickoff(fx)
+    if ko is None:
+        return False
+    local = ko + datetime.timedelta(minutes=int(tz or 0))
+    return local.date() == today and local.hour < 6
 
 
 def _local_day(fx, tz):
@@ -117,15 +127,15 @@ def candidates(ctx, ref, rec, tz):
             found.setdefault(fx["fixture_id"], fx)
 
     if ref.team:
-        data = None
+        data, has_schedules = None, True
         try:
             data = ctx.provider.team_matches(ref.team)
         except NotImplementedError:
-            pass
+            has_schedules = False
         if data:
             for fx in data["recent"] + data["upcoming"]:
                 add(fx)
-        else:                                                     # a feed that cannot look further
+        elif not has_schedules:                                   # a feed that cannot look further: scan the days near now
             for offset in (-1, 0, 1):
                 for fx in find_matches(ctx, ref.team, None, offsets=(offset,), tz=tz):
                     add(fx)
@@ -153,8 +163,15 @@ def _other_side_fit(fx, name):
     for side in (fx.get("home"), fx.get("away")):
         have = _words(side)
         if want and have:
-            best = max(best, 1.0 if " ".join(want) in " ".join(have) else resolve.similarity(want, have))
+            best = max(best, names.fit(want, have) or resolve.similarity(want, have))
     return best
+
+
+def _clearly_after(fx, first):
+    """Is this match well after the soonest one (half a day or more)? Two kick-offs on one evening are a real
+    ambiguity and are asked about; a match on Tuesday is not a rival to one on Saturday."""
+    a, b = clock.kickoff(fx), clock.kickoff(first)
+    return bool(a and b and (a - b).total_seconds() >= 12 * 3600)
 
 
 def score_all(cands, ref, followed, tz, now=None, discussed=None, preferred_sport=None):
@@ -176,7 +193,8 @@ def score_all(cands, ref, followed, tz, now=None, discussed=None, preferred_spor
                 continue
         if ref.date or ref.when in ("yesterday", "today", "tomorrow"):
             want = ref.date or today + datetime.timedelta(days={"yesterday": -1, "today": 0, "tomorrow": 1}[ref.when])
-            if _local_day(fx, tz) != want:
+            if _local_day(fx, tz) != want and not (ref.when == "yesterday" and not ref.date and k == "played"
+                                                   and _last_night(fx, tz, today)):
                 continue
         elif ref.when == "last" and k == "coming":
             continue
@@ -199,15 +217,20 @@ def score_all(cands, ref, followed, tz, now=None, discussed=None, preferred_spor
             s *= 1.0 if k == "live" else 1.0 / (1.0 + recency[fx["fixture_id"]] * (1.2 if any_live else 1.0))
         elif ref.when == "next":
             s *= 1.0 / (1.0 + ahead[fx["fixture_id"]])
-        else:                                                      # no time said: in play first, then nearest to now
+        elif k == "live":
+            pass                                                   # no time said: in play first
+        elif ref.prefers == "coming" and k == "coming" and _clearly_after(fx, coming[0]):
+            s *= 1.0 / (1.0 + ahead[fx["fixture_id"]]) ** 2          # "their injuries", "who is on": the next one, clearly
+        else:                                                      # then nearest to now
             ko = clock.kickoff(fx)
             days = abs((ko - now).total_seconds()) / 86400.0 if ko else 0.0
-            s *= 1.0 if k == "live" else max(FLOOR, math.exp(-days / DECAY_DAYS))
+            s *= max(FLOOR, math.exp(-days / DECAY_DAYS))
         if ref.prefers and k != "live" and k != ref.prefers:
             s *= MISMATCH
         if followed is not None and fx["fixture_id"] == followed:
             s *= FOLLOWED_LIFT
-        if discussed is not None and fx["fixture_id"] == discussed and not (ref.when or ref.date):   # a time they said wins
+        if (discussed is not None and fx["fixture_id"] == discussed and not (ref.when or ref.date)    # a time they said wins
+                and (not ref.prefers or k in (ref.prefers, "live"))):         # and a question about the future is not about last night
             s *= DISCUSSED_LIFT
         if preferred_sport:
             cand_sport = (fx.get("sport") or "football").lower()
@@ -262,7 +285,10 @@ def resolve_match(ctx, ref, rec, tz, question_hint=None):
         sports_in_picked = {f.get("sport") or "football" for f in picked}
         multi_sport = len(sports_in_picked) > 1
         options = ", or ".join("%d, %s" % (i + 1, say_option(f, tz, multi_sport=multi_sport)) for i, f in enumerate(picked))
-        lead = "I can see more than one %s match. Which one: " % ref.team if ref.team else "Which match do you mean: "
+        from .tools import _is_team
+        named = next((side for f in picked for side in (f.get("home"), f.get("away")) if side and ref.team and _is_team(side, ref.team)),
+                     ref.team)                                   # the team's real name, not the typo or nickname that was said
+        lead = "I can see more than one %s match. Which one: " % named if ref.team else "Which match do you mean: "
         raise ToolError("%s%s?" % (lead, options),
                         {"reason": "ambiguous", "candidates": picked, "fork": True})
     raise _nothing(ctx, ref, cands, tz)

@@ -1,6 +1,6 @@
 # The simulated Alexa+
 
-This page **simulates Alexa+**, the voice assistant that talks to the Sideline MCP server. While the real Alexa+ add-on tooling is partner-only, this simulator provides a production-grade demonstration: a hands-free voice client that continuously listens, lets an LLM (Anthropic Claude on Amazon Bedrock) select among the server's 27 MCP tools (`initialize`, `tools/list`, `tools/call`), and speaks natural answers out loud.
+This page **simulates Alexa+**, the voice assistant that talks to the Sideline MCP server. While the real Alexa+ add-on tooling is partner-only, this simulator provides a production-grade demonstration: a hands-free voice client that continuously listens, lets a model on Amazon Bedrock (Amazon Nova Pro by default) select among the server's 30 MCP tools (`initialize`, `tools/list`, `tools/call`), and speaks natural answers out loud.
 
 When you press **Go live**, the assistant introduces itself:
 > *"Hi, I'm a simulated Alexa+, connected to Sideline: an MCP server for live sports. I read real matches as they happen. I remember what you last heard, so just ask what did I miss. I stay behind your TV, so I won't spoil a goal. And you can talk over me. Which game are we following?"*

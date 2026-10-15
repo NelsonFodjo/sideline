@@ -45,7 +45,7 @@ access keys.
 ## Step 3: Bedrock model access
 
 Check that Anthropic Claude is available to your account in the region: console, Amazon Bedrock, Model catalog
-or Model access, and complete any first-use step shown. The default id is `us.anthropic.claude-sonnet-4-5-20250929-v1:0`.
+or Model access, and complete any first-use step shown. The default id is `amazon.nova-pro-v1:0` (Amazon Nova Pro).
 
 **Check it:** `make aws-check` runs a real call ("bedrock responds") and lists models you can use if the id is
 wrong. Set `SIDELINE_BEDROCK_MODEL` to change it.

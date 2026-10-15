@@ -45,7 +45,7 @@ class ProviderUnavailable(Exception):
 # separate matter: a refusal is spoken in the vendor's own words.)
 CAPABILITIES = ("fixtures", "events", "lineups", "officials", "h2h", "form", "stats",
                 "injuries", "search", "competitions", "standings", "top_scorers", "player_stats",
-                "team_matches", "team_stats", "squad")
+                "team_matches", "team_stats", "squad", "player_profile", "news")
 
 
 class Provider:
@@ -89,6 +89,14 @@ class Provider:
 
     def match_stats(self, fixture_id):
         """{team: {"possession": 62, "shots": 12, "shots_on_target": 6, "corners": 5, ...}}"""
+        raise NotImplementedError
+
+    def news(self, team=None, competition=None, limit=5):
+        """{"scope": what the headlines are about, "articles": [{"headline", "summary", "published" (ISO)}]} or None."""
+        raise NotImplementedError
+
+    def player_profile(self, player, team=None):
+        """{"name", "age", "nationality", "position", "team", "number", "honours": None or [titles]} or None."""
         raise NotImplementedError
 
     def player_stats(self, player, team=None):

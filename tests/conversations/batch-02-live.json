@@ -1,0 +1,22 @@
+[
+  {"say": "I've just tuned in to the Gangwon game. What's going on?",
+   "tool": "follow_match", "args": {"team": "Gangwon FC"}},
+  {"say": "Who's winning?",
+   "tool": "get_match_state", "args": {}},
+  {"say": "What did I miss?",
+   "tool": "what_did_i_miss", "args": {}},
+  {"say": "Who's actually playing for them?",
+   "tool": "get_lineups", "args": {"team": "Gangwon FC"}},
+  {"say": "Has anyone been booked yet?",
+   "tool": "get_match_report", "args": {"part": "cards"}},
+  {"say": "Who's the referee tonight?",
+   "tool": "get_officials", "args": {}},
+  {"say": "What is this competition, and how is the group going?",
+   "tool": "get_standings", "args": {"competition": "AFC Champions League Two", "team": "Gangwon FC"}},
+  {"say": "My stream's about forty seconds behind. Don't spoil anything for me.",
+   "tool": "sync_broadcast_delay", "args": {"offset_seconds": 40}},
+  {"say": "What's happening in the other game, Tai Po?",
+   "tool": "get_match_state", "args": {"team": "Tai Po FC"}},
+  {"say": "Right, back to my game. Anything new since I last asked?",
+   "tool": "what_did_i_miss", "args": {}}
+]

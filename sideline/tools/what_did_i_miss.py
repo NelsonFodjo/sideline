@@ -22,7 +22,7 @@ goal every time they ask.
 
 
 from .. import sports
-from ..mcp.errors import ToolError
+from ..mcp.errors import ERROR_SPOKEN, ToolError
 
 
 def long_absence_minutes(fx):
@@ -50,17 +50,15 @@ def _words(ctx, mode, events, fx, frm, to, away, language):
     except bedrock.BedrockUnavailable as e:
         # Say so. A canned answer here would be a confident guess about a match
         # the listener cannot see.
-        raise ToolError("The language model said: %s. Try again shortly." % e,
-                        {"reason": "language_unavailable", "problem": str(e)})
+        raise ToolError(ERROR_SPOKEN, {"reason": "language_unavailable", "problem": str(e)})
 
 
 def run(ctx, args, listener_id, agent_mode=False):
     from . import resolve_fixture
-    fx = resolve_fixture(ctx, args, listener_id)
+    fx = resolve_fixture(ctx, args, listener_id, followed_first=True)
     fid = fx["fixture_id"]
 
-    events, frm, to = ctx.store.gap_for(listener_id, fid,
-                                        since_minute=args.get("since_minute"))
+    events, frm, to = ctx.store.gap_for(listener_id, fid, since_minute=args.get("since_minute"))
 
     # Events that VAR later overturned are still told, but flagged - a
     # listener who heard the crowd needs to know it was chalked off.

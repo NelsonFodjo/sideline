@@ -10,6 +10,7 @@ No Bedrock - fast path, templated, under 300 ms.
 
 
 from .. import sports
+from ..status import FINISHED, has_started
 
 
 def run(ctx, args, listener_id):
@@ -19,12 +20,14 @@ def run(ctx, args, listener_id):
 
     # If the provider does not give a running card count, derive it from
     # our own event log. We have the cards; there is no reason to make
-    # the listener go without.
+    # the listener go without. A listener behind the feed always gets the log's count: the provider's is the feed's
+    # number now, and a card their screen has not shown yet would be a spoiler.
     sp = sports.for_fixture(fx)
     first = (sp.official_count_keys or [None])[0]
-    if first and o.get(first) is None:
+    if first and (o.get(first) is None or fx.get("broadcast_offset")):
         o.update(sp.official_counts(events_for(ctx, fx)))
 
+    o = dict(o, match_over=fx.get("status") in FINISHED, not_started=not has_started(fx))
     spoken = ctx.lang.templates.say_officials(o, fx)
     structured = {"fixture_id": fx["fixture_id"], "officials": o,
                   "generated_by": "template"}

@@ -35,6 +35,13 @@ Severity: **critical** blocks shipping · **important** costs real time ·
 | FL-18 | Run Bedrock Converse tool calls under multi-query loads | Nova Micro periodically failed immediately with `ServiceUnavailableException: Service capacity limit has been reached`, failing voice responses when retries were disabled for latency | important | Fast retry once after 0.6 s (`BUSY_RETRY_SECONDS`) exclusively for capacity and throttling errors; fail fast on timeouts | Document expected on-demand capacity limits for Nova models; guide builders to retry fast rejections but not timeouts in voice loops |
 | FL-19 | Cache static MCP tool catalog definitions across conversational turns | Bedrock Converse rejected a `cachePoint` placed inside `toolConfig.tools` with `ValidationException: extraneous key [cachePoint] is not permitted`, preventing caching of 7,800 tokens of tool definitions | nice-to-have | Return short tool outputs directly without LLM rephrasing; pre-warm connections at startup | Support prompt caching in `toolConfig.tools` on Nova Micro, or clarify allowed cachePoint placements in Converse docs |
 | FL-20 | Set up and run the service on Windows via quickstart scripts | `make run` failed with `make: command not found`; `./run.sh` hardcoded Unix `.venv/bin/python` causing it to fail on Windows (`Scripts/python.exe`), and CRLF line endings broke bash execution with `$'\r': command not found` | important | Updated `run.sh` to support Windows `Scripts/python.exe` and Unix `bin/python`; normalized line endings to LF; documented `python -m sideline` | Add `.gitattributes` to enforce `eol=lf` on shell scripts; make venv bootstrap scripts cross-platform aware; document Windows PowerShell run steps |
+| FL-21 | Allow exactly one attempt on a Bedrock or DynamoDB call, to keep a voice turn short | `retries={"max_attempts": 1}` was meant as "no retry"; botocore counts retries, so it makes **two** attempts | important | `retries={"total_max_attempts": 1}` | Name the setting for what it counts, or warn in the `Config` docs |
+| FL-22 | Run many Bedrock Converse calls back to back for an evaluation | A `ConnectTimeoutError` to `bedrock-runtime` mid-run, while a second evaluation shared the connection; the run then reported every case as "agent unavailable" | nice-to-have | Run evaluations one at a time; the agent reports the failure | Document connection and concurrency limits for Converse from one client |
+| FL-23 | List every football match on a day, across all competitions, from ESPN's public API | No documentation: the one request that does it, its silent 100-match cut-off, and the way to get upcoming fixtures were all found by probing | important | Probed and recorded in `docs/ESPN_NOTES.md` | Publish the endpoints, or at least the `limit` and `fixture=true` behaviour |
+| FL-24 | Write an MCP 2025-11-25 server by hand and check it against the spec | Review against the spec found eight deviations in our own server (session not required, version header unchecked, batches accepted, and more) | important | Seven fixed with a test each (`tests/test_fix_server.py`); the eighth (argument errors) still open | A runnable conformance check for a hand-written Streamable HTTP server |
+| FL-25 | Choose a Bedrock model to act as the host over a 30-tool MCP server | With the whole tool list offered, models answered with no tool, or the wrong one, on up to two thirds of 79 phrasings; the same runs were also throttled | important | Measured routing per model, a prompt that treats statements as requests, a shortlist, waiting and retrying on throttling | Guidance on tool-list size for a model host (FR-07), and published on-demand rate limits for Converse (FR-08) |
+| FL-26 | Keep a listener's state in DynamoDB and ask a first question from a region far from the table | One cold first question took 11 s, almost all of it 26 sequential table calls at about 340 ms each | important | Do independent calls at once, keep the server's own records while it is the only writer, ask for only what is needed | Document per-call latency from distant regions and a batch-get pattern for single-table designs |
+| FL-27 | Judge how fast a voice assistant feels, using our own simulated Alexa+ page | The page's end-of-speech wait depended on a browser feature that was off by default, so it ran at its slowest setting and was longer than the 0.70 s our docs stated; the simulator did not represent what we thought we were measuring | important | Start transcription during the quiet, send early on a finished sentence, make the default and the docs agree | A reference latency budget for a voice add-on, and a way to measure one end to end |
 
 ---
 
@@ -185,7 +192,7 @@ IAM permissions.
 
 ### FL-09 — Nova 2 Sonic is not in boto3, and its config cannot be built directly
 
-**Evidence** Sideline build, 2026-10-13, `sideline/voice.py`; numbers in [SPEECH.md](SPEECH.md).
+**Evidence** Sideline build, 2026-10-13, `simulator/voice.py`; numbers in [SPEECH.md](SPEECH.md).
 
 **Task** Stream a listener's audio to Nova 2 Sonic from a Python service and read the transcript back.
 **Steps** Tried the default boto3 Bedrock Runtime client; then the separate SDK; built its config.
@@ -369,7 +376,7 @@ test provider use memory state only, whatever `SIDELINE_STATE` says, with a test
 
 **Severity** important: turns failed randomly for the listener during active use.
 
-**What we did.** Added targeted retry logic in [`sideline/language/agent.py`](../sideline/language/agent.py): we wait 0.6 s (`BUSY_RETRY_SECONDS`) and retry once **only** for `ServiceUnavailableException` (capacity limit reached) and throttling exceptions (`ThrottlingException`). Any other error (including model timeouts) fails immediately to avoid keeping the voice listener waiting. Pinned in `tests/test_agent.py`.
+**What we did.** Added targeted retry logic in [`simulator/agent.py`](../simulator/agent.py): we wait 0.6 s (`BUSY_RETRY_SECONDS`) and retry once **only** for `ServiceUnavailableException` (capacity limit reached) and throttling exceptions (`ThrottlingException`). Any other error (including model timeouts) fails immediately to avoid keeping the voice listener waiting. Pinned in `tests/test_agent.py`.
 
 **Suggestion** Document whether capacity limits are expected on on-demand Nova models under modest burst traffic, and publish guidance on voice-optimized retry policies (retry instant capacity refusals, but fail fast on latency timeouts).
 
@@ -417,6 +424,132 @@ test provider use memory state only, whatever `SIDELINE_STATE` says, with a test
 **Suggestion** Add a `.gitattributes` file configuring `*.sh text eol=lf` so Git preserves Unix line endings on Windows checkouts; update setup scripts to accommodate Windows virtual environment directories (`Scripts/` vs `bin/`); and document native Windows PowerShell commands in the README quickstart alongside `make` and bash.
 
 ---
+
+### FL-21 — `max_attempts: 1` is two attempts
+
+**Evidence** Checked 2026-10-15 with botocore 1.43.111: `Config(retries={"max_attempts": 1})` reports `total_max_attempts: 2`; `{"total_max_attempts": 1}` reports 1.
+
+**Task** Allow a single attempt on a Bedrock Converse call and on the DynamoDB start-up probe, so a failure costs one timeout and the listener is not left waiting.
+
+**Steps** Set `retries={"max_attempts": 1}` on both clients, as the surrounding comments describe ("no retry"). A code review later asked what the settings do; we read the resulting client configuration.
+
+**Expected** One attempt, as the word suggests.
+
+**Actual** Two. `max_attempts` counts retries after the first attempt, so a Bedrock timeout of 8 s cost about 16 s and the start-up probe about 6 s plus connect time.
+
+**Severity** important: it doubles the worst-case wait on exactly the path (a voice turn) where waiting is least tolerable, and nothing fails visibly.
+
+**Workaround** `retries={"total_max_attempts": 1}`, in `sideline/language/bedrock.py`, `sideline/state/__init__.py` and `simulator/voice.py`.
+
+**Suggestion** Say in the `Config` documentation that `max_attempts` counts retries, or rename it; `total_max_attempts` is the clearer name.
+
+### FL-22 — A connection timeout makes every case in a long evaluation look like a product failure
+
+**Evidence** Observed 2026-10-15 while running `scripts/route_check.py` for two models at once: `botocore.exceptions.ConnectTimeoutError: Connect timeout on endpoint URL: "https://bedrock-runtime.us-east-1.amazonaws.com/model/.../converse"`.
+
+**Task** Compare how several Bedrock models choose among our 30 tools, 79 phrasings per model.
+
+**Steps** Ran one evaluation in the background and, while it was running, a second from the same machine to diagnose a result.
+
+**Expected** Both to run; or a clear statement of what concurrency a single client and account support.
+
+**Actual** The second run's first call failed to connect within the default connect timeout, and the product (correctly) reported "agent unavailable". Separately, a first version of the evaluation reported 0 of 71 correct for the same reason: Bedrock had been switched off by a test helper (our bug), which looked identical from outside.
+
+**Severity** nice-to-have: it cost time in diagnosis, not a failed answer.
+
+**Workaround** Run evaluations one at a time; log the underlying exception type next to "agent unavailable" (the developer log in the simulator now shows it).
+
+**Suggestion** Document the connection and concurrency expectations for Converse from one client, and make the default error text distinguish "could not connect" from "the model refused".
+
+### FL-23 — ESPN's public football API works well, but only if you already know how
+
+**Evidence** Probed live on 2026-10-15; the findings are recorded, with what we could and could not confirm, in [ESPN_NOTES.md](ESPN_NOTES.md). ESPN publishes no documentation for these endpoints; community lists exist and are cited there.
+
+**Task** Answer "what happened yesterday?" for any football competition ESPN covers, quickly.
+
+**Steps** Started from the per-league scoreboard URL (25 hard-coded leagues, one request each). A live AFC Champions League Two match was invisible because it was not on the list. Looked for a better endpoint.
+
+**Expected** A documented way to list a day's matches across competitions, and to find a team's next match.
+
+**Actual** `soccer/all/scoreboard?dates=...&limit=500` returns every competition in one request, but without `limit` it silently stops at 100 matches (135 on the day we measured). A team's schedule lists only played matches unless `?fixture=true` is added, and then lists only upcoming ones. A match event carries a league number, not a name: the names come from a separate `leagues/dropdown` request. Standings return an empty body under `/apis/site/v2/` and work under `/apis/v2/`. One question that took **116 requests and 18 s** now takes 3 requests and about 3 s.
+
+**Severity** important: every one of these cost real time, and a silent cut-off could have dropped matches from an answer without any error.
+
+**Workaround** The provider uses those endpoints, with tests built from saved real responses (`tests/test_fast_lookup.py`, `tests/fixtures/espn-*.json`).
+
+**Suggestion** Publish the endpoint list with its parameters. At minimum, document the default `limit`, make it a visible truncation (a `truncated` flag) instead of a silent one, and return the league's name on the event.
+
+### FL-24 — Writing a spec-conformant MCP server by hand: eight deviations that only a spec-versus-code review found
+
+**Evidence** `tests/test_fix_server.py` (raw-socket probes against an in-process server), commit history of 2026-10-15; the spec revision is 2025-11-25.
+
+**Task** Implement MCP over Streamable HTTP, revision 2025-11-25, with no SDK, so the server is self-hosted with no dependencies.
+
+**Steps** Built the server from the spec text; ran our own protocol tests, which passed; then reviewed every request path against the spec and probed it with hand-made requests.
+
+**Expected** Passing our own tests to mean the server conforms.
+
+**Actual** It did not: a session id was issued but not required afterwards; `MCP-Protocol-Version` was never validated; JSON-RPC batches (removed from the protocol) were still accepted; a bad argument came back as a protocol error where a tool-execution error lets the model correct itself; the Origin check ignored the port; a rejected request left its connection open, so a request hidden in the body ran without the check; `Content-Length: -1` blocked a thread; and the server advertised an MCP Apps capability it did not implement.
+
+**Severity** important: each is invisible to a happy-path test and is exactly what an independent client or reviewer would meet first.
+
+**Workaround** All eight are fixed, one test each. The last to go was the bad argument: it now comes back as a tool-execution error (`isError: true`, `structuredContent.reason: "invalid_arguments"`, the schema problem in the text) so a model can correct itself; an unknown tool or malformed params stay protocol errors. The official MCP Python SDK client was then run against the server and worked first time (`scripts/check_with_sdk.py`); no other independent client has been tried.
+
+**Suggestion** Publish a conformance check a server author can run (the transport, session, header and error rules), so "my tests pass" and "I follow the spec" are not the same unverified claim.
+
+### FL-25 — Choosing a model to route among 30 MCP tools: most of the early failures were not the model's
+
+**Evidence** Observed 2026-10-15 with `scripts/route_check.py` (79 phrasings, each with the tool it should reach), real Bedrock, invented match data; per-model figures in [BEDROCK.md](BEDROCK.md), "Model choice".
+
+**Task** Pick the Bedrock model that, given the whole tool list from `tools/list` (about 8,000 tokens), calls the right tool for what a listener says.
+
+**Steps** Ran the check on Nova Micro, Nova Pro, Claude Haiku 4.5 and Claude Sonnet 4.5; read each miss; changed the prompt and the tool descriptions; re-ran.
+
+**Expected** A strong model to route correctly most of the time with no help, and a miss to mean a model's mistake.
+
+**Actual** First run: Nova Pro 56 of 79, Sonnet 43, Haiku 34 (Micro 39 of an earlier 71), mostly because the model answered with no tool call. After a prompt change telling it to use a tool for any current fact: Pro 59, Sonnet 56, Haiku 53. Reading the misses showed three causes that were ours, not the models': a replay clock that ran the match to full time during the check, a timezone argument that moved the invented match out of "today", and a "did you mean" repair that turned the word "support" into "Porto" before the model saw it (a real bug that would also have hit a live listener). Bedrock also returned `ThrottlingException` on an on-demand account during back-to-back 79-call runs, which first counted as a miss. After the fixes and with throttled calls waited out and retried, Nova Pro reached 76 of 79.
+
+**Severity** important: it decides which model the product is shown with, and it nearly produced a wrong conclusion twice.
+
+**Workaround** Treat a miss as a prompt, description or harness problem first. The check now waits and retries on throttling, reports calls that never got an answer as not scored, and freezes the replay clock. The repair that mistook ordinary words for teams now ignores any word our own tool descriptions use (`tests/test_resolve.py`).
+
+**Suggestion** Say what tool-list size a model host is expected to handle and how a platform narrows it (FR-07); document the on-demand request limits for Converse and what a client should do on throttling (FR-08).
+
+### FL-26 — DynamoDB is fast, and 26 of it in a row is not
+
+**Evidence** Measured 2026-10-15 from Mauritius against a table in us-east-1 (on-demand, TTL on): `get_item` 340 ms, `put_item` 335 ms, `delete_item` 370 ms, each at the median. A profile of a cold first follow (every ESPN request and table call timed) is in the commit that fixed it.
+
+**Task** Follow a match as a new listener, and answer the first question quickly.
+
+**Steps** Ran the same conversation with state in memory (3.2 s for the follow tool) and in DynamoDB (11 s). Timed every call.
+
+**Expected** The table to add a few hundred milliseconds in all.
+
+**Actual** The follow made 26 table calls, one after another: a profile read, two writes for the profile and its follower marker, two for the fixture and its index, a query and a profile read per follower marker (stale markers left by earlier listeners each cost one read), and the event log read back repeatedly. At 340 ms each that was about 9 of the 11 seconds. A second, unrelated cost: the poller that the follow triggered also read every other match anyone followed, including one that needed a three-day sweep of every sport's scoreboard (24 requests).
+
+**Severity** important: the first question is the one a listener is waiting for.
+
+**Workaround** Independent writes and reads now run at the same time; the server's own records (not the live feed) are kept while this process is the only writer, and every write updates them; a new follow reads only the match it followed; a soccer match is found with one summary request instead of a scan; start-up opens the connections. The cold follow tool went from about 11 s to 4.5 s, and the first question with a model from 12.3 s to 6.3 s. The cost is that one server per table is the supported shape.
+
+**Suggestion** Say in the DynamoDB guidance what a call costs from a distant region and show the single-table patterns that avoid chains of dependent reads (batch get, parallel queries, a profile item that carries what a follow needs).
+
+### FL-27 — Our simulated assistant was slower than we said, because of a setting we did not know it depended on
+
+**Evidence** Found 2026-10-15 while reading the page's voice loop (`simulator/index.html`) to make it faster. [SPEECH.md](SPEECH.md) said the wait to be sure the listener had stopped was 0.70 s (`SILENCE_MS`).
+
+**Task** Trust the simulated Alexa+ as a stand-in for the real one when judging how quickly an answer arrives.
+
+**Steps** Followed what happens between the listener's last word and the first audio, and read the numbers in the docs against the code.
+
+**Expected** The wait to match the documented 0.70 s, and the page to behave the same whichever browser features were on.
+
+**Actual** The wait was 750 to 950 ms, chosen by how many words the *browser's* live caption had heard (fewer words, longer wait). With captions off, which is what the server's own default said (`SIDELINE_LIVE_CAPTION=off`; the settings table said `browser`, so the two disagreed), the page heard no words and always waited 950 ms. So the simulator was less accurate than we had said in two ways: it was slower than documented, and its speed depended on a browser feature that has nothing to do with Sideline or with Alexa+. The documented total therefore left out about a quarter of a second at best and more than that at worst. We have not measured by how much on a real microphone.
+
+**Severity** important: the product's whole promise is a conversation that feels natural and fast, and the stand-in used to judge it was misleading us about it.
+
+**Workaround** The page now starts transcribing after 320 ms of quiet while it keeps listening, drops the result if the listener carries on, and asks at once when the transcript is a finished sentence and the quiet has held. The agent is never started on a guess, because its tools change what the listener has been told. The captions setting now defaults to off in both the code and the settings table, and the adaptive wait no longer depends on it. A test (`tests/test_speculative_stt.py`) pins the shape of the logic; the effect on a real microphone has not been timed.
+
+**Suggestion** Publish a latency budget for a voice add-on (end of speech, recognition, tool calls, first audio) and a way to measure a turn end to end, so a team can tell whether a stand-in is faithful. Without one, "fast enough" is whatever our own page happens to do.
 
 ## Candidates: add an entry only if you actually hit it
 

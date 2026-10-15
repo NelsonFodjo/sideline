@@ -67,7 +67,7 @@ def main():
         assert spoken == ("The Premier League table: First, Arsenal, 20 points. Second, Tottenham, 18 points. "
                           "Third, Chelsea, 15 points. Fourth, Villa, 14 points. Fifth, Brighton, 12 points."), spoken
         spoken, _, _ = run(ctx, "get_standings", team="Everton")
-        assert spoken == "In the Premier League, Everton are sixth with 1 point from 8 games. Arsenal lead with 20.", spoken
+        assert spoken == "In the Premier League, Everton are sixth with 1 point from 8 games. Arsenal lead with 20 points.", spoken
         assert run(ctx, "get_standings", team="Arsenal")[0].startswith("In the Premier League, Arsenal are first with 20 points")
         assert declines(ctx, "get_standings", team="Nobody").detail["reason"] == "no_match"
         assert declines(ctx, "get_standings", competition="La Liga").spoken == "I can't see a table for La Liga."
@@ -120,9 +120,13 @@ def main():
 
         # ---------------------------------------------------------- the match, by the numbers
         spoken, s, _ = run(ctx, "get_match_stats")
-        assert spoken == ("Possession: Arsenal 62 percent, Tottenham 38 percent. Shots: Arsenal 12, Tottenham 5. "
-                          "On target: Arsenal 6, Tottenham 2. Corners: Arsenal 5, Tottenham 2. "
-                          "Fouls: Arsenal 9, Tottenham 11."), spoken
+        assert spoken == ("These are live numbers, a moment ahead of your picture. "      # the listener follows a match in play
+                          "Possession: Arsenal 62 percent, Tottenham 38 percent. "
+                          "Shots, with those on target in brackets: Arsenal 12 (6), Tottenham 5 (2). "
+                          "Corners: Arsenal 5, Tottenham 2. Fouls: Arsenal 9, Tottenham 11. "
+                          "The feed gives no expected goals for this match."), spoken
+        assert [r["metric"] for r in s["table"]][:3] == ["Possession (%)", "Total shots (on target)",
+                                                          "Expected goals (xG)"], s["table"]
         spoken, _, _ = run(ctx, "get_injuries")
         assert spoken == "Out for Arsenal: Gabriel Jesus (knee injury). Out for Tottenham: Cristian Romero (suspended).", spoken
         assert run(ctx, "get_injuries", team="Tottenham")[0] == "Out for Tottenham: Cristian Romero (suspended)."
@@ -134,7 +138,7 @@ def main():
         spoken, _, _ = run(ctx, "get_team_form")
         assert spoken == ("Arsenal recently: won, won, drew, lost, won. Tottenham recently: lost, drew, won, won, won."), spoken
         spoken, _, _ = run(ctx, "get_player_stats", player="Saka")
-        assert spoken == "Bukayo Saka for Arsenal this season: 9 appearances, 7 goals, 4 assists.", spoken
+        assert spoken == "Bukayo Saka for Arsenal this season: 9 appearances, 7 goals and 4 assists.", spoken
         assert declines(ctx, "get_player_stats", player="Nobody Atall").detail["reason"] == "no_match"
         print("ok  stats, injuries, form and a player's season, in words; a missing thing is said, not guessed")
 
@@ -164,14 +168,14 @@ def main():
         assert run(ctx, "set_preferences", language="English")[0] == "Okay, I'll answer in English."
         assert ctx.store.listener("ann")["language"] is None
         assert declines(ctx, "set_preferences").detail["reason"] == "needs_choice"
-        from sideline.language import agent
+        from simulator import agent
         assert "brief answers" in agent._preference(ctx, "ann") and agent._preference(ctx, "nobody") == ""
         print("ok  preferences are remembered, reach the agent's instructions, and 'English' resets the language")
 
         # ---------------------------------------------------------- what can you do
         spoken, s, _ = run(ctx, "get_capabilities")
         assert "league tables" in spoken and "remembering your teams" in spoken and "football" in s["sports"]
-        assert "get_standings" in s["tools"] and len(s["tools"]) == 27
+        assert "get_standings" in s["tools"] and len(s["tools"]) == 30
         print("ok  capabilities are read from the tools actually offered")
 
         # ---------------------------------------------------------- tools follow the feed
@@ -184,10 +188,10 @@ def main():
             core = {t["name"] for t in registry.public_tools(core_only=True)}
             assert core <= set(registry.CORE_TOOLS) and "get_match_stats" not in core and len(core) <= 11
             registry.limit_to(None)
-            assert len(registry.public_tools()) == 27 and len(registry.public_tools(core_only=True)) == 11
+            assert len(registry.public_tools()) == 30 and len(registry.public_tools(core_only=True)) == 11
         finally:
             registry.limit_to(None)
-        assert len(agent._bedrock_tools(registry.public_tools())) == 27
+        assert len(agent._bedrock_tools(registry.public_tools())) == 30
         print("ok  a feed without a capability does not offer its tools; the Nova host offers the complete MCP catalog")
 
         # ---------------------------------------------------------- a feed without it

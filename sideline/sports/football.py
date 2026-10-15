@@ -4,7 +4,7 @@ The phrasing here is what templates.py used to hold directly; it moved
 unchanged so existing behaviour and tests are the same.
 """
 
-from ..status import FINISHED
+from ..status import FINISHED, is_live
 from . import SportProfile, register
 
 
@@ -13,7 +13,7 @@ class Football(SportProfile):
     game = "match"
     domain = "football match"
     regulation_minutes = 90
-    all_kinds = ("goal", "card", "substitution", "var", "period")
+    all_kinds = ("goal", "card", "substitution", "var", "penalty", "period")
 
     score_kinds = ("goal",)
     review_kinds = ("var",)
@@ -38,20 +38,21 @@ class Football(SportProfile):
 
     recency = (("card", 2, "just booked"), ("goal", 3, "just scored"),
                ("substitution", 2, "just came on"),
-               ("var", 2, "just checked by VAR"))
+               ("var", 2, "just checked by VAR"), ("penalty", 3, "just took a penalty"))
     official_count_keys = ("yellows_shown", "reds_shown")
 
     # Goals and red cards are what changes a football match.
     def is_major(self, e):
         if e.get("kind") == "goal":
             return not e.get("superseded_by")
-        return e.get("kind") == "card" and e.get("colour") == "red"
+        return e.get("kind") == "penalty" or (e.get("kind") == "card" and e.get("colour") == "red")
 
     def key_events(self, events):
         # Goals first, then reds: the listener wants the score change first.
         goals = [e for e in events if e.get("kind") == "goal" and self.is_major(e)]
+        pens = [e for e in events if e.get("kind") == "penalty"]
         reds = [e for e in events if e.get("kind") == "card" and self.is_major(e)]
-        return goals + reds
+        return goals + pens + reds
 
     # ------------------------------------------------------- phrasing
     def when(self, minute, stoppage=0):
@@ -79,6 +80,8 @@ class Football(SportProfile):
         if status in ("HT",):
             return "Half time. %s." % score
         if minute <= 0:
+            if is_live(fixture):
+                return "%s, just under way." % score
             return self.not_started(fixture)
         return "%s, %d minutes in." % (score, minute)
 
@@ -90,6 +93,8 @@ class Football(SportProfile):
                 # The feed credits the team that benefits; the player is
                 # the one who put it into his own net.
                 return "%s scored an own goal %s" % (e.get("player") or "Someone", w)
+            if (e.get("detail") or "").lower() == "penalty":
+                return "%s scored a penalty %s" % (e.get("player") or "Someone", w)
             bits = ["%s scored %s" % (e.get("player") or "Someone", w)]
             if e.get("detail"):
                 # Only lowercase the first letter. Lowercasing the whole
@@ -111,9 +116,30 @@ class Football(SportProfile):
                 e.get("player") or "a substitute", e.get("player_off") or "someone", w)
         if kind == "var":
             return "VAR %s: %s" % (w, e.get("decision") or "checked")
+        if kind == "penalty":
+            return self._say_penalty(e, w)
         return "something happened %s" % w
 
+    def _say_penalty(self, e, w):
+        outcome, who, team = e.get("outcome"), e.get("player"), e.get("team")
+        if outcome == "awarded":
+            head = "%s were awarded a penalty %s" % (team, w) if team else "a penalty was awarded %s" % w
+            if who and e.get("conceded_by"):
+                return "%s, after %s was fouled by %s" % (head, who, e["conceded_by"])
+            if e.get("conceded_by"):
+                return "%s, after a foul by %s" % (head, e["conceded_by"])
+            return head
+        who = who or "the taker"
+        if outcome == "saved":
+            by = " by %s" % e["keeper"] if e.get("keeper") else ""
+            return "%s's penalty was saved%s %s" % (who, by, w)
+        if outcome == "missed":
+            return "%s missed a penalty %s" % (who, w)
+        return "%s's penalty, %s, %s" % (who, outcome or "taken", w)
+
     def say_lineups(self, lineups, team=None):
+        if not any(d.get("xi") for d in lineups.values()):
+            return "The line-ups aren't out yet. They usually come about an hour before kick-off."
         out = []
         for side, data in lineups.items():
             if team and team.lower() not in side.lower():
@@ -129,14 +155,22 @@ class Football(SportProfile):
 
     def say_officials(self, o):
         bits = []
+        over = o.get("match_over")
+        if o.get("not_started"):
+            return ("%s is refereeing." % o["referee"]) if o.get("referee") else "The referee hasn't been named yet."
         if o.get("referee"):
-            bits.append("%s is refereeing." % o["referee"])
+            bits.append("%s %s." % (o["referee"], "refereed" if over else "is refereeing"))
+        else:                                    # leaving it out would sound as if there were no referee to name
+            bits.append("The feed doesn't name the referee for this match.")
         y, r = o.get("yellows_shown"), o.get("reds_shown")
         if y is not None:
-            card_line = "%d yellow%s" % (y, "" if y == 1 else "s")
-            if r:
-                card_line += " and %d red" % r
-            bits.append("%s so far." % card_line)
+            if not y and not r:
+                card_line = "No cards"
+            else:
+                card_line = " and ".join(p for p in (
+                    "%d yellow%s" % (y, "" if y == 1 else "s") if y else "",
+                    "%d red%s" % (r, "" if r == 1 else "s") if r else "") if p)
+            bits.append("%s %s." % (card_line, "in the match" if over else "so far"))
         if o.get("assistants"):
             bits.append("Assistants: %s." % ", ".join(o["assistants"]))
         return " ".join(bits) or "No official details published."

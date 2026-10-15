@@ -31,6 +31,43 @@ import threading
 import time
 import uuid
 
+from .. import clock
+
+
+def event_key(event):
+    """What makes two events the same one: the minute and the stoppage minute, what kind, who, and the one detail that
+    tells apart two of a kind in a minute (a penalty's outcome, a card's colour, who came off, which free throw).
+    Without these, a second goal in stoppage time, a booking then a red, or free throw 2 of 2 were dropped as repeats."""
+    kind = event.get("kind")
+    detail = event.get("outcome") or event.get("colour") or event.get("player_off") or (
+        event.get("detail") if kind == "basket" else None)
+    return (event.get("minute"), event.get("stoppage") or 0, kind, event.get("player"), detail)
+
+
+# Fields a later read may fill in for an event already logged (the assist added a minute after the goal).
+_FILLED_LATER = ("assist", "reason", "keeper", "conceded_by")
+
+
+def backdate(event, live_minute, now=None):
+    """Estimate when an event we have only just fetched really happened, for the spoiler guard.
+
+    `at` is when we first saw it. For an event the poller catches as it happens that is accurate to a poll. For one
+    read late (a match followed at 60', a restart) every old event would look brand new and be held back for the
+    whole delay. A minute m event, read when the match is at minute M, happened at the latest M-m-1 whole minutes
+    ago, so `happened_by` records that: never earlier than the truth, so it can only hide too long, not spoil.
+    `at` itself is left alone: delay calibration (sync.py) reads it as "when we first logged this".
+    """
+    now = time.time() if now is None else now
+    behind = (live_minute or 0) - event["minute"] - 1
+    if behind > 0:
+        event["happened_by"] = min(event["at"], now - behind * 60)
+    return event
+
+
+def released_at(event):
+    """The moment the feed's version of this event is taken to have happened (see backdate)."""
+    return event.get("happened_by") or event["at"]
+
 
 def new_id(prefix):
     return "%s-%s" % (prefix, uuid.uuid4().hex[:8])
@@ -75,8 +112,6 @@ class Listener(dict):
             "offset_source": None,
             "offset_calibrated": False,
             "locale": None,
-            "history": [],
-            "topic": {},
         })
 
 
@@ -85,12 +120,19 @@ class Store:
 
     def listener(self, listener_id): raise NotImplementedError
     def save_listener(self, rec): raise NotImplementedError
+    def forget_listener(self, listener_id):
+        """Erase everything kept about a listener: the match followed, teams, settings, what they have heard."""
+        raise NotImplementedError
 
     def followers(self, fixture_id):
         """Listener ids following a fixture. A backend that cannot answer
         returns [] and the product still works."""
         return []
     def append_event(self, event): raise NotImplementedError
+    def append_events(self, events):
+        """Log several events. The same as appending each, and a backend may do them at once."""
+        for e in events:
+            self.append_event(e)
     def events(self, fixture_id): raise NotImplementedError
     def fixture(self, fixture_id): raise NotImplementedError
     def save_fixture(self, rec): raise NotImplementedError
@@ -118,18 +160,12 @@ class Store:
 
         # Never hand back an event the listener's picture has not reached.
         # Without this the catch-up itself becomes the spoiler.
-        ceiling = None
-        if rec.get("broadcast_offset"):
-            fx = self.fixture(fixture_id) or {}
-            ceiling = max(0, (fx.get("minute") or 0)
-                          - rec["broadcast_offset"] // 60)
+        events, floor = self.on_screen(fixture_id, rec.get("broadcast_offset"))
 
         out = []
         high = start
-        for e in self.events(fixture_id):
+        for e in events:
             if e["minute"] <= start:
-                continue
-            if ceiling is not None and e["minute"] > ceiling:
                 continue
             if e["id"] in told:
                 continue
@@ -137,7 +173,21 @@ class Store:
                 continue                    # half-time markers are not news
             out.append(e)
             high = max(high, e["minute"])
+        if floor is not None:
+            # An event still to reach their screen shares this minute or an earlier one: do not mark it as told.
+            high = min(high, max(start, floor - 1))
         return out, max(start, 0), high
+
+    def on_screen(self, fixture_id, offset, now=None):
+        """The events a listener `offset` seconds behind the feed has seen, and the minute of the earliest one still
+        to come (None when nothing is held back). An event is on their screen once `at + offset` has passed."""
+        events = self.events(fixture_id)
+        if not offset:
+            return events, None
+        now = time.time() if now is None else now
+        shown = [e for e in events if released_at(e) + offset <= now]
+        held = [e["minute"] for e in events if released_at(e) + offset > now]
+        return shown, (min(held) if held else None)
 
     def score_at(self, fixture_id, minute):
         """The score as it stood at a given minute.
@@ -199,6 +249,10 @@ class MemoryStore(Store):
             self._listeners[rec["listener_id"]] = rec
             return rec
 
+    def forget_listener(self, listener_id):
+        with self._lock:
+            self._listeners.pop(listener_id, None)
+
     def append_event(self, event):
         with self._lock:
             bucket = self._events.setdefault(event["fixture_id"], [])
@@ -206,9 +260,12 @@ class MemoryStore(Store):
             # re-reads an overlapping window every cycle and must not
             # create duplicates. Without this the listener is told about
             # the same goal four times.
-            key = (event["minute"], event["kind"], event.get("player"))
+            key = event_key(event)
             for e in bucket:
-                if (e["minute"], e["kind"], e.get("player")) == key:
+                if event_key(e) == key:
+                    for field in _FILLED_LATER:           # the feed fills details in after the event: keep them
+                        if event.get(field) and not e.get(field):
+                            e[field] = event[field]
                     return e
             bucket.append(event)
             bucket.sort(key=lambda e: (e["minute"], e["at"]))

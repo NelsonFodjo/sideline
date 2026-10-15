@@ -141,7 +141,7 @@ Measured on 2026-10-13, from the moment you stop talking to the first audio:
 
 | Stage | Before | After |
 |---|---|---|
-| Waiting to be sure you have stopped | 0.85 s | 0.70 s (`SILENCE_MS` in the simulator) |
+| Waiting to be sure you have stopped | 0.85 s | stated as 0.70 s, but the page actually waited 0.75 to 0.95 s (0.95 s with browser captions off): see FL-27. Now recognition starts after 0.32 s of quiet and a finished sentence is sent at once; not yet timed on a real microphone |
 | Speech recognition (Groq at the time; Voxtral is about 1.2 s) | 0.8 s | 0.8 s |
 | Nova agent (one or more tool calls) | 0.8 to 2.8 s | unchanged: the largest remaining cost, and the first turn is the slowest |
 | Polly speech (audio, then word marks) | 1.8 s | about 0.5 s: the two calls now run in parallel, and Polly is warmed at startup |

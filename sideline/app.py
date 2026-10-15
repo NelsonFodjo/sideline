@@ -3,12 +3,12 @@
 import logging
 import sys
 import threading
+import time
 
 from . import audit, language
 from .config import CONFIG, ConfigError  # noqa: F401  (ConfigError is part of this module's surface)
 from .mcp import registry
 from .mcp import server as mcp_server
-from .mcp.client import McpClient
 from .poller import Poller
 from .providers import build as build_provider
 from .state import build as build_store
@@ -68,75 +68,22 @@ def build(provider=None):
 
     run_tool = tool_runner(ctx)
 
-    def run_agent(question, listener_id, tz_offset_minutes=None, interrupted=None, tz_name=None):
-        from . import resolve
-        from .language.agent import AgentUnavailable, run as run_agent_turn
-
-        def run_agent_tool(name, args, tool_listener_id):
-            # Nova's tool calls go through our own /mcp endpoint, as an external
-            # client's would: the simulator really is an MCP client.
-            return bridge.call(name, args, tool_listener_id, agent=True)
-
-        # What did they mean? A short answer to a choice we just offered is
-        # snapped to the closest option, and a misheard name from this match is
-        # repaired, before the model ever sees it.
-        understood = resolve.understand(ctx, listener_id, question)
-        if understood.get("clarify"):
-            suggestion = understood["suggestion"]
-            resolve.BOOK.remember(listener_id, [
-                resolve.Item(suggestion, aliases=["yes", "yeah", "yep", "sure", "correct", "right", suggestion.lower()])
-            ])
-            clarify_text = "Did you mean %s?" % suggestion
-            return {
-                "text": clarify_text,
-                "generated_by": "typo-clarification",
-                "tool_results": [],
-                "understood": suggestion,
-                "heard": understood["heard"],
-                "understood_why": "typo_clarify",
-            }
-        if tz_offset_minutes is not None:
-            # Times are said in the listener's own clock, as the page reports it.
-            rec = ctx.store.listener(listener_id)
-            if rec.get("tz_offset_minutes") != tz_offset_minutes or rec.get("tz_name") != tz_name:
-                rec["tz_offset_minutes"] = tz_offset_minutes
-                rec["tz_name"] = tz_name
-                ctx.store.save_listener(rec)
-        try:
-            catalog = bridge.discover(listener_id)
-        except (OSError, RuntimeError, ValueError) as e:
-            raise AgentUnavailable("MCP tool discovery failed") from e
-        result = run_agent_turn(ctx, understood["agent_text"], listener_id, run_agent_tool,
-                                interrupted=interrupted,
-                                mcp_tools=catalog["tools"],
-                                mcp_instructions=catalog["instructions"])
-        resolve.learn(ctx, listener_id, result)
-        if understood["changed"]:
-            result["understood"] = understood["text"]
-            result["heard"] = understood["heard"]
-            result["understood_why"] = understood["why"]
-        return result
-
-    srv = mcp_server.serve(CONFIG.host, CONFIG.port, run_tool, resolve_listener,
-                           CONFIG.allowed_origins, agent_runner=run_agent)
-    bridge = McpClient(_local_url(srv.server_address))
-    from . import voice
-    srv.voice_hint = lambda listener_id: voice.vocabulary_hint(ctx, listener_id)
+    srv = mcp_server.serve(CONFIG.host, CONFIG.port, run_tool, resolve_listener, CONFIG.allowed_origins)
+    srv.auth_token = CONFIG.auth_token
+    simulator = _simulator()
+    if simulator:
+        simulator.attach(srv, ctx, token=CONFIG.auth_token)
     poller = Poller(ctx, CONFIG.poll_seconds)
     return ctx, srv, poller
 
 
-def _local_url(address):
-    """The /mcp URL this process can reach its own server on: the address it is bound to, or
-    loopback when it is bound to every interface."""
-    host, port = address[0], address[1]
-    if host in ("", "0.0.0.0"):
-        host = "127.0.0.1"
-    elif host == "::":
-        host = "::1"
-    if ":" in host:
-        host = "[%s]" % host
-    return "http://%s:%d/mcp" % (host, port)
+def _simulator():
+    """The simulated Alexa+ plug-in, if this checkout has it. The MCP server runs without it."""
+    try:
+        from simulator import host
+    except ImportError:
+        return None
+    return host
 
 
 def main():
@@ -146,19 +93,24 @@ def main():
         sys.exit("\n" + str(e) + "\n")
     poller.start()
     log = logging.getLogger("sideline")
-    from .voice import capabilities
-    caps = capabilities()
+    voice = _voice()
+    threading.Thread(target=_warm, args=(ctx,), daemon=True, name="sideline-warm").start()
     log.info("poll: every %ds while a match is in play (a match not yet started is checked every 5 minutes, a finished one once)",
              CONFIG.poll_seconds)
     log.info("provider=%s state=%s bedrock=%s",
              ctx.provider.name,
              type(ctx.store).__name__.replace("Store", "").lower(),
              "on" if language.bedrock.available() else "off")
-    log.info("voice: in=%s out=%s%s",
-             caps["stt"] or "browser", caps["tts"] or "browser",
-             (" (%s)" % caps["voice"]) if caps["tts"] else "")
-    threading.Thread(target=_warm, daemon=True, name="sideline-warm").start()
-    log.info("try:  open http://%s:%d/   (health: /health)", CONFIG.host, CONFIG.port)
+    if voice:
+        caps = voice.capabilities()
+        log.info("voice: in=%s out=%s%s",
+                 caps["stt"] or "browser", caps["tts"] or "browser",
+                 (" (%s)" % caps["voice"]) if caps["tts"] else "")
+        threading.Thread(target=voice.warm, daemon=True, name="sideline-warm-voice").start()
+    log.info("MCP endpoint: http://%s:%d/mcp   (health: /health)%s", CONFIG.host, CONFIG.port,
+             "   simulator: /" if voice else "")
+    if CONFIG.host not in ("127.0.0.1", "localhost", "::1") and not CONFIG.auth_token:
+        log.warning("listening beyond this machine with no SIDELINE_AUTH_TOKEN: anyone who can reach it can use it")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
@@ -168,6 +120,26 @@ def main():
         srv.server_close()
 
 
-def _warm():
-    from . import voice
-    voice.warm()
+def _voice():
+    try:
+        from simulator import voice
+    except ImportError:
+        return None
+    return voice
+
+
+def _warm(ctx):
+    """Open the connections the first question needs, before anyone asks (the first one is otherwise the slowest):
+    the feed's league names and today's matches, the state table, and the model client. Never raises."""
+    log = logging.getLogger("sideline")
+    started = time.time()
+    try:
+        warm = getattr(ctx.provider, "warm", None)
+        if warm:
+            warm()
+        ctx.store.listener("warm-up")                # one round trip: connection and credentials, for DynamoDB
+        if language.bedrock.available():
+            language.bedrock.client()
+        log.info("warm: ready in %.1fs", time.time() - started)
+    except Exception as exc:                         # noqa: BLE001
+        log.debug("warm-up skipped: %s", exc)

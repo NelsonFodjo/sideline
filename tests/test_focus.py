@@ -2,7 +2,9 @@
 
 from conftest import make_ctx
 
-from sideline.language import agent, bedrock
+from simulator import agent
+
+from sideline.language import bedrock
 from sideline.tools import REGISTRY
 
 

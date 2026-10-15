@@ -180,7 +180,7 @@ def _polly_client():
             return None
         _polly = boto3.client("polly", region_name=REGION,
                               config=BotoConfig(read_timeout=12, connect_timeout=3,
-                                                retries={"max_attempts": 2}))
+                                                retries={"total_max_attempts": 2}))
         LOG.info("polly ready: %s (%s) in %s", POLLY_VOICE, POLLY_ENGINE, REGION)
     return _polly
 
@@ -1015,7 +1015,7 @@ def _transcribe_voxtral(pcm_bytes, hint="", model=None):   # `hint` is accepted 
     try:
         if _voxtral is None:
             _voxtral = boto3.client("bedrock-runtime", region_name=REGION,
-                                    config=BotoConfig(read_timeout=12, connect_timeout=3, retries={"max_attempts": 1}))
+                                    config=BotoConfig(read_timeout=12, connect_timeout=3, retries={"total_max_attempts": 1}))
         used_stream = False
         text = ""
         usage = {}

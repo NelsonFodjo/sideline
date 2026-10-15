@@ -3,7 +3,7 @@
 The hackathon FAQ says a simulator counts as the track's client when it does
 initialize, tools/list and tools/call over Streamable HTTP. The agent used to run
 tools in-process, so nothing crossed the protocol. Now Nova's calls go through
-sideline/mcp/client.py to this server's own /mcp, as an external client's would.
+simulator/mcp_client.py to this server's own /mcp, as an external client's would.
 This starts a real server and drives the client against it.
 """
 
@@ -12,9 +12,9 @@ import threading
 from conftest import make_ctx
 
 from sideline.app import resolve_listener, tool_runner
-from sideline.language.agent import _bedrock_tools, _model_schema
+from simulator.agent import _bedrock_tools, _model_schema
 from sideline.mcp import server as mcp_server
-from sideline.mcp.client import McpClient
+from simulator.mcp_client import McpClient
 from sideline.mcp.errors import InvalidParams, ToolError
 
 
@@ -56,8 +56,8 @@ def main():
         # arguments are validated by the server, over the protocol
         try:
             client.call("get_event_detail", {"minute": "forty"}, "ann")
-        except InvalidParams:
-            pass
+        except ToolError as e:                                  # MCP-09: a tool error the model can correct, not a protocol error
+            assert e.detail["reason"] == "invalid_arguments", e.detail
         else:
             raise AssertionError("expected the arguments to be refused")
         print("ok  a declined tool is a ToolError with its detail; bad arguments are refused by the server")

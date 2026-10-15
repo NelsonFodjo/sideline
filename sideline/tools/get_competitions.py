@@ -13,7 +13,7 @@ def run(ctx, args, listener_id):
         raise ToolError("I can't see any competitions%s on this feed." % (" in %s" % country if country else ""),
                         {"reason": "no_match", "country": country})
     shown = comps[:LISTED]
-    names = ["%s (%s)" % (c["name"], c["country"]) if c.get("country") else c["name"] for c in shown]
+    names = ["%s (%s)" % (c["name"], c["country"]) if c.get("country") and not country else c["name"] for c in shown]
     spoken = "I can cover %s%s: %s." % (
         "%d competitions" % len(comps) if len(comps) > 1 else "one competition",
         " in %s" % country if country else "", ", ".join(names))

@@ -10,7 +10,7 @@ import wave
 
 from conftest import make_ctx
 
-from sideline import voice
+from simulator import voice
 from sideline.state.store import Event
 from sideline.tools import REGISTRY
 

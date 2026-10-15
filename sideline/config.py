@@ -21,6 +21,7 @@ VARIABLES = [
     # The server
     ("SIDELINE_HOST", False, "127.0.0.1", "Interface to bind"),
     ("SIDELINE_PORT", False, "8765", "Port"),
+    ("SIDELINE_AUTH_TOKEN", True, "", "When set (16+ characters), every request except /health and the simulator page must send `Authorization: Bearer <token>`. Set it before exposing the server beyond this machine"),
     ("SIDELINE_LOG", False, "INFO", "Log level"),
     ("SIDELINE_LOG_DIR", False, "logs", "Folder for daily log files (a text log and a JSON line per call); off disables. Git-ignored"),
     ("SIDELINE_LOG_KEEP_DAYS", False, "14", "Days of log files to keep; older ones are deleted"),
@@ -30,7 +31,7 @@ VARIABLES = [
     ("AWS_ACCESS_KEY_ID", True, "", "AWS credentials (with the secret below)"),
     ("AWS_SECRET_ACCESS_KEY", True, "", "AWS credentials (with the key id above)"),
     ("SIDELINE_BEDROCK", False, "auto", "auto (on when AWS credentials are present), on, or off"),
-    ("SIDELINE_BEDROCK_MODEL", False, "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "Bedrock model or inference-profile id"),
+    ("SIDELINE_BEDROCK_MODEL", False, "amazon.nova-pro-v1:0", "Bedrock model or inference-profile id"),
     ("SIDELINE_STATE", False, "auto", "auto (DynamoDB if it answers, else memory), memory, or dynamo"),
     ("SIDELINE_TABLE", False, "sideline", "DynamoDB table name"),
     # Voice, for the simulator
@@ -43,7 +44,7 @@ VARIABLES = [
     ("SIDELINE_POLLY_ENGINE", False, "generative", "Polly engine: generative (most natural, falls back to neural) or neural"),
     ("SIDELINE_STT", False, "auto", "Speech in: auto (Voxtral, then Nova Sonic, on Bedrock), voxtral, sonic, or off"),
     ("SIDELINE_WEATHER", False, "on", "on adds the weather at the ground to a match preview (city and country go to Open-Meteo); off does not"),
-    ("SIDELINE_LIVE_CAPTION", False, "browser", "browser types interim words while you speak (audio also reaches the browser vendor); off does not"),
+    ("SIDELINE_LIVE_CAPTION", False, "off", "browser types interim words while you speak (audio also reaches the browser vendor); off does not"),
 ]
 
 _ON = ("1", "true", "yes", "on")
@@ -120,6 +121,9 @@ class Config:
         if self.state not in STATES:
             errors.append("SIDELINE_STATE must be one of %s, not %r" % (", ".join(STATES), self.state))
             self.state = "memory"
+        self.auth_token = os.environ.get("SIDELINE_AUTH_TOKEN", "").strip()
+        if self.auth_token and len(self.auth_token) < 16:
+            errors.append("SIDELINE_AUTH_TOKEN must be at least 16 characters (try: python3 -c \"import secrets; print(secrets.token_urlsafe(32))\")")
         self.table = os.environ.get("SIDELINE_TABLE", "sideline")
         self.region = os.environ.get("AWS_REGION", "us-east-1")
 

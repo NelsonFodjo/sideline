@@ -44,7 +44,7 @@ the hackathon FAQ says they are partner-only.
 quick. Discovering that none of the tooling is reachable took the FAQ.
 
 **Would we build with it again?** Yes. The tool rules are the best part of the docs and shaped how we split
-Sideline into single-purpose tools (twenty-seven now). We would build on it as soon as the toolkit is open to everyone, and we
+Sideline into single-purpose tools (thirty now). We would build on it as soon as the toolkit is open to everyone, and we
 would be glad to test it. Until then we can only build to the documented requirements.
 
 ## 2. Model Context Protocol, spec 2025-11-25, Streamable HTTP
@@ -75,11 +75,11 @@ dependencies to install.
 **Used for** Composing the catch-up paragraph, long-absence milestones and
 translation ([sideline/language/bedrock.py](../sideline/language/bedrock.py)), and
 as the voice agent that chooses tools through Converse tool use
-([sideline/language/agent.py](../sideline/language/agent.py)). Guarded: a generated
+([simulator/agent.py](../simulator/agent.py)). Guarded: a generated
 scoreline that disagrees with the real one is refused (tested in
 `tests/test_language.py`).
 
-**Status: verified on one account, not exhaustively.** The default production model is **Anthropic Claude Sonnet** (`us.anthropic.claude-sonnet-4-5-20250929-v1:0`), with tested support for **Amazon Nova Micro / Lite** (`amazon.nova-micro-v1:0`, `amazon.nova-lite-v1:0`). `make aws-check` on 2026-10-13 confirmed Bedrock response, agent tool use and a live catch-up. Calls take about 1.5 to 2.1 s.
+**Status: verified on one account, not exhaustively.** The default model is **Amazon Nova Pro** (`amazon.nova-pro-v1:0`); Anthropic Claude Sonnet 4.5 and Haiku 4.5 and Amazon Nova Micro and Lite were also run (see BEDROCK.md, "Model choice"). `make aws-check` on 2026-10-13 confirmed Bedrock response, agent tool use and a live catch-up. Calls take about 1.5 to 2.1 s.
 
 **Observed, hands-on:** the credentials in use were a Bedrock **API key**,
 which AWS backs with an IAM user (`BedrockAPIKey-...`). That user could
@@ -90,7 +90,11 @@ Bedrock API key gets you to a first answer quickly, but it is not a
 credential for the rest of an AWS build. We did not find that stated where the key is created, and we only
 learned it when DynamoDB refused us. A one-line note there would have saved us time.
 
-**What worked well** Anthropic Claude on Bedrock provides exceptional tool-calling precision across 27 tools, never hallucinating arguments or inventing scores, and adheres strictly to our 20-word voice constraint. Amazon Nova provides a lightweight, cost-effective alternative for simpler turns. Converse tool use worked cleanly: the model read our MCP tool schemas and picked the right tool without phrase-to-tool hardcoding.
+**What worked well** Converse tool use worked cleanly: a model read our MCP tool schemas and called our tools with no phrase-to-tool
+hardcoding. On a 79-phrasing routing check with all 30 tools offered, Nova Pro called the intended tool on 77 (97%) after our
+prompt and harness fixes; Claude Sonnet 4.5 and Haiku 4.5 scored 56 and 53 at the stage where Nova Pro scored 59 (figures
+and caveats in BEDROCK.md). We did not measure hallucinated arguments as such; every answer is also checked against the
+real score, and a fact the model tries to give without calling a tool is sent back to the tools.
 **What needs work** Smaller models will sometimes write a wrong scoreline or refuse, so we check every answer
 against the real score and retry once. A built-in way to constrain output to given facts would make that guard
 unnecessary. The access flow could say more plainly which models are ready to use on a new account.
@@ -126,13 +130,19 @@ Setup note: before this, the IAM user was denied `ListTables`; a policy
 log and expiry. A restart no longer loses what someone has been told, which is the whole point of the product.
 **What needs work** The float error is the sort of thing that only appears against a real table, because local
 fakes accept floats. Documenting it next to the first `put_item` example would save the next person an hour.
+**Latency, measured 2026-10-15 from Mauritius:** a `get_item` or `put_item` took about 340 ms at the median. A cold first
+question made 26 of them in a row and took 11 s; doing independent calls together, reading only what a follow needs and
+keeping the server's own records while it is the only writer brought the tool to 4.5 s (FL-26). **What needs work:** the
+guidance does not say what a call costs from a distant region, or show patterns (batch get, parallel queries) that avoid
+chains of dependent reads. We also removed the conversation from the table: it was a whole-profile read and write on every
+turn, and verbatim questions did not need to be stored.
 **Onboarding** Short once the IAM policy was right. The `ListTables` denial was the only stumble.
-**Would we build with it again?** Yes. It is the right size for per-listener state.
+**Would we build with it again?** Yes. It is the right size for per-listener state, as long as the calls that matter are made together.
 
 ## 5. Amazon Polly (speech out), and Amazon Transcribe (tried, not used)
 
 **Used for** Polly: speech out with word-level speech marks
-([sideline/voice.py](../sideline/voice.py)). Transcribe was tried for speech in and
+([simulator/voice.py](../simulator/voice.py)). Transcribe was tried for speech in and
 removed.
 
 **Status: Polly verified, Transcribe blocked.** On 2026-10-13 a real Polly
@@ -158,7 +168,7 @@ account needed.
 ### 5a. Amazon Bedrock, Mistral Voxtral Small (speech in, first choice)
 
 **Used for** Hearing the listener: the clip is sent through Converse as an audio block and the words come back
-([sideline/voice.py](../sideline/voice.py)). It is the first speech-in model, so the listener's audio never leaves the AWS
+([simulator/voice.py](../simulator/voice.py)). It is the first speech-in model, so the listener's audio never leaves the AWS
 account. Full numbers and method: [SPEECH.md](SPEECH.md); the story is FL-15 in [FRICTION_LOG.md](FRICTION_LOG.md).
 
 **What worked well** On 48 Polly-spoken clips, clean and noisy, it measured 0.0% word error clean and 1.4% in noise, 47 of 48
@@ -194,7 +204,7 @@ tool list is the whole prompt.
 
 ### 5c. Amazon Bedrock, Titan Text Embeddings v2 (tried, not used)
 
-**Tried for** choosing which of 27 tools to show the model: embed the question and each tool's documented phrasings, offer the
+**Tried for** choosing which of the tools to show the model: embed the question and each tool's documented phrasings, offer the
 nearest few. It runs on the account with no extra setup (`amazon.titan-embed-text-v2:0`, 256 dimensions, normalised). On 47
 questions written to avoid the words in the tool descriptions it put the right tool in the top 8 for 42 of 47, about 0.5 s a
 question warm; combined with word matching, 44 of 47. Too many misses to use as a filter and too slow to add to every turn, so
@@ -204,7 +214,7 @@ we use it again?** For a much larger tool list, or as a suggestion to the model,
 
 ### 5b. Amazon Bedrock, Nova 2 Sonic (speech in, fallback)
 
-**Used for** Hearing the listener when Voxtral cannot ([sideline/voice.py](../sideline/voice.py)): audio streamed in,
+**Used for** Hearing the listener when Voxtral cannot ([simulator/voice.py](../simulator/voice.py)): audio streamed in,
 transcript read back. Full numbers and method: [SPEECH.md](SPEECH.md).
 
 **Status: verified with real calls, 2026-10-13.** From the Polly-spoken test
@@ -240,10 +250,10 @@ is about three times slower than Voxtral (we stream 2 s of silence so it knows t
 transcription mode, with no silence to wait for, would make it the obvious default. The SDK also said "awscrt is not
 installed" when it was, on a new Python (FL-16).
 
-## 6. Sportmonks (live football data): hands-on findings
+## 6. Sportmonks (our first live football feed, replaced by ESPN on 2026-10-14): hands-on findings
 
 **Used for** Today's fixtures, live events, line-ups, the referee, head to head, tables, statistics and a player's
-season ([sideline/providers/sportmonks.py](../sideline/providers/sportmonks.py)). Run against the live service on
+season (`sideline/providers/sportmonks.py`, removed 2026-10-14 when ESPN replaced it; it is in the git history). Run against the live service on
 2026-10-13 on the **Free plan** (four leagues, 180 calls an hour), on a real finished match.
 
 **Added after a conversation with a real listener's questions (2026-10-14).** Three more reads, all on the free plan, all
@@ -271,6 +281,32 @@ and who went off, goals name the assist and the running score, and VAR decisions
 **Onboarding** Quick once the token existed; the docs are open without an account, which helped.
 **Would we use it again?** Yes for a hackathon-sized project: the hourly limit cannot be spent in a day the way a daily
 one can (FL-14).
+
+## 6a. ESPN's public API (the live data now: unofficial, no key)
+
+**Used for** Every score, event, line-up, table, schedule, player profile and headline in the product (`sideline/providers/espn.py`).
+It replaced Sportmonks on 2026-10-14. It is **not** an Amazon product and ESPN offers no documentation, support or
+service level for it, so this section is feedback for anyone choosing it, not a request to ESPN.
+
+**What worked well** One request lists every football match in every competition on a day (`soccer/all/scoreboard`); the match
+summary carries events, commentary, rosters with per-player numbers and a box score; no account, no key, no quota we hit.
+Answers came back in 0.4 to 1.5 s. The data was good enough to be checked against itself: two endpoints disagreed once
+about a live match, which is how we learned to read the live minute from the match's own summary.
+
+**What needs work** (each is in the friction log, FL-23, or in [ESPN_NOTES.md](ESPN_NOTES.md), with what we verified)
+- No documentation: the one-request day list, its silent cut-off at 100 matches, the way to get a team's *upcoming* matches, and
+  the empty standings under one path were all found by probing. A schedule's clock for a match in play can be stale.
+- Several things we wanted are simply not in the feed: expected goals, player ratings, a player's honours, a referee's name
+  for many matches, an injury report that distinguishes "none" from "not tracked". Our answers say so.
+- Hockey, NFL and basketball events come as plays in a different shape from football's key events, so those sports'
+  match reports are thinner.
+- It can change without notice. We cache, share simultaneous requests, report an unreachable feed as an error, and keep
+  saved real responses as test fixtures, so a change shows up as a failing test.
+
+**Onboarding** About an hour to the first answer; two days to know the traps above, most of it in the first day.
+
+**Would we build on it again?** For a hackathon, yes: nothing else gave this much, this fast, with no key. For a product, no:
+we would license a feed with a contract. The provider interface (`sideline/providers/base.py`) is why that swap would be small.
 
 ## 7. Devpost and the hackathon materials
 

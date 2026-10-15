@@ -19,7 +19,8 @@ import urllib.request
 from conftest import make_ctx
 
 from sideline import audit, envfile
-from sideline.app import _local_url, resolve_listener, tool_runner
+from sideline.app import resolve_listener, tool_runner
+from simulator.host import local_url as _local_url
 from sideline.config import Config, ConfigError
 from sideline.mcp import registry
 from sideline.mcp import server as mcp_server
@@ -287,7 +288,7 @@ def check_tools(port):
         pass
     code, doc, _ = rpc(port, sid, "tools/call", {"name": "set_favourites",
                                                  "arguments": {"teams": ["T%d" % i for i in range(50)]}})
-    assert doc["error"]["code"] == -32602, doc
+    assert doc["result"]["isError"] and doc["result"]["structuredContent"]["reason"] == "invalid_arguments", doc
     print("ok  MCP-10 maxItems is enforced (set_favourites with 50 teams refused)")
 
     # MCP-15: a tool hidden from tools/list does not answer tools/call
@@ -302,7 +303,7 @@ def check_tools(port):
 
 
 def check_agent_context(port):
-    from sideline import voice
+    from simulator import voice
     logging.getLogger("sideline.mcp").setLevel(logging.CRITICAL)   # the failures below are on purpose
     real = voice.transcribe
     voice.transcribe = lambda audio, mime, hint="": {"provider": "test", "text": SEEN.get("next", "score?")}
@@ -391,6 +392,35 @@ srv_sessions = None
 srv_ref = None
 
 
+def check_auth(srv, port):
+    """SIDELINE_AUTH_TOKEN: off by default; when set, every route but /health needs `Authorization: Bearer <token>`."""
+    assert init(port)[0] == 200, "no token configured: open, as before"
+    srv.auth_token = "t" * 20
+    try:
+        good = {"Authorization": "Bearer " + "t" * 20}
+        body = {"jsonrpc": "2.0", "id": 1, "method": "initialize"}
+        code, _, hdr = http(port, "POST", "/mcp", body)
+        assert code == 401 and hdr.get("WWW-Authenticate", "").startswith("Bearer"), (code, hdr)
+        for bad in ("Bearer nope", "Bearer " + "t" * 19, "Basic " + "t" * 20, "t" * 20, ""):
+            assert http(port, "POST", "/mcp", body, {"Authorization": bad})[0] == 401, bad
+        assert http(port, "POST", "/mcp", body, good)[0] == 200
+        for method, path in (("GET", "/mcp"), ("DELETE", "/mcp"), ("POST", "/agent/chat"), ("POST", "/voice/tts"),
+                             ("GET", "/voice/capabilities")):
+            assert http(port, method, path, None)[0] == 401, (method, path)
+        assert http(port, "GET", "/health", None)[0] == 200, "/health stays open for a load balancer"
+        print("ok  SIDELINE_AUTH_TOKEN: a bearer token is required on /mcp, /agent and /voice, never on /health")
+    finally:
+        srv.auth_token = ""
+
+    from sideline.config import Config
+    os.environ["SIDELINE_AUTH_TOKEN"] = "short"
+    try:
+        assert any("SIDELINE_AUTH_TOKEN" in e for e in Config().errors), "a short token is refused at startup"
+    finally:
+        del os.environ["SIDELINE_AUTH_TOKEN"]
+    print("ok  a token shorter than 16 characters stops the server from starting")
+
+
 def main():
     global srv_sessions, srv_ref
     check_session_table()
@@ -400,6 +430,7 @@ def main():
     try:
         check_body_guard(port)
         check_origins(port)
+        check_auth(srv, port)
         check_sessions_and_versions(port)
         check_event_stream(port)
         check_tools(port)

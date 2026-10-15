@@ -78,7 +78,7 @@ provider now uses memory state only, whatever `SIDELINE_STATE` says, so that can
 
 ## Tried and rejected: choosing tools before the model
 
-With 27 tools a small model routes worse, and every tool costs about 200 tokens in every request. So we tried retrieval:
+With 30 tools a small model routes worse, and every tool costs about 200 tokens in every request. So we tried retrieval:
 show Nova only the tools that could plausibly answer. Measured on 47 questions **written to avoid the words in the tool
 descriptions** ("gaffer", "armband", "anyone hurt", "who's blowing the whistle"):
 

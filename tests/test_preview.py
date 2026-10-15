@@ -74,7 +74,8 @@ def main():
         live = make_ctx(start_minute=40)
         REGISTRY["follow_match"](live, {"team": "Arsenal"}, "bob")
         spoken, _, _ = preview(live, "bob")
-        assert "Kick-off" not in spoken and "40 minutes in" in spoken, spoken
+        # a follower has the default 45 s delay, so their picture is a minute behind the feed's 40'
+        assert "Kick-off" not in spoken and "39 minutes in" in spoken, spoken
         print("ok  a match under way is described live")
 
         # follow_match itself is short and carries no id either.

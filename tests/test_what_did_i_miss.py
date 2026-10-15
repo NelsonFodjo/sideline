@@ -14,12 +14,19 @@ def _run(ctx, name, **args):
     return REGISTRY[name](ctx, args, L)
 
 
+def _no_delay(ctx, who=L):
+    rec = ctx.store.listener(who)
+    rec["broadcast_offset"] = 0
+    ctx.store.save_listener(rec)
+
+
 def main():
     # ---------------------------------------------------------------
     # The gap is the listener's own, not a fixed window
     # ---------------------------------------------------------------
     ctx = make_ctx(start_minute=0)
     _run(ctx, "follow_match", team="Arsenal")
+    _no_delay(ctx)
 
     ctx.provider.jump_to(12)
     from sideline.poller import poll_once
@@ -72,6 +79,7 @@ def main():
     # ---------------------------------------------------------------
     ctxS = make_ctx(start_minute=30)
     _run(ctxS, "follow_match", team="Arsenal")
+    _no_delay(ctxS)
     _run(ctxS, "get_match_state")
     ctxS.store.mark_told(L, 30)
     ctxS.provider.jump_to(36)
@@ -93,6 +101,7 @@ def main():
     # ---------------------------------------------------------------
     ctx2 = make_ctx(start_minute=0)
     _run(ctx2, "follow_match", team="Arsenal")
+    _no_delay(ctx2)
     ctx2.provider.jump_to(40)
     poll_once(ctx2)
     _run(ctx2, "get_match_state")
@@ -107,6 +116,7 @@ def main():
     # ---------------------------------------------------------------
     ctx3 = make_ctx(start_minute=50)
     _run(ctx3, "follow_match", team="Arsenal")
+    _no_delay(ctx3)
     poll_once(ctx3)
     _run(ctx3, "what_did_i_miss")
     assert ctx3.store.listener(L)["last_told_at"] is not None
@@ -118,6 +128,7 @@ def main():
     # ---------------------------------------------------------------
     ctx4 = make_ctx(start_minute=0)
     _run(ctx4, "follow_match", team="Arsenal")
+    _no_delay(ctx4)
     ctx4.provider.jump_to(75)
     poll_once(ctx4)
     _, s4, _ = _run(ctx4, "what_did_i_miss")
@@ -131,6 +142,7 @@ def main():
     real = bedrock.available
     quiet = make_ctx(start_minute=40)
     REGISTRY["follow_match"](quiet, {"team": "Arsenal"}, "q")
+    _no_delay(quiet, "q")
     REGISTRY["what_did_i_miss"](quiet, {}, "q")                  # hears everything so far (templates)
     bedrock.available = lambda: True
     try:

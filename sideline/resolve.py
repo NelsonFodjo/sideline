@@ -70,6 +70,12 @@ POPULAR_COMPETITIONS = [
 ]
 
 _COMMON_WORDS = {
+    # numbers, and the words people use about time and delay ("my TV is about forty seconds behind" was heard as "Forest")
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "twenty", "thirty", "forty",
+    "fifty", "sixty", "ninety", "hundred", "second", "seconds", "minutes", "hour", "hours", "about", "around",
+    "behind", "ahead", "late", "early", "delay", "delayed", "slow", "slower", "quick", "quicker", "now", "just",
+    "went", "gone", "goes", "going", "kick", "kickoff", "whistle", "stream", "streaming", "television",
+    "screen", "picture", "broadcast", "radio", "sound", "audio", "voice", "speak", "speaking", "language",
     "what", "whats", "where", "when", "which", "who", "whom", "how", "why",
     "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
     "do", "does", "did", "can", "could", "will", "would", "should", "shall",
@@ -377,6 +383,25 @@ def fix_names(text, items):
     return re.sub(r"[^\W\d_]+", repair, text, flags=re.UNICODE)
 
 
+_TOOL_WORDS = None
+
+
+def _tool_words():
+    """Every word our own tools are described with ("support", "player", "standouts", ...). A word we use to say what
+    we do is never a misheard team: without this, "I support Arsenal" came back as "Did you mean Porto?" and "who was
+    the best player" as "Did you mean Bayer Leverkusen?"."""
+    global _TOOL_WORDS
+    if _TOOL_WORDS is None:
+        try:
+            from .mcp import registry
+            text = " ".join("%s %s" % (t["name"].replace("_", " "), t.get("description", ""))
+                            for t in registry.public_tools())
+            _TOOL_WORDS = {w for w in words(text) if len(w) >= 4}
+        except Exception:                                      # noqa: BLE001  a courtesy: fall back to the fixed list
+            return set()
+    return _TOOL_WORDS
+
+
 def snap(listener_id, text, names=(), now=None):
     """Decide what the listener meant. Returns a dict:
 
@@ -445,7 +470,7 @@ def snap(listener_id, text, names=(), now=None):
     best_typo_cand = None
 
     for tok in tokens:
-        if len(tok) >= 4 and tok not in _COMMON_WORDS:
+        if len(tok) >= 4 and tok not in _COMMON_WORDS and tok not in _tool_words():
             exact_match = False
             for cand in candidate_pool:
                 cand_toks = words(cand)

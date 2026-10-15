@@ -1,0 +1,360 @@
+[
+ {
+  "say": "I've just switched on the Gangwon game. Where are we?",
+  "tool": "follow_match",
+  "args": {
+   "team": "Gangwon FC"
+  }
+ },
+ {
+  "say": "What's the score?",
+  "tool": "get_match_state",
+  "args": {}
+ },
+ {
+  "say": "Anything I missed?",
+  "tool": "what_did_i_miss",
+  "args": {}
+ },
+ {
+  "say": "Who's in their line-up, the Phnom Penh side?",
+  "tool": "get_lineups",
+  "args": {
+   "team": "Phnom Penh Crown"
+  }
+ },
+ {
+  "say": "Has anyone scored yet, and who?",
+  "tool": "get_match_report",
+  "args": {
+   "part": "goals"
+  }
+ },
+ {
+  "say": "Any bookings so far?",
+  "tool": "get_match_report",
+  "args": {
+   "part": "cards"
+  }
+ },
+ {
+  "say": "How's the possession looking?",
+  "tool": "get_match_stats",
+  "args": {}
+ },
+ {
+  "say": "I just heard a goal on my side!",
+  "tool": "sync_broadcast_delay",
+  "args": {
+   "heard": "goal"
+  }
+ },
+ {
+  "say": "What about the Tai Po game?",
+  "tool": "get_match_state",
+  "args": {
+   "team": "Tai Po FC"
+  }
+ },
+ {
+  "say": "Okay, back to mine. What did I miss?",
+  "tool": "what_did_i_miss",
+  "args": {}
+ },
+ {
+  "say": "How did Roma get on against Real Madrid?",
+  "tool": "get_match_report",
+  "args": {
+   "team": "AS Roma",
+   "opponent": "Real Madrid",
+   "when": "yesterday"
+  }
+ },
+ {
+  "say": "Who was the best player in that one?",
+  "tool": "get_standouts",
+  "args": {}
+ },
+ {
+  "say": "Was it a fair result? Give me the numbers.",
+  "tool": "get_match_stats",
+  "args": {}
+ },
+ {
+  "say": "Who was the ref?",
+  "tool": "get_officials",
+  "args": {}
+ },
+ {
+  "say": "Who scored the last goal?",
+  "tool": "get_event_detail",
+  "args": {
+   "kind": "goal"
+  }
+ },
+ {
+  "say": "Tell me about the Villa result against Fenerbahce.",
+  "tool": "get_match_report",
+  "args": {
+   "team": "Aston Villa",
+   "when": "yesterday"
+  }
+ },
+ {
+  "say": "Who started for Villa that night?",
+  "tool": "get_lineups",
+  "args": {
+   "team": "Aston Villa",
+   "when": "yesterday"
+  }
+ },
+ {
+  "say": "And Bodo/Glimt against Dortmund, who won?",
+  "tool": "get_match_state",
+  "args": {
+   "team": "Bodo/Glimt",
+   "when": "yesterday"
+  }
+ },
+ {
+  "say": "What happened in the Betis Porto game?",
+  "tool": "get_match_report",
+  "args": {
+   "team": "Real Betis",
+   "opponent": "FC Porto",
+   "when": "yesterday"
+  }
+ },
+ {
+  "say": "Who was dangerous in that one?",
+  "tool": "get_standouts",
+  "args": {}
+ },
+ {
+  "say": "What was the Clippers score last night?",
+  "tool": "get_match_state",
+  "args": {
+   "team": "LA Clippers",
+   "when": "yesterday"
+  }
+ },
+ {
+  "say": "Give me the full story of the Clippers Nuggets game.",
+  "tool": "get_match_report",
+  "args": {
+   "team": "LA Clippers",
+   "opponent": "Denver Nuggets",
+   "when": "yesterday"
+  }
+ },
+ {
+  "say": "Who stood out in that basketball game?",
+  "tool": "get_standouts",
+  "args": {}
+ },
+ {
+  "say": "How are teams doing in the NBA table?",
+  "tool": "get_standings",
+  "args": {
+   "competition": "NBA"
+  }
+ },
+ {
+  "say": "Who are the NBA scoring leaders?",
+  "tool": "get_top_scorers",
+  "args": {
+   "competition": "NBA"
+  }
+ },
+ {
+  "say": "When do the Lakers play next?",
+  "tool": "get_schedule",
+  "args": {
+   "team": "Los Angeles Lakers",
+   "which": "next"
+  }
+ },
+ {
+  "say": "How did the hockey go, Avalanche against Stars?",
+  "tool": "get_match_report",
+  "args": {
+   "team": "Colorado Avalanche",
+   "opponent": "Dallas Stars",
+   "when": "yesterday"
+  }
+ },
+ {
+  "say": "And the Capitals game?",
+  "tool": "get_match_state",
+  "args": {
+   "team": "Washington Capitals",
+   "when": "yesterday"
+  }
+ },
+ {
+  "say": "Any college football results yesterday?",
+  "tool": "get_fixtures",
+  "args": {
+   "when": "yesterday",
+   "finished_only": true,
+   "sport": "american_football"
+  }
+ },
+ {
+  "say": "Is there any baseball on today?",
+  "tool": "get_fixtures",
+  "args": {
+   "when": "today",
+   "sport": "baseball"
+  }
+ },
+ {
+  "say": "What's the Premier League table like?",
+  "tool": "get_standings",
+  "args": {
+   "competition": "English Premier League"
+  }
+ },
+ {
+  "say": "Where's Real Madrid in La Liga?",
+  "tool": "get_standings",
+  "args": {
+   "competition": "La Liga",
+   "team": "Real Madrid"
+  }
+ },
+ {
+  "say": "Show me the Serie A table.",
+  "tool": "get_standings",
+  "args": {
+   "competition": "Serie A"
+  }
+ },
+ {
+  "say": "Who's top of the Bundesliga?",
+  "tool": "get_standings",
+  "args": {
+   "competition": "Bundesliga"
+  }
+ },
+ {
+  "say": "Who's scoring most in the Premier League?",
+  "tool": "get_top_scorers",
+  "args": {
+   "competition": "English Premier League"
+  }
+ },
+ {
+  "say": "Tell me about Kylian Mbappé.",
+  "tool": "get_player_profile",
+  "args": {
+   "player": "Kylian Mbappé"
+  }
+ },
+ {
+  "say": "How's Bukayo Saka doing this season?",
+  "tool": "get_player_stats",
+  "args": {
+   "player": "Bukayo Saka",
+   "team": "Arsenal"
+  }
+ },
+ {
+  "say": "Any news on Arsenal?",
+  "tool": "get_news",
+  "args": {
+   "team": "Arsenal"
+  }
+ },
+ {
+  "say": "What competitions do you cover in England?",
+  "tool": "get_competitions",
+  "args": {
+   "country": "England"
+  }
+ },
+ {
+  "say": "Who are Arsenal's goalkeepers?",
+  "tool": "get_squad",
+  "args": {
+   "team": "Arsenal",
+   "position": "goalkeeper"
+  }
+ },
+ {
+  "say": "What's the Lyon Crystal Palace game going to be like tonight?",
+  "tool": "get_match_preview",
+  "args": {
+   "team": "Lyon",
+   "opponent": "Crystal Palace"
+  }
+ },
+ {
+  "say": "Who's playing for Crystal Palace?",
+  "tool": "get_lineups",
+  "args": {
+   "team": "Crystal Palace"
+  }
+ },
+ {
+  "say": "Who's refereeing Lyon tonight?",
+  "tool": "get_officials",
+  "args": {
+   "team": "Lyon"
+  }
+ },
+ {
+  "say": "What time does the Europa League start?",
+  "tool": "get_fixtures",
+  "args": {
+   "when": "today",
+   "competition": "UEFA Europa League"
+  }
+ },
+ {
+  "say": "What's the head to head between Lyon and Palace?",
+  "tool": "get_head_to_head",
+  "args": {
+   "team": "Lyon",
+   "opponent": "Crystal Palace"
+  }
+ },
+ {
+  "say": "When does Arsnal play next?",
+  "tool": "get_schedule",
+  "args": {
+   "team": "Arsnal",
+   "which": "next"
+  }
+ },
+ {
+  "say": "When's Barca's next game?",
+  "tool": "get_schedule",
+  "args": {
+   "team": "Barca",
+   "which": "next"
+  }
+ },
+ {
+  "say": "When do Man U play?",
+  "tool": "get_schedule",
+  "args": {
+   "team": "Man U",
+   "which": "next"
+  }
+ },
+ {
+  "say": "What's the score in the United game?",
+  "tool": "get_match_state",
+  "args": {
+   "team": "United"
+  }
+ },
+ {
+  "say": "How did Zzyzx Rovers do?",
+  "tool": "get_match_state",
+  "args": {
+   "team": "Zzyzx Rovers"
+  }
+ }
+]

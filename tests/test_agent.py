@@ -8,7 +8,9 @@ import urllib.request
 
 from conftest import make_ctx
 
-from sideline.language import agent, bedrock
+from simulator import agent
+
+from sideline.language import bedrock
 from sideline.mcp import server as mcp_server
 from sideline.mcp.registry import public_tools
 from sideline.tools import REGISTRY
@@ -321,7 +323,7 @@ def main():
     assert agent._asked_to_follow("Follow Arsenal") and agent._asked_to_follow("I'm watching the Spurs game")
     assert agent._asked_to_follow("Arsenal against Lille (fixture_id 5)") and not agent._asked_to_follow("When is Arsenal playing?")
     print("ok  follow_match is refused unless the listener asked to follow, or chose an offered match")
-    from sideline.language.agent import _without_invented_id as strip
+    from simulator.agent import _without_invented_id as strip
     assert strip({"fixture_id": 9999, "team": "Arsenal"}, "tell me about the match") == {"team": "Arsenal"}, "invented"
     assert strip({"fixture_id": 7}, "Arsenal against Lille (fixture_id 7)") == {"fixture_id": 7}, "the handoff's own id"
     assert strip({"fixture_id": 8}, "Arsenal against Lille (fixture_id 7)") == {}, "a different id is invented"
@@ -375,7 +377,7 @@ def main():
     bedrock.available, bedrock.client = original_available, original_client
 
     # A small model invents weather when asked for it; weather is only said if a tool gave it.
-    from sideline.language import agent as agent_mod
+    from simulator import agent as agent_mod
     assert agent_mod._invents_weather("Partly cloudy with a high of 15\u00b0C", [])
     assert agent_mod._invents_weather("There is a chance of rain.", [{"spoken": "Arsenal host Lille."}])
     assert not agent_mod._invents_weather("Arsenal host Lille at 11 PM.", [])

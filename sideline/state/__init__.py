@@ -17,7 +17,7 @@ def _table_answers(table_name, region):
     from botocore.config import Config
     boto3.client("dynamodb", region_name=region,
                  config=Config(connect_timeout=3, read_timeout=3,
-                               retries={"max_attempts": 1})
+                               retries={"total_max_attempts": 1})      # not max_attempts: that counts retries
                  ).describe_table(TableName=table_name)
 
 

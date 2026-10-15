@@ -45,6 +45,15 @@ def run(ctx, args, listener_id):
         raise ToolError("I can't find that moment in this match.",
                         {"reason": "not_found"})
 
+    if want_kind == "penalty" and not args.get("event_id") and args.get("minute") is None:
+        # "Was there a penalty, and what happened?" is the whole story - awarded, then taken - not just its last line.
+        story = [e for e in events if e["kind"] == "penalty"]
+        said = [ctx.lang.templates.say_event(e, sport=fx) for e in story]
+        spoken = ". ".join(t[:1].upper() + t[1:] for t in said) + "."
+        ctx.store.mark_told(listener_id, fx.get("minute") or 0, [e["id"] for e in story])
+        return spoken, {"fixture_id": fx["fixture_id"], "event": dict(story[-1]), "events": [dict(e) for e in story],
+                        "generated_by": "template"}, None
+
     spoken = ctx.lang.templates.say_event(chosen, sport=fx)
     if chosen.get("superseded_by"):
         spoken += ". It was later disallowed"

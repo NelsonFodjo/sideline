@@ -20,7 +20,7 @@ are facts, so they are templated (fast, and nothing to get wrong). The voice
 agent (agent.py) is separate: Nova there chooses which tool to call.
 
 Nova Micro, not a larger model: this is compression under a voice deadline, not
-writing. max_attempts=1, because a retry costs another request timeout. A
+writing. total_max_attempts=1 (botocore's max_attempts=1 is two tries), because a retry costs another request timeout. A
 catch-up takes about two seconds, which misses Alexa+'s 500 ms target; that is
 stated in the README rather than hidden.
 
@@ -53,7 +53,7 @@ except ImportError:                                            # pragma: no cove
 # SIDELINE_BEDROCK: auto (on when AWS credentials are present), on, or off.
 ENABLED = config.bedrock_enabled()
 REGION = os.environ.get("AWS_REGION", "us-east-1")
-MODEL_ID = os.environ.get("SIDELINE_BEDROCK_MODEL", "amazon.nova-lite-v1:0")
+MODEL_ID = os.environ.get("SIDELINE_BEDROCK_MODEL", "amazon.nova-pro-v1:0")
 
 TIMEOUT_SECONDS = 8.0
 MAX_TOKENS = 160
@@ -90,7 +90,7 @@ def client():
                 "bedrock-runtime",
                 region_name=REGION,
                 config=BotoConfig(read_timeout=TIMEOUT_SECONDS, connect_timeout=1.0,
-                                  retries={"max_attempts": 1}))
+                                  retries={"total_max_attempts": 1}))      # max_attempts counts RETRIES: 1 would mean two tries
         except Exception as e:                                 # noqa: BLE001  a bad profile, say
             raise BedrockUnavailable("Bedrock client could not start: %s" % e) from e
         LOG.info("bedrock-runtime client ready: %s in %s", MODEL_ID, REGION)

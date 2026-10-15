@@ -69,7 +69,7 @@ def main():
         code, doc, _ = _post({"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
                              {"Mcp-Session-Id": sid})
         names = [t["name"] for t in doc["result"]["tools"]]
-        assert len(names) == len(public_tools()) == 27, names
+        assert len(names) == len(public_tools()) == 30, names
         assert "what_did_i_miss" in names
         assert "sync_broadcast_delay" in names
         for t in doc["result"]["tools"]:
@@ -98,8 +98,9 @@ def main():
                               "params": {"name": "get_event_detail",
                                          "arguments": {"minute": "thirty"}}},
                              {"Mcp-Session-Id": sid})
-        assert doc["error"]["code"] == -32602, doc
-        print("ok  bad argument type -> InvalidParams")
+        assert "error" not in doc and doc["result"]["isError"], doc          # MCP-09: a tool error the model can correct
+        assert doc["result"]["structuredContent"]["reason"] == "invalid_arguments", doc
+        print("ok  bad argument type -> isError result (not a protocol error)")
 
         # --- unknown method -----------------------------------------
         code, doc, _ = _post({"jsonrpc": "2.0", "id": 5, "method": "nope"},

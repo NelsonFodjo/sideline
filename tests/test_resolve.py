@@ -10,8 +10,9 @@ sentence are repaired too, and ordinary words are never touched.
 
 from conftest import FOOTBALL, FOOTBALL_2, make_ctx
 
-from sideline import resolve, voice
-from sideline.language import agent
+from sideline import resolve
+from simulator import voice
+from simulator import agent
 from sideline.mcp.errors import ToolError
 from sideline.tools import REGISTRY
 
@@ -164,6 +165,13 @@ def main():
     r = resolve.understand(nobody, "fresh", "when does the match start")
     assert not r["changed"], "ordinary words are never touched"
     print("ok  a team heard a little off is repaired from the teams on today, even if nobody follows it")
+
+    # Words we use ourselves are not misheard teams ("support" was heard as Porto, "player" as Bayer Leverkusen).
+    for line in ("I support Arsenal", "who was the best player", "tell me about the players", "speak French"):
+        r = resolve.snap("plain", line)
+        assert not r["clarify"] and r["text"] == line, (line, r)
+    assert resolve.snap("plain", "where is Arsenl in the league")["why"] == "name"        # a real slip is still repaired
+    print("ok  ordinary words from our own tools' vocabulary never trigger a 'did you mean a team' question")
 
     print("\nresolve: all good")
 

@@ -242,3 +242,9 @@ def snapshot(fixture, at=None):
     return {"now": at.isoformat(),
             "kickoff": ko.isoformat() if ko else None,
             "minutes_to_kickoff": int(delta.total_seconds() // 60) if delta is not None else None}
+
+
+def delay_minutes(offset_seconds):
+    """A broadcast delay in whole minutes, rounded UP. The feed's minute is a whole number, so a 45 second delay
+    must hold back the current minute: rounding down would show the listener a goal their screen has not reached."""
+    return -(-int(offset_seconds or 0) // 60)

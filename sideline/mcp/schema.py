@@ -39,7 +39,7 @@ def validate(instance, schema, path="arguments"):
         types = t if isinstance(t, list) else [t]
         t = next((x for x in types if _is(instance, x)), None)
         if t is None:
-            raise InvalidParams("%s must be a %s" % (path, " or ".join(types)))
+            raise InvalidParams("%s must be %s %s" % (path, "an" if types[0][:1] in "aeiou" else "a", " or ".join(types)))
 
     if "enum" in schema and instance not in schema["enum"]:
         raise InvalidParams(

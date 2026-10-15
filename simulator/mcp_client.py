@@ -19,8 +19,9 @@ PROTOCOL_VERSION = "2025-11-25"
 
 
 class McpClient(object):
-    def __init__(self, url, timeout=60):
+    def __init__(self, url, timeout=60, token=""):
         self.url = url
+        self.token = token
         self.timeout = timeout
         self._sid = None                       # None: no session yet; "" a server that issues no session id
         self._id = 0
@@ -35,6 +36,8 @@ class McpClient(object):
                    "Accept": "application/json, text/event-stream",
                    "MCP-Protocol-Version": PROTOCOL_VERSION,
                    "X-Sideline-Listener": listener_id or ""}
+        if self.token:
+            headers["Authorization"] = "Bearer " + self.token
         if agent:
             headers["X-Sideline-Agent"] = "1"
         if sid:

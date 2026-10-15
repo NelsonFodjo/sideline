@@ -22,7 +22,7 @@ def run(ctx, args, listener_id):
     for p in past:
         lines.append("%s %d, %s %d" % (p["home"], p["score"]["home"],
                                        p["away"], p["score"]["away"]))
-    spoken = "Last %d meetings: %s." % (len(lines), "; ".join(lines))
+    spoken = ("Their last meeting: %s." % lines[0]) if len(lines) == 1 else "Last %d meetings: %s." % (len(lines), "; ".join(lines))
     structured = {"fixture_id": fx["fixture_id"], "results": past,
                   "generated_by": "template"}
     return spoken, structured, None

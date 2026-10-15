@@ -111,7 +111,7 @@ def _catchup_path():
 
 def _agent_path():
     """Can Nova choose and call a registered Sideline tool?"""
-    from sideline.language.agent import run
+    from simulator.agent import run
     calls = []
 
     def stub(name, args, listener):
@@ -124,7 +124,7 @@ def _agent_path():
 
 
 def _tts_live():
-    from sideline import voice
+    from simulator import voice
     out = voice.synthesize("Sideline speech check.")
     if not out or not out.get("audio"):
         raise RuntimeError("Polly returned no audio")
@@ -136,7 +136,7 @@ def _stt_round_trip():
     """Polly says a phrase; the active speech-in model (Voxtral or Nova Sonic) must hear it."""
     import boto3
 
-    from sideline import voice
+    from simulator import voice
     pcm = boto3.client("polly", region_name=voice.REGION).synthesize_speech(
         Text="Who is refereeing the match?", OutputFormat="pcm", SampleRate="16000",
         VoiceId="Joanna", Engine="neural")["AudioStream"].read()
@@ -167,7 +167,7 @@ def main():
             check("Nova MCP agent tool use", _agent_path)
             check("catch-up written by bedrock", _catchup_path)
 
-    from sideline.voice import capabilities
+    from simulator.voice import capabilities
     caps = capabilities()
     if caps["stt"]:
         check("speech in (%s, live call)" % caps["stt"], _stt_round_trip, needed=False)

@@ -31,3 +31,13 @@ def make_ctx(start_minute=0, speed=0.0, replay=None):
     provider = ReplayProvider(replay or FOOTBALL, speed=speed, start_minute=start_minute)
     provider.jump_to(start_minute)
     return Context(provider, MemoryStore(), language)
+
+
+def age_events(ctx, seconds=3600):
+    """Pretend `seconds` of real time have passed since every logged event was first seen. jump_to() moves the match
+    but not the clock, and an event first seen a moment ago is (rightly) still held back from a delayed listener."""
+    for events in list(ctx.store._events.values()):
+        for e in events:
+            e["at"] -= seconds
+            if e.get("happened_by"):
+                e["happened_by"] -= seconds

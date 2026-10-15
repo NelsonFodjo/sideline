@@ -73,8 +73,9 @@ class ReplayProvider(Provider):
         fx = dict(doc["fixture"])
         fx.setdefault("sport", sp.key)
         fx["minute"] = min(self.now_minute(), sp.regulation_minutes)
+        # Before kick-off the feed says "NS" (not started), as ESPN does; "live" at minute 0 is not a thing it says.
         fx["status"] = ("finished" if self.now_minute() >= sp.regulation_minutes
-                        else "live")
+                        else "NS" if self.now_minute() <= 0 else "live")
         fx["score"] = self._score_at(doc, fx["minute"])
         return fx
 

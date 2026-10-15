@@ -91,7 +91,7 @@ takes about two seconds.
 
 The simulator posts the listener's transcript to `/agent/chat`. The server resolves what they meant
 ([SPEECH.md](SPEECH.md)), then discovers the MCP `initialize` instructions and `tools/list` catalog over
-[`mcp/client.py`](../sideline/mcp/client.py). It passes the complete discovered descriptions and input schemas
+[`simulator/mcp_client.py`](../simulator/mcp_client.py). It passes the complete discovered descriptions and input schemas
 to Bedrock Converse up front. Claude decides whether and what to call; selected tools are executed through the
 same server's `/mcp` endpoint, with protocol sessions and server-side schema validation. Tool results return to
 Claude for its answer. The prompt contains general grounding and spoken-response guidance, not phrase-to-tool rules.
@@ -123,24 +123,34 @@ this): Claude is itself an LLM and would only paraphrase a paragraph, at the cos
 
 ## Model choice
 
-`us.anthropic.claude-sonnet-4-5-20250929-v1:0` is the default, set by `SIDELINE_BEDROCK_MODEL`. It supports Bedrock's Converse API used for
-both MCP tool use and catch-up generation. Anthropic Claude delivers exceptional tool routing precision, strict zero-hallucination discipline, and natural conversational phrasing. Availability varies by account and region; `make aws-check` checks the selected
-model. We make no claim about what model Alexa+ uses.
+**Default: `amazon.nova-pro-v1:0` (Amazon Nova Pro)**, set by `SIDELINE_BEDROCK_MODEL`. It uses Bedrock's Converse API for
+both MCP tool use and catch-up generation. Availability varies by account and region; `make aws-check` checks the
+selected model. We make no claim about what model Alexa+ uses. This only decides which model plays the host in our
+simulator; the MCP server does not depend on it.
 
-**Historical comparison (2026-10-13, one account, one run each; not a measurement of the current MCP-discovery prompt).** Asked a broad batch of
-real questions against the live feed, Nova Micro dropped arguments the question plainly gave: "where is Celtic in the
-league?" and "who are the top scorers for Rangers?" arrived with no team, and "what did I miss?" after following a match
-went to the wrong tool. `amazon.nova-lite-v1:0` kept the team in both and chose the right tool for the third. On the
-71-phrasing routing check Micro scored 71 and Lite 70 (the one miss was a transient `AgentUnavailable`, not a routing
-choice), and the whole run took 68 s against 88 s. So the voice agent is smarter and no slower on Lite; the default stays
-Micro because the latency and caching figures in these docs were measured on it. Switching is one line:
-`SIDELINE_BEDROCK_MODEL=amazon.nova-lite-v1:0`. Prompt caching on Lite was not tried.
+**Why Nova Pro.** `scripts/route_check.py` gives a model the full tool list from `tools/list` and 79 things a
+listener might say, each with the tool it should land on, and counts how often the model calls that tool. Invented match
+data, real Bedrock, one account, one run per cell (2026-10-15):
 
-A second batch of about fifty harder questions (misspelt and misheard names, named days and dates, "who got booked in the Celtic
-Rangers game", "keep answers brief", gibberish, other sports) agreed: **Micro** left out arguments the question gave (a date, a
-team, a table's team) in roughly a third of them, and sent "keep answers brief" to a match preview. **Lite** passed dates and
-"brief" correctly and was the better agent on all but a few. Neither answers a question about two teams at once ("Celtic or Rangers,
-who is higher?") because it needs two tool calls. If your account allows it, Lite is the one to run.
+| Model | First run | After the prompt fix | After the final fixes |
+|---|---|---|---|
+| **Amazon Nova Pro** | 56 / 79 | 59 / 79 | **77 / 79** (re-run after the last agent changes) |
+| Anthropic Claude Sonnet 4.5 | 43 / 79 | 56 / 79 | not re-run |
+| Anthropic Claude Haiku 4.5 | 34 / 79 | 53 / 79 | not re-run |
+| Amazon Nova Micro | 39 / 71 (an earlier, shorter set) | not re-run | not re-run |
+
+Read it for what it is. Nova Pro was ahead at every stage where the models were run under the same conditions (3 to 6
+phrasings over Sonnet, more over the others), and it is the only one we measured after the last fixes, because we stopped
+comparing and chose it. The last column also includes changes to the harness (a frozen match clock, waiting and retrying
+when Bedrock throttles) that the earlier columns did not have, so do not read 59 to 77 as the model getting better alone. (The last column was run twice, 76 then 77, with an agent change between: a fact question the model first answers from memory is now sent back to the tools.)
+The two remaining misses are "say that again" (no tool call: the harness reports a miss, and a person might answer it from
+the conversation) and "how did the Arsenal Lille game finish" (the model asked for the fixtures, not the match report). This is a routing check on 79 lines, not a quality ranking of the
+models.
+
+Earlier history. On 2026-10-13 a broad batch of live questions showed Nova Micro dropping arguments the question plainly
+gave ("where is Celtic in the league?" arrived with no team) where Nova Lite kept them. That is why Micro is not the
+default. Switching is one line: `SIDELINE_BEDROCK_MODEL=<model id>`. Prompt caching (`cachePoint`) is refused by Nova Micro
+(FL-19) and was not tried on Pro.
 
 ## Turning it on
 
@@ -177,8 +187,7 @@ turning it on and read your actual usage after the first run.
 
 Every model call writes a `tokens` line to the day's call log (`logs/calls-<date>.jsonl`) with the input and output
 counts exactly as Bedrock reports them (the Converse response's `usage`), and `make log-report` totals them by source
-(`agent` for the voice agent, `text` for catch-ups). Measured on the real service with all 27 tools offered: about
-Every turn now receives the current tool catalog from MCP, without the old shortlist option or phrase-to-tool instructions.
-The simulator's fake-model tests verify that the full catalog, tool schemas, tool execution and post-tool results are wired
-through the protocol. **Real-Nova routing with this new path has not yet been re-measured**; `make route-check` is
-available to test it against the live model and invented match data.
+(`agent` for the voice agent, `text` for catch-ups). The full 30-tool list is about 8,000 tokens by the estimate in
+`scripts/bench.py` (characters / 4, for comparing versions, not for billing). The simulator's agent sends a shortlist
+of the tools a question could need, and one real Bedrock trace of a single turn showed about 2,200 input tokens.
+`make route-check` runs the routing comparison above against the live model and invented match data.

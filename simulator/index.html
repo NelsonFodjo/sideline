@@ -349,6 +349,23 @@ body.voice-only .stage .inner{
   .answer .w.num{color:var(--warm)}
   .answer .w::after,.beam{display:none}
 }
+
+/* Developer log: what happens behind an answer. Off by default; the toggle is bottom-left (or Alt+D). */
+#devbtn{position:fixed;left:10px;bottom:10px;z-index:60;font:600 11px/1 ui-monospace,Menlo,Consolas,monospace;padding:8px 11px;
+  border-radius:999px;border:1px solid rgba(255,255,255,.28);background:rgba(10,14,22,.78);color:#cfe3ff;cursor:pointer;opacity:.72}
+#devbtn:hover,#devbtn[aria-expanded="true"]{opacity:1}
+#devbtn:focus-visible,#devpanel button:focus-visible{outline:2px solid #7cc4ff;outline-offset:2px}
+#devpanel{position:fixed;left:0;right:0;bottom:0;max-height:46vh;overflow:auto;z-index:55;background:rgba(6,9,15,.95);color:#cfe3ff;
+  font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;border-top:1px solid rgba(255,255,255,.2);padding:10px 14px 56px}
+#devpanel[hidden]{display:none}
+#devpanel .devbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;color:#8fb4e8}
+#devpanel .devbar button{font:inherit;color:#cfe3ff;background:transparent;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:3px 9px;cursor:pointer}
+#devpanel .devent{border-top:1px solid rgba(255,255,255,.1);padding:7px 0}
+#devpanel .devhead{color:#fff}
+#devpanel .devline{margin-left:14px;color:#b9d2f3;word-break:break-word}
+#devpanel .devline b{color:#7cc4ff;font-weight:600}
+#devpanel .devbad{color:#ff9b9b}
+#devpanel .devok{color:#8be9a8}
 </style>
 </head>
 <body data-mode="idle">
@@ -406,11 +423,89 @@ body.voice-only .stage .inner{
      aria-hidden so word-by-word updates are not announced. -->
 <div class="sr" id="sr" role="status" aria-live="polite" aria-atomic="true"></div>
 
+<button id="devbtn" type="button" aria-expanded="false" aria-controls="devpanel" title="Developer log (Alt+D)">Dev log</button>
+<section id="devpanel" role="log" aria-live="off" aria-label="Developer log" hidden>
+  <div class="devbar"><strong>Developer log</strong><span id="devcount"></span>
+    <button id="devclear" type="button">Clear</button><button id="devcopy" type="button">Copy JSON</button>
+    <span>kept in local storage, cleared when you refresh</span></div>
+  <div id="devlist"></div>
+</section>
 <script>
 (function(){
 "use strict";
 var $=function(i){return document.getElementById(i)};
 var BASE=location.origin;   // the page is served by the server it talks to
+
+/* ============================================================ developer log
+   For the developer, not the listener: for each question, what was asked, what ran behind it and how long each part
+   took. In memory and in local storage (key sideline.devlog), and wiped on every page load, so a refresh starts clean.
+   Built with textContent only: nothing from the feed or the model is ever interpreted as markup. */
+var DEV_KEY="sideline.devlog", DEV_ON_KEY="sideline.dev.on", devEntries=[], devSeq=0, devLast=null, devInput="", devStt=null;
+try{ localStorage.removeItem(DEV_KEY); }catch(e){}
+function devSave(){ try{ localStorage.setItem(DEV_KEY, JSON.stringify(devEntries)); }catch(e){} }
+function devRecord(entry){
+  entry.id=++devSeq; entry.at=new Date().toISOString(); entry.tts=entry.tts||[];
+  devEntries.push(entry); if(devEntries.length>200) devEntries.shift();
+  devLast=entry; devSave(); devRender(); return entry;
+}
+function devNoteTts(ms, chars, provider){
+  if(!devLast) return;
+  devLast.tts.push({ms:ms, chars:chars, provider:provider||"?"}); devSave(); devRender();
+}
+function devFromAnswer(result, t0){
+  var d=result.debug||{};
+  var e={kind:"answer", input:devInput, route:result.generated_by||"?", model:d.model||result.model||"",
+    total_ms:t0?Math.round(performance.now()-t0):null, server_ms:d.ms, model_calls:d.model_calls||[],
+    tools:d.tools||(result.tool_results||[]).map(function(r){return {name:r.name,args:r.args,ms:r.ms,ok:!r.is_error};}),
+    output:result.text||"", stt:devStt};
+  devStt=null; return e;
+}
+function devEl(tag, cls, text){ var n=document.createElement(tag); if(cls) n.className=cls; if(text!=null) n.textContent=text; return n; }
+function devLine(label, value, cls){ var l=devEl("div","devline"); l.appendChild(devEl("b",null,label+" ")); l.appendChild(devEl("span",cls||null,value)); return l; }
+function devRender(){
+  var list=document.getElementById("devlist"); if(!list) return;
+  document.getElementById("devcount").textContent=devEntries.length+" entr"+(devEntries.length===1?"y":"ies");
+  if(document.getElementById("devpanel").hidden) return;
+  list.textContent="";
+  devEntries.slice().reverse().forEach(function(e){
+    var box=devEl("div","devent");
+    var time=e.at.slice(11,19);
+    if(e.kind!=="answer"){
+      box.appendChild(devEl("div","devhead","#"+e.id+"  "+time+"  "+(e.note||e.kind)));
+      if(e.error) box.appendChild(devLine("error",e.error,"devbad"));
+      list.appendChild(box); return;
+    }
+    box.appendChild(devEl("div","devhead","#"+e.id+"  "+time+"  \u201c"+(e.input||"(spoken)")+"\u201d  "+(e.total_ms!=null?e.total_ms+" ms":"")));
+    if(e.stt) box.appendChild(devLine("speech in", e.stt.provider+" \u00b7 "+e.stt.ms+" ms"));
+    box.appendChild(devLine("route", e.route+(e.model_calls.length?"":" (no model call)")));
+    if(e.model_calls.length){
+      box.appendChild(devLine("model", (e.model||"?")+" \u00b7 "+e.model_calls.length+" call"+(e.model_calls.length===1?"":"s")));
+      e.model_calls.forEach(function(c,i){
+        box.appendChild(devLine("  call "+(i+1), c.error?("failed: "+c.error):(c.ms+" ms \u00b7 "+c.input_tokens+" in / "+c.output_tokens+" out tokens \u00b7 "+c.stop), c.error?"devbad":null));
+      });
+    }
+    (e.tools||[]).forEach(function(t){
+      var args=""; try{ args=JSON.stringify(t.args||{}); }catch(x){}
+      box.appendChild(devLine("MCP tool", t.name+" "+args+" \u00b7 "+(t.ms!=null?t.ms+" ms":"?")+" \u00b7 "+(t.ok?"ok":(t.declined?"declined":"error")), t.ok?"devok":"devbad"));
+    });
+    if(!(e.tools||[]).length) box.appendChild(devLine("MCP tool","none"));
+    if(e.server_ms!=null) box.appendChild(devLine("server", e.server_ms+" ms in the agent"));
+    box.appendChild(devLine("output", e.output));
+    (e.tts||[]).forEach(function(t){ box.appendChild(devLine("speech out", t.provider+" \u00b7 "+t.ms+" ms \u00b7 "+t.chars+" chars")); });
+    list.appendChild(box);
+  });
+}
+function devToggle(on){
+  var panel=document.getElementById("devpanel"), btn=document.getElementById("devbtn");
+  panel.hidden=!on; btn.setAttribute("aria-expanded", on?"true":"false");
+  try{ localStorage.setItem(DEV_ON_KEY, on?"1":"0"); }catch(e){}
+  devRender();
+}
+document.getElementById("devbtn").onclick=function(){ devToggle(document.getElementById("devpanel").hidden); };
+document.getElementById("devclear").onclick=function(){ devEntries=[]; devLast=null; devSave(); devRender(); };
+document.getElementById("devcopy").onclick=function(){ try{ navigator.clipboard.writeText(JSON.stringify(devEntries,null,2)); }catch(e){} };
+document.addEventListener('keydown', function(ev){ if(ev.altKey && (ev.key==="d"||ev.key==="D")){ ev.preventDefault(); devToggle(document.getElementById("devpanel").hidden); } });
+try{ devToggle(localStorage.getItem(DEV_ON_KEY)==="1"); }catch(e){ devRender(); }
 var REDUCED=!!(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches);
 
 /* ================================================================ MCP */
@@ -886,6 +981,37 @@ function startCapture(){
   pcmNode.connect(mute); mute.connect(ctx.destination);
 }
 
+function peekCapture(){                  // the clip so far, capture carries on
+  var total=pcmChunks.reduce(function(n,c){return n+c.length},0);
+  var all=new Int16Array(total), at=0;
+  pcmChunks.forEach(function(c){ all.set(c,at); at+=c.length; });
+  return all.buffer;
+}
+
+/* Speculative end of speech. Waiting for a full second of quiet before sending is the biggest delay in a turn, and
+   recognition then takes about a second more. So recognition starts after a short quiet (SPEC_QUIET_MS) while the page
+   keeps listening: if the listener carries on, the result is dropped; if not, it is already on its way. Only the
+   transcription is speculative. The agent is never started on a guess, because its tools change what a listener has heard.
+   When the transcript is a finished sentence and the quiet has held, the question is asked at once. */
+var SPEC_QUIET_MS=320;
+function startSpec(pcm){
+  var s={ctl:new AbortController(), text:null, provider:"", ms:0, failed:false, t0:performance.now()};
+  s.promise=fetch(BASE+"/voice/stt",{method:"POST",signal:s.ctl.signal,
+      headers:{"X-Audio-Type":"audio/pcm;rate=16000","X-Tz-Offset":String(-new Date().getTimezoneOffset())},body:pcm})
+    .then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
+    .then(function(d){ s.text=justWords(d.text||""); s.provider=d.provider||"?"; s.ms=Math.round(performance.now()-s.t0); return s; })
+    .catch(function(){ s.failed=true; return s; });
+  return s;
+}
+function commitSpec(s){                   // the speculative transcript becomes the question
+  stopLiveCaption(); endCapture();
+  devStt={provider:s.provider, ms:s.ms};
+  if(!s.text || s.text.length<2){ if(armed&&!paused) listen(); return; }
+  setMode("thinking"); setQuiet("");
+  if(paused){ pendingQuestion=s.text; return; }
+  showSaid(s.text); ask(s.text);
+}
+
 function endCapture(){
   capturing=false;
   if(pcmNode){
@@ -955,6 +1081,7 @@ function listen(){
   setMode("listening");      // the state label already says so; the last
                              // answer stays on screen until you speak again
   sawVoice=false; startedAt=performance.now(); lastVoice=0; capText="";
+  var spec=null;
   startCapture();
   startLiveCaption();
 
@@ -976,7 +1103,23 @@ function listen(){
     var candidate=justWords(capText);
     var words=candidate?candidate.split(/\s+/).length:0;
     var silenceLimit=(words>=4)?750:(words>=2)?850:950;
+    if(sawVoice && elapsed>MIN_MS && caps.stt){
+      if(spec && quietFor<SPEC_QUIET_MS){ try{spec.ctl.abort()}catch(e){} spec=null; }          // they carried on
+      else if(!spec && quietFor>=SPEC_QUIET_MS && elapsed<MAX_MS) spec=startSpec(peekCapture());
+      if(spec && spec.text!==null && !spec.failed && quietFor>=SPEC_QUIET_MS && /[?.!]$/.test(spec.text)){
+        clearInterval(watch); watch=null; var done=spec; spec=null; commitSpec(done); return;   // a finished sentence, still quiet
+      }
+    }
     if((sawVoice && elapsed>MIN_MS && quietFor>silenceLimit) || elapsed>MAX_MS){
+      if(spec && !spec.failed){                       // the full quiet has passed: wait for the transcription already under way
+        clearInterval(watch); watch=null; var pending=spec; spec=null; setMode("thinking");
+        var snapCap2=candidate;
+        pending.promise.then(function(s){
+          if(s.failed){ stopLiveCaption(); return handleClip(endCapture(), snapCap2); }     // fall back to the normal path
+          commitSpec(s);
+        });
+        return;
+      }
       clearInterval(watch); watch=null;
       var snapCap=candidate;
       stopLiveCaption();
@@ -1304,7 +1447,7 @@ function switchToBrowserSTT(){
   caps.stt=null;
   useBrowserSTT=!!SR;
   $("stack").innerHTML="simulated Alexa+ · in <b>"+(useBrowserSTT?"browser":"unavailable")+
-    "</b> · out <b>"+((caps.tts&&caps.tts!=="browser")?(caps.tts+" "+(caps.voice||"")):"browser (<15ms)")+"</b>";
+    "</b> · out <b>"+((caps.tts&&caps.tts!=="browser")?(caps.tts+" "+(caps.voice||"")):"browser")+"</b>";
   var m;
   if(useBrowserSTT){
     // Said aloud, not only shown: the listener is not looking, and their audio now goes to the browser's engine.
@@ -1326,7 +1469,7 @@ async function sttFailed(err,timedOut,opt){
     if(paused){ pendingQuestion=opt; return; }
     showSaid(opt); ask(opt); return;
   }
-  if(status==="down") m="I can’t reach the server right now. Please try again shortly.";
+  if(status==="down") m="Sorry, an error occurred. Please try rephrasing your question for a better search, or try again later.";
   else if(timedOut) m="Sorry, that took too long. Please ask again.";
   else m="Sorry, I didn’t catch that. Please say it again.";
   if(paused) pendingAnswer=m; else say(m);
@@ -1354,7 +1497,9 @@ async function handleClip(pcm, snapCap){
       clearTimeout(killT); clearTimeout(slowT);
       sttFails=0;
       text=doc.text;
+      devStt={provider:doc.provider||"?", ms:Math.round(performance.now()-t0)};
       if(doc.chat){
+        devInput=doc.text||"";
         // The server has already run the agent: the answer is owed even if the listener paused meanwhile.
         // renderAgentAnswer keeps it while paused and says it on resume.
         text=justWords(text);
@@ -1589,8 +1734,10 @@ function forgetSpeech(text,p){
 }
 function fetchSpeech(text,isRetry){
   if(!isRetry && ttsCache[text]) return ttsCache[text];
+  var tts0=performance.now();
   var p=fetch(BASE+"/voice/tts",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({text:text})}).then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
+    .then(function(doc){ if(typeof devNoteTts==="function") devNoteTts(Math.round(performance.now()-tts0), text.length, doc&&doc.provider); return doc; })
     .catch(function(e){
       if(isRetry) throw e;
       return new Promise(function(ok){ setTimeout(ok,400); }).then(function(){ return fetchSpeech(text,true); });
@@ -1902,6 +2049,7 @@ function paint(){
 }
 
 function renderAgentAnswer(result, t0){
+  devRecord(devFromAnswer(result, t0));
   // Said "gamma osaka", meant "Gamba Osaka": show what we acted on.
   if(result.understood) showSaid(result.understood);
   var dot=$("dot"); dot.className="dot ok";
@@ -1921,7 +2069,7 @@ function renderAgentAnswer(result, t0){
   $("via").className=(result.generated_by==="swarm-fast"||result.generated_by==="fast-path"||result.generated_by==="nova-fast"||result.generated_by==="bedrock-fast")?"via fast":"via bedrock";
   if(t0){
     var roundtripMs = Math.round(performance.now() - t0);
-    $("ms").textContent = roundtripMs + "ms · <150ms";
+    $("ms").textContent = roundtripMs + " ms";
   }
   // The teams and score belong to the topic: shown only when this answer carried match data.
   // No tool, or a tool that declined (nothing found, the feed refused), and they go.
@@ -1930,7 +2078,7 @@ function renderAgentAnswer(result, t0){
   });
   if(aboutMatch){ (result.tool_results||[]).forEach(applyToolResult); paint(); }
   else hideMatch();
-  var spoken=result.text||"I couldn't get an answer.";
+  var spoken=result.text||"Sorry, an error occurred. Please try rephrasing your question for a better search, or try again later.";
   if(paused) pendingAnswer=spoken;      // already told to the server: keep it, say it on resume
   else say(spoken,false);
 }
@@ -1939,6 +2087,7 @@ function renderAgentAnswer(result, t0){
 var chatAbort=null;
 async function ask(text){
   var t0=performance.now(); clearTimeout(idleT); wake();
+  devInput=text;
   setMode("thinking");
   if(chatAbort){ try{chatAbort.abort()}catch(e){} }
   chatAbort=new AbortController();
@@ -1960,7 +2109,8 @@ async function ask(text){
     // feed, or the listener is told it did not.
     $("dot").className="dot err"; $("tool").textContent="no answer";
     $("via").textContent="unavailable"; $("via").className="via";
-    var m="I can't get an answer right now. Please try again shortly.";
+    devRecord({kind:"error", note:"agent call failed", error:String(e&&e.message||e), input:devInput});
+    var m="Sorry, an error occurred. Please try rephrasing your question for a better search, or try again later.";
     if(paused) pendingAnswer=m; else say(m);
   }
 }
@@ -1988,10 +2138,11 @@ async function connect(){
     $("tool").textContent=init.result.serverInfo.name;
     $("ms").textContent=list.result.tools.length+" tools";
     $("via").textContent="spec "+init.result.protocolVersion;
+    devRecord({kind:"system", note:"MCP connected: "+init.result.serverInfo.name+" \u00b7 spec "+init.result.protocolVersion+" \u00b7 "+list.result.tools.length+" tools"});
     return true;
   }catch(e){
     $("dot").className="dot err"; $("tool").textContent="server not running";
-    setQuiet("I can\u2019t reach the server right now.");
+    setQuiet("Sorry, an error occurred. Please try rephrasing your question for a better search, or try again later.");
     return false;
   }
 }
@@ -2037,9 +2188,9 @@ $("begin").onclick=async function(){
     if(r.ok)caps=await r.json();
   }catch(e){}
   useBrowserSTT=!caps.stt && !!SR;
-  var inb=useBrowserSTT?"browser (<15ms)":(caps.stt||"browser (<15ms)");
-  var outb=(caps.tts&&caps.tts!=="browser")?(caps.tts+" "+(caps.voice||"")):"browser (<15ms)";
-  $("stack").innerHTML="in <b>"+inb+"</b> · out <b>"+outb+"</b> · <b>8-Agent Swarm (<150ms)</b>";
+  var inb=useBrowserSTT?"browser":(caps.stt||"browser");
+  var outb=(caps.tts&&caps.tts!=="browser")?(caps.tts+" "+(caps.voice||"")):"browser";
+  $("stack").innerHTML="in <b>"+inb+"</b> · out <b>"+outb+"</b>";        // what is true: the voices in use. Timings are in the Dev log.
   // Setup hints (credentials, providers) are for the developer, not the
   // listener: they go to the console, never onto the screen.
   if(!caps.stt||!caps.tts){

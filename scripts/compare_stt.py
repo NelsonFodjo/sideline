@@ -28,7 +28,7 @@ import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import sideline  # noqa: E402,F401  (loads .env)
-from sideline import voice  # noqa: E402
+from simulator import voice  # noqa: E402
 from verify_stt import NAMES, PHRASES, VOICES, speak  # noqa: E402
 
 NAME_TOKENS = ["odegaard", "alderweireld", "saka", "bellerin", "hector", "martin",

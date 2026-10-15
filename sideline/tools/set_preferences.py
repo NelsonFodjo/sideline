@@ -1,4 +1,4 @@
-"""How the listener likes answers: how much to say, preferred sport, and in which language."""
+"""How the listener likes answers: how much to say, preferred sport, and in which language. Or: forget everything."""
 
 from .. import sports
 from ..mcp.errors import ToolError
@@ -13,6 +13,10 @@ def run(ctx, args, listener_id):
     sport = (args.get("sport") or "").strip().lower()
     if sport in ("soccer", "association football"):
         sport = "football"
+    if args.get("forget") == "everything":
+        ctx.store.forget_listener(listener_id)
+        return ("Done. I've forgotten your teams, your settings and what you'd heard. Name a team or a match to start again.",
+                {"forgotten": True, "generated_by": "template"}, None)
     if not detail and not language and not sport:
         known = " or ".join(sports.known())
         raise ToolError("What would you like changed: your sport (%s), how much I say, or the language?" % known,

@@ -17,8 +17,7 @@ The core engine is completely decoupled from any single sport:
 * The append-only event log and event deduplication
 * Listener bookmarks (`last_told_at`, `told_event_ids`, `history`, `topic`)
 * The broadcast lag spoiler guard and synchronization anchors
-* All 27 conversational MCP tools and routing intents
-* Multi-agent parallel swarm execution
+* All 30 conversational MCP tools and routing intents
 
 None of the server plumbing or state handling hardcodes a sport.
 

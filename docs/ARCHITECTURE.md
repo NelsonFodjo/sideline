@@ -34,7 +34,7 @@ experiences as "it keeps telling me the score when I asked what happened."
 |---|---|
 | MCP client | the host fetches `initialize` instructions and `tools/list`, gives the live tool definitions to Claude, then makes every selected `tools/call` over `/mcp` ([`simulator/mcp_client.py`](../simulator/mcp_client.py)). External clients use `/mcp` directly |
 | MCP server | this repo ([`mcp/server.py`](../sideline/mcp/server.py)) |
-| Bedrock | AWS: Anthropic Claude (Sonnet) writes the catch-up and chooses among the discovered MCP tools; Nova 2 Sonic hears speech |
+| Bedrock | AWS: Amazon Nova Pro writes the catch-up and chooses among the discovered MCP tools; Nova 2 Sonic hears speech |
 | Polly | AWS: speech out (generative voice), with word timings |
 | DynamoDB | AWS: listener state and the event log (memory when no table is available) |
 | Poller | this repo: a thread in the server process |
@@ -131,8 +131,6 @@ Listener                        Event
   last_told_at   match minute     kind          per sport: goal, card, basket, foul ...
   told_event_ids                  player, team, assist, detail, points
   language                        superseded_by
-  history        turns [u, a]
-  topic          focus entity
   sport          active sport
   broadcast_offset
 ```
@@ -141,9 +139,14 @@ Listener                        Event
 calculation is the heart of the product, and it must not drift between the in-memory and DynamoDB
 implementations.
 
-**Why `history` and `topic` persist in DynamoDB.** Conversation memory survives restarts: past dialogue turns
-and the current focus entity (`competition`, `matches`, `total`, `team`, `player`) are saved to DynamoDB
-so follow-ups (*"and them?"*, *"what about the second one?"*) snap accurately even across server reloads.
+**Two tiers of memory, on purpose.** What the MCP server keeps about a listener is durable (DynamoDB): the match they follow,
+their team, their settings, their broadcast delay, and what they have heard. The conversation itself, and the topic being
+discussed (*"and them?"*, *"what about the second one?"*), is **session memory**: held in the host's process, forgotten after
+thirty idle minutes or a restart, and never written to the table. That keeps verbatim questions out of storage, saves a read
+and a write of the whole profile on every turn, and stops a restarted server from repeating an answer from yesterday instead of
+asking for what is new. A listener can end the session's memory by saying "forget that" or "start over" (the followed match
+and settings stay), and erase what the server keeps with "forget everything about me" (`set_preferences` with
+`forget: "everything"`, a tool any MCP client can call).
 
 **Why `told_event_ids` as well as `last_told_at`.** They answer different questions. The timestamp answers
 *what window*. The id set answers *did we already mention this specific thing*. A listener can ask about one goal
@@ -152,19 +155,36 @@ explicitly, then later ask what they missed, and should not hear that goal twice
 **Why the marker never moves backwards.** `mark_told()` refuses to lower it. A listener hearing the same goal
 twice is worse than a listener hearing nothing: it makes them distrust everything else the thing says.
 
-## Multi-Agent Swarm & Generative Streaming Pipeline
+## Where the time goes
 
-To achieve **<150ms perceived response latency**, the architecture departs from monolithic request loops:
+Measured against the live ESPN feed on 2026-10-15 (`scripts/convo.py`, three conversation batches; `make bench` for the
+offline cost of each tool). These are what we saw, not targets:
 
-1. **Swarm Parallel Multi-Agent Execution:** The simulator runs up to 8 parallel agent workers concurrently via Python's `ThreadPoolExecutor`. Fast deterministic intent paths (scores, fixtures, lineups) execute in **<50ms** directly from cached tool data without incurring an LLM turn.
-2. **Generative Word-by-Word Streaming:** The web client implements an Omega divide-and-conquer token streaming pipeline. When an answer is ready, the screen is wiped clean with **zero lookahead preview in grey**. Words stream dynamically into the DOM one-by-one synchronized with speech.
-3. **Sub-15ms Native Voice Pipeline:** Local browser speech synthesis (`SIDELINE_TTS=browser`) initiates audio immediately in `<15ms` with zero cloud network round-trip, keeping conversational latency under the human natural pause threshold.
+- **One tool call, answers cached:** a few milliseconds of our own work; the feed's requests are the cost.
+- **A question that needs the feed, cold:** about 0.4 to 1.5 s for one lookup, about 3 s for the first question about a
+  match (a team search, two schedules and the match summary: 3 requests), and 4 to 5 s for a name the search cannot find.
+  Before the changes in this repository's history the same first question took 116 requests and 18 s.
+- **A question the fast path answers** (score, table, fixtures): no model call, so the tool's time is all of it.
+- **A question that goes through a model:** one or two Bedrock calls, about 1 to 3 s each depending on the model.
+- **With DynamoDB as the state, from a distant region:** each call to the table took about 340 ms from Mauritius to
+  us-east-1, and a cold first follow made 26 of them one after another (about 9 of its 11 seconds). Now it makes 10, the
+  independent ones at the same time, the server's own records are kept while this process is the only writer, and a new
+  follow reads only the match it just followed: 4.5 s for the tool alone (6.3 s with the model, measured on 2026-10-15),
+  and 0 to 3 s for the questions after it. Live match data is never kept: it is read from the feed on every question
+  (5 seconds at most, so the tools one question calls share one read). Opening the connections at start-up (`warm`)
+  takes the first question's share of that off the first listener.
+- **Speech:** Polly and the speech-in models add their own time on top; the page's Dev log (bottom-left, or Alt+D)
+  shows each part for every question.
+
+What keeps repeat questions cheap is the cache in `sideline/cache.py`: bounded, lifetimes by kind of data (a match that
+is over is kept for hours, a live scoreboard for 30 seconds), and one request shared by everyone asking for the same page
+at once. See [ESPN_NOTES.md](ESPN_NOTES.md) for the endpoint facts behind it.
 
 ## Failure behaviour
 
 | Failure | What happens | Why |
 |---|---|---|
-| The feed is down, refuses the key, or the quota is spent | `ProviderUnavailable`: the tool answers "The match data feed said: <the vendor's own error>. Try again shortly." and the voice agent says exactly that | A feed wobble must not reach the listener as a protocol error |
+| The feed cannot be reached | `ProviderUnavailable`: the tool answers "Sorry, an error occurred. Please try rephrasing your question for a better search, or try again later." and the vendor's own error stays in the log, never in the listener's ear | A feed wobble must never be read out as "no matches", and a raw error is not something a listener can act on |
 | Bedrock is on and fails, or invents a score | The failure is reported to the caller (a spoken decline); the listener's gap is **kept**, so asking again still works | Never a canned guess about a match the listener cannot see |
 | Bedrock is off | The deterministic template, labelled `generated_by: template` | The fast tools never need a model |
 | No match followed | `ToolError` with "tell me which game" | "Which match?" is a reasonable thing to be asked |

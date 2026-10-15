@@ -9,6 +9,8 @@ exist so that design error cannot come back.
 """
 
 
+import time
+
 from conftest import make_ctx
 
 from sideline import sync
@@ -52,7 +54,7 @@ def main():
     poll_once(ctx)
     for e in ctx.store.events(1208341):
         if e["kind"] == "goal":
-            e["at"] -= 40          # we logged it 40 seconds ago
+            e["at"] = time.time() - 40          # we logged it 40 seconds ago
 
     spoken, s3, _ = _run(ctx, "sync_broadcast_delay", heard="goal")
     assert s3["precision"] == "wall_clock", s3

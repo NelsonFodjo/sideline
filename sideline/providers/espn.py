@@ -8,15 +8,20 @@ Normalises ESPN scoreboards and match summaries into Sideline's unified Fixture,
 Event, Lineup, and Stats shapes conforming to Provider (see base.py) and SportProfile (see sports/).
 """
 
+import collections
 import datetime
 import json
 import logging
 import re
+import threading
 import time
 import urllib.parse
 import urllib.request
 
+from .. import clock, tls
+from ..cache import ResponseCache
 from ..state.store import Event
+from ..status import FINISHED, IN_PLAY
 from .base import Provider, ProviderUnavailable
 
 LOG = logging.getLogger("sideline.provider.espn")
@@ -24,9 +29,19 @@ TIMEOUT = 6
 
 try:
     import urllib3
-    _ESPN_POOL = urllib3.PoolManager(maxsize=16, num_pools=4)
+    # The same CA bundle logic as the rest of the product (tls.py): without it a Python with no bundle fails every
+    # request here, and each one then pays for a second attempt on the slow path. One retry, not urllib3's default three.
+    _ESPN_POOL = urllib3.PoolManager(maxsize=16, num_pools=4, ssl_context=tls.context(), retries=urllib3.Retry(total=1))
 except Exception:
     _ESPN_POOL = None
+
+# Sideline says "football" for soccer and "american_football" for the NFL; ESPN's URLs say "soccer" and "football".
+_ESPN_SPORT = {"football": "soccer", "soccer": "soccer", "american_football": "football"}
+
+
+def _espn_sport(sideline_sport):
+    return _ESPN_SPORT.get(sideline_sport, sideline_sport)
+
 
 # Supported sports and default leagues: (key, display_name, country, sport_category)
 SOCCER_LEAGUES = [
@@ -37,6 +52,8 @@ SOCCER_LEAGUES = [
     ("ger.1", "Bundesliga", "Germany"),
     ("fra.1", "Ligue 1", "France"),
     ("usa.1", "Major League Soccer", "USA"),
+    ("afc.champions", "AFC Champions League Elite", "Asia"),
+    ("afc.cup", "AFC Champions League Two", "Asia"),
     ("uefa.europa", "UEFA Europa League", "International"),
     ("sco.1", "Scottish Premiership", "Scotland"),
     ("ned.1", "Dutch Eredivisie", "Netherlands"),
@@ -91,6 +108,15 @@ STATUS_MAP = {
     "STATUS_SHOOTOUT": "PEN",
 }
 
+def _is_finished_summary(doc):
+    """Is this match summary of a game that is over? Then it can be kept for hours."""
+    try:
+        status = ((doc or {}).get("header") or {}).get("competitions")[0].get("status") or {}
+        return bool((status.get("type") or {}).get("completed"))
+    except (TypeError, IndexError, AttributeError):
+        return False
+
+
 SOCCER_STAT_MAP = {
     "possessionPct": "possession",
     "totalShots": "shots",
@@ -99,6 +125,10 @@ SOCCER_STAT_MAP = {
     "foulsCommitted": "fouls",
     "yellowCards": "yellow_cards",
     "redCards": "red_cards",
+    "offsides": "offsides",
+    "saves": "saves",
+    "accuratePasses": "passes_accurate",
+    "totalPasses": "passes_total",
 }
 
 POS_NORMALIZATION = {
@@ -131,7 +161,7 @@ class EspnProvider(Provider):
     capabilities = frozenset({
         "fixtures", "events", "lineups", "officials", "h2h", "stats", "search",
         "competitions", "standings", "top_scorers", "injuries", "form",
-        "player_stats", "team_matches", "team_stats", "squad"
+        "player_stats", "team_matches", "team_stats", "squad", "player_profile", "news"
     })
 
     def __init__(self, soccer_leagues=None, basketball_leagues=None, football_leagues=None,
@@ -142,18 +172,35 @@ class EspnProvider(Provider):
         self.baseball_leagues = baseball_leagues or [k for k, _, _ in BASEBALL_LEAGUES]
         self.hockey_leagues = hockey_leagues or [k for k, _, _ in HOCKEY_LEAGUES]
         self.cache_seconds = cache_seconds
-        self._cache = {}
+        self.cache = ResponseCache(max_entries=1024)      # bounded, one request for many askers (sideline/cache.py)
+        self.request_count = 0                           # real network requests made, for measuring
+        self._requests = collections.deque(maxlen=2000)  # (number, url) of the latest ones
         self._event_meta = {}  # event_id -> (espn_sport, sideline_sport, league)
         self._team_index = {}  # team_name_lower -> (espn_sport, league, team_id, display_name)
         self._fixture_by_id = {}  # fid -> (timestamp, fixture_dict)
 
     # ------------------------------------------------------------- http
-    def _fetch_json(self, url, ttl=None):
-        hit = self._cache.get(url)
-        now = time.time()
-        if hit and (now - hit[0]) < (ttl or self.cache_seconds):
-            return hit[1]
+    # How long a page stays good, by kind. What changes while a match is on (the scoreboard, a match in play, a schedule
+    # that shows its clock) is kept for seconds, only so that the several tools one question calls share one read.
+    # A page that cannot change again is kept for hours. (The policy is BetTrack's idea; the numbers are ours.) First match wins.
+    _TTL_BY_KIND = (("/scoreboard", 5.0), ("/standings", 60.0), ("/news", 120.0), ("/schedule", 30.0),
+                    ("/injuries", 300.0), ("/statistics", 900.0), ("/roster", 3600.0), ("/athletes/", 3600.0),
+                    ("search/v2", 3600.0), ("leagues/dropdown", 86400.0))
+    FINISHED_SUMMARY_TTL = 6 * 3600.0       # a match that is over never changes
+    LIVE_SUMMARY_TTL = 5.0                  # a match in play: just long enough for one turn's tools to share one read
 
+    def _ttl_for(self, url, data=None):
+        if "/summary" in url:
+            return self.FINISHED_SUMMARY_TTL if _is_finished_summary(data) else self.LIVE_SUMMARY_TTL
+        for needle, seconds in self._TTL_BY_KIND:
+            if needle in url:
+                return seconds
+        return self.cache_seconds
+
+    def _http_get(self, url):
+        """The parsed JSON at `url`, or an exception. One logical request: counted once, whichever path answers."""
+        self.request_count += 1
+        self._requests.append((self.request_count, url))
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Sideline/2.0",
             "Accept": "application/json",
@@ -161,36 +208,77 @@ class EspnProvider(Provider):
         if _ESPN_POOL is not None:
             try:
                 resp = _ESPN_POOL.request("GET", url, headers=headers, timeout=TIMEOUT)
-                data = json.loads(resp.data.decode("utf-8"))
-                self._cache[url] = (now, data)
-                return data
-            except Exception as e:
+                if resp.status >= 400:
+                    raise RuntimeError("HTTP %d" % resp.status)
+                return json.loads(resp.data.decode("utf-8"))
+            except Exception as e:                      # fall through to the standard library, once
                 LOG.warning("ESPN pool request failed for %s: %s", url, e)
-                if hit:
-                    return hit[1]
-
         req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=TIMEOUT, context=tls.context()) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def _fetch_json(self, url, ttl=None, strict=False):
+        """The JSON at `url`: from the cache, or one request shared by everyone asking for it at once. When it cannot
+        be had: a recent copy if there is one; else {} - or, with `strict`, ProviderUnavailable, so the caller can say
+        the feed is down rather than that nothing is there. Failures are never cached."""
         try:
-            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                self._cache[url] = (now, data)
-                return data
-        except Exception as e:
+            return self.cache.get_or_fetch(url, lambda: self._http_get(url), lambda data: ttl or self._ttl_for(url, data))
+        except Exception as e:                          # noqa: BLE001 - any failure to fetch or parse is the same to the caller
             LOG.warning("ESPN request failed for %s: %s", url, e)
-            if hit:
-                return hit[1]
+            found, old = self.cache.stale(url, max(120.0, 5 * (ttl or self._ttl_for(url))) if "/summary" not in url else 600.0)
+            if found and "/scoreboard" not in url and ("/summary" not in url or _is_finished_summary(old)):
+                return old                             # never an old score: only what cannot have changed since
+            if strict:
+                raise ProviderUnavailable("I can't reach the match feed right now.")
             return {}
 
     # --------------------------------------------------------- fixtures
-    def _fetch_scoreboard(self, sport, league, date_str=None):
+    def _fetch_scoreboard(self, sport, league, date_str=None, limit=None):
         url = f"https://site.api.espn.com/apis/site/v2/sports/{sport}/{league}/scoreboard"
-        if date_str:
-            url += f"?dates={date_str}"
-        return self._fetch_json(url, ttl=30.0)
+        params = [p for p in (f"dates={date_str}" if date_str else "", f"limit={limit}" if limit else "") if p]
+        if params:
+            url += "?" + "&".join(params)
+        return self._fetch_json(url, ttl=30.0, strict=True)
+
+    def _league_index(self):
+        """{league id: {"slug", "name"}} for every soccer competition ESPN has (about 220), from one request kept for
+        a day. A scoreboard event carries only the league's number; this is how it gets a name and a slug."""
+        held = getattr(self, "_league_idx", None)
+        if held and time.time() < held[0]:
+            return held[1]
+        idx, keep = {}, 60.0                                  # a failure is retried in a minute, not a day
+        try:
+            doc = self._fetch_json("https://site.web.api.espn.com/apis/site/v2/leagues/dropdown?sport=soccer&limit=500",
+                                   ttl=86400.0, strict=True)
+            idx = {str(l["id"]): {"slug": l.get("slug"), "name": l.get("name")} for l in doc.get("leagues") or [] if l.get("id")}
+            keep = 86400.0 if idx else 60.0
+        except ProviderUnavailable:
+            pass
+        self._league_idx = (time.time() + keep, idx)
+        return idx
+
+    def _all_soccer(self, date_str):
+        """Every soccer match on a day, in every competition ESPN covers, from one request. (The default answer is
+        cut at 100 matches; limit=500 is what a busy day needs.)"""
+        # The league names come from a separate request that does not depend on the scoreboard: ask for both at once.
+        names = threading.Thread(target=self._league_index, daemon=True)
+        names.start()
+        doc = self._fetch_scoreboard("soccer", "all", date_str, limit=500)
+        names.join(20)
+        idx = self._league_index()
+        out = []
+        for ev in doc.get("events") or []:
+            m = re.search(r"~l:(\d+)", ev.get("uid") or "")
+            info = idx.get(m.group(1)) if m else None
+            fx = self._norm_fixture(ev, "football", (info or {}).get("slug") or "all")
+            if fx:
+                if info and info.get("name"):
+                    fx["competition"] = info["name"]
+                out.append(fx)
+        return out
 
     def _fetch_summary(self, sport, league, event_id):
-        espn_sport = "soccer" if sport in ("football", "soccer") else sport
-        url = f"https://site.api.espn.com/apis/site/v2/sports/{espn_sport}/{league}/summary?event={event_id}"
+        url = f"https://site.api.espn.com/apis/site/v2/sports/{sport}/{league}/summary?event={event_id}"
         return self._fetch_json(url)
 
     def _resolve_league(self, competition_name):
@@ -231,20 +319,21 @@ class EspnProvider(Provider):
             return "hockey", "hockey", "nhl", "NHL"
         return "soccer", "football", "eng.1", "English Premier League"
 
+    FIXTURES_SECONDS = 10.0               # the day's list shows who is live and the minute: kept only briefly
+
     def fixtures_on(self, offset_days=0, sport=None):
         target_date = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=offset_days)
         date_str = target_date.strftime("%Y%m%d")
         cache_key = (offset_days, sport, date_str)
         now = time.time()
         hit = getattr(self, "_fixtures_cache", {}).get(cache_key)
-        if hit and (now - hit[0]) < 60.0:
+        if hit and (now - hit[0]) < self.FIXTURES_SECONDS:
             return hit[1]
 
         league_tasks = []
         # Soccer fixtures
         if not sport or sport in ("football", "soccer"):
-            for league in self.soccer_leagues:
-                league_tasks.append(("soccer", "football", league))
+            league_tasks.append(("soccer", "football", "all"))        # every competition, one request
 
         # Basketball fixtures
         if not sport or sport == "basketball":
@@ -269,6 +358,8 @@ class EspnProvider(Provider):
         def _fetch_one_league(item):
             espn_s, sideline_s, lg = item
             try:
+                if (espn_s, lg) == ("soccer", "all"):
+                    return self._all_soccer(date_str)
                 doc = self._fetch_scoreboard(espn_s, lg, date_str)
                 items = []
                 for ev in doc.get("events") or []:
@@ -276,19 +367,37 @@ class EspnProvider(Provider):
                     if fx:
                         items.append(fx)
                 return items
+            except ProviderUnavailable:
+                return None                      # this league could not be read: not the same as no matches
             except Exception:
                 return []
 
         out = []
+        failed = 0
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=min(16, len(league_tasks) or 1)) as pool:
             for sub_list in pool.map(_fetch_one_league, league_tasks):
-                out.extend(sub_list)
+                if sub_list is None:
+                    failed += 1
+                else:
+                    out.extend(sub_list)
+        if league_tasks and failed == len(league_tasks):
+            raise ProviderUnavailable("I can't reach the match feed right now.")
 
         if not hasattr(self, "_fixtures_cache"):
             self._fixtures_cache = {}
         self._fixtures_cache[cache_key] = (now, out)
         return out
+
+    def warm(self):
+        """What the first question needs, fetched before anyone asks: the league names (which never change) and one read of
+        today's matches, which opens the connections. The matches themselves are asked for again, live, by every question.
+        Never raises; failing to warm costs only that first question's wait."""
+        threads = [threading.Thread(target=fn, daemon=True) for fn in (self._league_index, lambda: self.fixtures_on(0))]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(20)
 
     def fixtures_today(self):
         return self.fixtures_on(0)
@@ -314,6 +423,16 @@ class EspnProvider(Provider):
                 self._fixture_by_id[fid] = (time.time(), fx)
                 return fx
 
+        # A soccer match whose league is not known yet: its summary answers through `soccer/all`, one request, where
+        # scanning three days of every sport's scoreboard is 24. (Not soccer: the request finds nothing, and the scan below runs.)
+        doc = self._fetch_json(f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event={fid}")
+        league = ((doc.get("header") or {}).get("league") or {}).get("slug") or "all"
+        fx = self._norm_fixture_header(doc, "football", league, fid) if doc else None
+        if fx:
+            self._event_meta[fid] = ("soccer", "football", league)
+            self._fixture_by_id[fid] = (time.time(), fx)
+            return fx
+
         # Scan today's fixtures first
         for fx in self.fixtures_on(0):
             if str(fx.get("fixture_id")) == fid:
@@ -334,7 +453,7 @@ class EspnProvider(Provider):
 
     def _norm_fixture(self, raw, sport, league):
         fid = str(raw.get("id"))
-        espn_sport = "soccer" if sport == "football" else sport
+        espn_sport = _espn_sport(sport)
         self._event_meta[fid] = (espn_sport, sport, league)
 
         comps = raw.get("competitions") or []
@@ -497,7 +616,7 @@ class EspnProvider(Provider):
             if fx:
                 sideline_sport = fx.get("sport")
                 league = fx.get("league_id")
-                espn_sport = "soccer" if sideline_sport == "football" else sideline_sport
+                espn_sport = _espn_sport(sideline_sport)
             else:
                 return []
 
@@ -506,42 +625,83 @@ class EspnProvider(Provider):
             return self._basketball_events(fid, summary, since_minute)
         return self._soccer_events(fid, summary, since_minute)
 
+    @staticmethod
+    def _clock_minute(display):
+        """(minute, stoppage) from ESPN's clock text: "13'", "90'+4'"."""
+        m = re.search(r"(\d+)(?:\+(\d+))?", (display or "").replace("'", ""))
+        return (int(m.group(1)), int(m.group(2) or 0)) if m else (0, 0)
+
+    def _penalty_events(self, fid, summary, since_minute):
+        """Penalties awarded, from the commentary: who was fouled, who gave it away, who it was awarded to. The
+        taking of it (scored, saved, missed) is a key event and is read in _soccer_events."""
+        items = summary.get("commentary") or []
+        out = []
+        for c in items:
+            text = c.get("text") or ""
+            given = re.match(r"Penalty conceded by (.+?) \(([^)]+)\)", text)
+            if not given:
+                continue
+            minute, stoppage = self._clock_minute((c.get("time") or {}).get("displayValue"))
+            if minute <= since_minute:
+                continue
+            team = fouled = None
+            for other in items:
+                if self._clock_minute((other.get("time") or {}).get("displayValue")) != (minute, stoppage):
+                    continue
+                m = re.match(r"Penalty ([^.]+)\. (.+?) draws a foul", other.get("text") or "")
+                if m:
+                    team, fouled = m.group(1).strip(), m.group(2).strip()
+                    break
+            official = {re.sub(r"[^a-z]", "", n.lower()): n for n in (
+                (t.get("team") or {}).get("displayName") for t in (summary.get("boxscore") or {}).get("teams") or []) if n}
+            team = official.get(re.sub(r"[^a-z]", "", (team or "").lower()), team)       # "Paris Saint Germain" -> its proper name
+            out.append(Event.make(fid, minute, "penalty", outcome="awarded", player=fouled, team=team or "",
+                                  conceded_by=given.group(1).strip(), stoppage=stoppage))
+        return out
+
     def _soccer_events(self, fid, summary, since_minute):
         out = []
-        key_events = summary.get("keyEvents") or []
-        for ke in key_events:
-            t = ke.get("type") or {}
-            text_type = t.get("text", "")
-            clock_obj = ke.get("clock") or {}
-            display = clock_obj.get("displayValue") or "0'"
-            m_match = re.search(r"(\d+)(?:\+(\d+))?", display)
-            minute = int(m_match.group(1)) if m_match else 0
-            stoppage = int(m_match.group(2)) if m_match and m_match.group(2) else 0
-
+        for ke in summary.get("keyEvents") or []:
+            text_type = (ke.get("type") or {}).get("text", "")
+            minute, stoppage = self._clock_minute((ke.get("clock") or {}).get("displayValue"))
             if minute <= since_minute:
                 continue
 
             participants = ke.get("participants") or []
-            player_name = None
-            team_name = None
-            if participants:
-                p0 = participants[0]
-                player_name = p0.get("athlete", {}).get("displayName") or p0.get("displayName")
-                team_name = p0.get("team", {}).get("displayName")
-
+            names = [(p.get("athlete") or {}).get("displayName") or p.get("displayName") for p in participants]
+            player_name = names[0] if names else None
+            # The team is on the event itself; the participants carry only the player.
+            team_name = (ke.get("team") or {}).get("displayName") or (
+                (participants[0].get("team") or {}).get("displayName") if participants else None)
             text = ke.get("text") or ""
 
             # Fallback extraction from text if participants missing
             if not player_name:
-                m_goal = re.search(r"([A-Z][\w\s\-]+)\s*\(([^)]+)\)\s*(?:right|left|header|penalty)", text, re.I | re.UNICODE)
+                m_goal = re.search(r"([A-Z][\w\s\-']+)\s*\(([^)]+)\)\s*(?:right|left|header|penalty)", text, re.I | re.UNICODE)
                 if m_goal:
                     player_name = m_goal.group(1).strip()
-                    team_name = m_goal.group(2).strip()
+                    team_name = team_name or m_goal.group(2).strip()
+
+            # Penalties: a scored one is a goal; the rest (saved, missed, off the woodwork) are their own event
+            if text_type.startswith("Penalty"):
+                outcome = text_type.split("-")[-1].strip().lower() if "-" in text_type else "taken"
+                if outcome == "scored":
+                    out.append(self.mk_goal(fid, minute, player_name or "Unknown", team_name or "",
+                                            detail="penalty", stoppage=stoppage))
+                    continue
+                if not player_name:
+                    m_taker = re.match(r"Penalty \w+\. (.+?) \(([^)]+)\)", text)
+                    if m_taker:
+                        player_name, team_name = m_taker.group(1).strip(), team_name or m_taker.group(2).strip()
+                m_keeper = re.search(r" by (.+?) \(", text)
+                out.append(Event.make(fid, minute, "penalty", outcome=outcome, player=player_name or "Unknown",
+                                      team=team_name or "", keeper=m_keeper.group(1).strip() if m_keeper else None,
+                                      stoppage=stoppage))
 
             # Goals
-            if "Goal" in text_type:
+            elif "Goal" in text_type:
                 assist_name = None
-                m_ast = re.search(r"Assisted by ([\w\s\-]+)\.", text, re.UNICODE)
+                m_ast = re.search(r"Assisted by (.+?)(?: with | following |\.|$)", text, re.UNICODE)
                 if m_ast:
                     assist_name = m_ast.group(1).strip()
                 detail = "penalty" if "penalty" in text.lower() else ("own goal" if "own goal" in text.lower() else "")
@@ -558,17 +718,18 @@ class EspnProvider(Provider):
                 out.append(self.mk_card(fid, minute, player_name or "Unknown", team_name or "",
                                         colour=colour, reason=reason, stoppage=stoppage))
 
-            # Substitutions
+            # Substitutions: ESPN lists the player on, then the player off
             elif "Substitution" in text_type:
-                m_sub = re.search(r"([\w\s\-]+) replaces ([\w\s\-]+)", text, re.UNICODE)
-                on_p = m_sub.group(1).strip() if m_sub else player_name or "Unknown"
-                off_p = m_sub.group(2).strip() if m_sub else "Unknown"
+                m_sub = re.match(r"(?:Substitution, [^.]+\. )?(.+?) replaces (.+?)\.?$", text.strip(), re.UNICODE)
+                on_p = (names[0] if len(names) > 1 else None) or (m_sub.group(1).strip() if m_sub else player_name or "Unknown")
+                off_p = (names[1] if len(names) > 1 else None) or (m_sub.group(2).strip() if m_sub else "Unknown")
                 out.append(self.mk_sub(fid, minute, on=on_p, off=off_p, team=team_name or "", stoppage=stoppage))
 
             # VAR
             elif "VAR" in text_type or "VAR" in text:
                 out.append(self.mk_var(fid, minute, decision=text[:80], player=player_name, team=team_name, stoppage=stoppage))
 
+        out.extend(self._penalty_events(fid, summary, since_minute))       # the store orders by minute
         return out
 
     def _basketball_events(self, fid, summary, since_minute):
@@ -616,7 +777,7 @@ class EspnProvider(Provider):
             if fx:
                 sideline_sport = fx.get("sport")
                 league = fx.get("league_id")
-                espn_sport = "soccer" if sideline_sport == "football" else sideline_sport
+                espn_sport = _espn_sport(sideline_sport)
             else:
                 return {}
 
@@ -652,20 +813,31 @@ class EspnProvider(Provider):
             team_name = (r.get("team") or {}).get("displayName") or "Team"
             starters = []
             bench = []
-            numbers = {}
+            numbers, positions, match_stats = {}, {}, {}
             for ath_wrap in r.get("roster") or []:
                 ath = ath_wrap.get("athlete") or {}
                 name = ath.get("displayName")
                 if not name:
                     continue
-                num = ath.get("jersey")
-                numbers[name] = num
+                numbers[name] = ath_wrap.get("jersey") or ath.get("jersey")       # the shirt number is on the roster entry
+                pos = ath_wrap.get("position") or {}
+                positions[name] = (pos.get("displayName") or pos.get("name") or pos.get("abbreviation") or "").lower() or None
+                got = {}
+                for st in ath_wrap.get("stats") or []:                            # what he did in THIS match
+                    try:
+                        value = int(float(st.get("displayValue")))
+                    except (TypeError, ValueError):
+                        continue
+                    if value:
+                        got[st.get("name")] = value
+                match_stats[name] = got
                 if ath_wrap.get("starter"):
                     starters.append(name)
                 else:
                     bench.append(name)
             formation = r.get("formation")
-            out[team_name] = {"formation": formation, "xi": starters, "bench": bench, "numbers": numbers, "coach": None}
+            out[team_name] = {"formation": formation, "xi": starters, "bench": bench, "numbers": numbers,
+                              "positions": positions, "match_stats": match_stats, "coach": None}
         return out
 
     # ------------------------------------------------------ match_stats
@@ -679,7 +851,7 @@ class EspnProvider(Provider):
             if fx:
                 sideline_sport = fx.get("sport")
                 league = fx.get("league_id")
-                espn_sport = "soccer" if sideline_sport == "football" else sideline_sport
+                espn_sport = _espn_sport(sideline_sport)
             else:
                 return {}
 
@@ -758,7 +930,9 @@ class EspnProvider(Provider):
         if children:
             for child in children:
                 st = child.get("standings") or {}
-                entries.extend(st.get("entries") or [])
+                # a competition played in groups: a row's position means nothing without its group
+                entries.extend(dict(e, _group=child.get("name")) if len(children) > 1 else e
+                               for e in st.get("entries") or [])
         else:
             entries = (doc.get("standings") or {}).get("entries") or []
 
@@ -771,7 +945,7 @@ class EspnProvider(Provider):
             stats_dict = {s.get("name"): s.get("value", s.get("displayValue")) for s in e.get("stats") or []}
 
             try:
-                rank = int(stats_dict.get("rank") or 1)
+                rank = int(stats_dict.get("rank") or stats_dict.get("playoffSeed") or 1)    # US leagues rank by seed
             except Exception:
                 rank = 1
             try:
@@ -808,11 +982,17 @@ class EspnProvider(Provider):
             if t_id:
                 self._team_index[team_name.lower()] = (espn_sport, league, t_id, team_name)
 
+            keeps_points = sideline_sport in ("football", "hockey")     # a record, not a points total, in the rest
+            wins_n = stats_dict.get("wins")
+            record = stats_dict.get("overall") or (
+                "%d-%d" % (int(float(wins_n)), int(float(stats_dict.get("losses") or 0))) if wins_n not in (None, "") else None)
             out.append({
+                "group": e.get("_group"),
+                "record": record,
                 "position": rank,
                 "team": team_name,
                 "played": played,
-                "points": points,
+                "points": points if keeps_points else None,
                 "won": won,
                 "drawn": drawn,
                 "lost": lost,
@@ -959,23 +1139,91 @@ class EspnProvider(Provider):
         return out
 
     # ----------------------------------------------------- player_stats
+    def _find_player(self, want, team=None):
+        """The search hit for a player. Several people share a name: the one on the team asked about, else the one
+        whose name matches exactly, else the first."""
+        url = "https://site.api.espn.com/apis/search/v2?query=%s" % urllib.parse.quote(want)
+        res = self._fetch_json(url, ttl=3600.0, strict=True)
+        hits = [c for g in res.get("results") or [] if g.get("type") == "player" for c in g.get("contents") or []]
+        if not hits:
+            return None
+        canon = lambda t: re.sub(r"[^a-z]", "", (t or "").lower())      # noqa: E731
+        return next((c for c in hits if team and canon(team) and canon(team) in canon(c.get("subtitle"))), None) \
+            or next((c for c in hits if canon(c.get("displayName")) == canon(want)), None) or hits[0]
+
+    def news(self, team=None, competition=None, limit=5):
+        """Headlines for a team, or a competition, or football in general, newest first, from ESPN's news feed."""
+        want = (team or "").strip()
+        if want:
+            found = self._find_team(want.lower())
+            if not found:
+                return None
+            sport, league, t_id, official = found
+            url = "https://site.api.espn.com/apis/site/v2/sports/%s/%s/news?team=%s&limit=%d" % (sport, league or "all", t_id, limit)
+            scope = official or want
+        elif competition:
+            sport, _sl, league, name = self._resolve_league(competition)
+            url = "https://site.api.espn.com/apis/site/v2/sports/%s/%s/news?limit=%d" % (sport, league, limit)
+            scope = name
+        else:
+            url = "https://site.api.espn.com/apis/site/v2/sports/soccer/all/news?limit=%d" % limit
+            scope = "football"
+        articles = self._fetch_json(url, strict=True).get("articles") or []
+        out = [{"headline": a.get("headline"), "summary": a.get("description"), "published": a.get("published")}
+               for a in articles if a.get("headline")]
+        return {"scope": scope, "articles": out[:limit]} if out else None
+
+    def player_profile(self, player, team=None):
+        """Who a player is: name, age, nationality, position, club, shirt number. ESPN carries no honours or career
+        titles, so `honours` is None and the caller must say it does not have them."""
+        want = (player or "").strip()
+        hit = self._find_player(want, team) if want else None
+        if not hit:
+            return None
+        uid = hit.get("uid") or ""
+        ath_id = uid.split(":")[-1] if ":" in uid else hit.get("id")
+        sport = hit.get("sport") or "soccer"
+        a = (self._fetch_json("https://site.web.api.espn.com/apis/common/v3/sports/%s/athletes/%s" % (sport, ath_id),
+                              ttl=3600.0, strict=True).get("athlete")) or {}
+        if not a:
+            return None
+        position = a.get("position") or {}
+        club = a.get("team") or {}
+        return {"name": a.get("displayName") or hit.get("displayName") or want, "age": a.get("age"),
+                "nationality": a.get("citizenship"), "position": (position.get("displayName") or "").lower() or None,
+                "team": club.get("displayName") or hit.get("subtitle"), "number": a.get("jersey") or None,
+                "gender": (a.get("gender") or "").lower() or None, "sport": sport, "honours": None}
+
+    # Competitions a player plays for his country, not his club. ESPN lists them all as one season.
+    _NATIONAL = ("nations league", "world cup", "international", "european championship", "uefa euro", "copa america",
+                 "africa cup", "asian cup", "gold cup", "qualif", "olympic")
+
+    def _soccer_season(self, name, team, names, splits):
+        """This season for the club and, separately, for his country: adding them is how a goal for Portugal
+        became a goal for Paris Saint-Germain. ESPN gives starts, not appearances, so starts is what is said."""
+        club = {"starts": 0, "goals": 0, "assists": 0}
+        country = {"starts": 0, "goals": 0, "assists": 0}
+        seen_club = seen_country = False
+        for sp in splits:
+            vals = dict(zip(names, sp.get("stats") or []))
+            national = any(w in (sp.get("displayName") or "").lower() for w in self._NATIONAL)
+            bucket = country if national else club
+            seen_country, seen_club = seen_country or national, seen_club or not national
+            for key, raw in (("starts", "starts"), ("goals", "totalGoals"), ("assists", "goalAssists")):
+                try:
+                    bucket[key] += int(vals.get(raw) or 0)
+                except (ValueError, TypeError):
+                    pass
+        return {"name": name, "team": team, "starts": club["starts"] if seen_club else None,
+                "goals": club["goals"] if seen_club else None, "assists": club["assists"] if seen_club else None,
+                "international": dict(country) if seen_country else None}
+
     def player_stats(self, player, team=None):
         want = (player or "").strip()
         if not want:
             return None
 
-        # Search for athlete
-        url = f"https://site.api.espn.com/apis/search/v2?query={urllib.parse.quote(want)}"
-        res = self._fetch_json(url, ttl=60)
-        p_item = None
-        for r_group in res.get("results") or []:
-            if r_group.get("type") == "player":
-                for c in r_group.get("contents") or []:
-                    p_item = c
-                    break
-            if p_item:
-                break
-
+        p_item = self._find_player(want, team)
         if not p_item:
             return None
 
@@ -992,6 +1240,9 @@ class EspnProvider(Provider):
         st = ov_data.get("statistics") or {}
         names = st.get("names") or []
         splits = st.get("splits") or []
+
+        if sport == "soccer":
+            return self._soccer_season(disp_name, team_name, names, splits)
 
         apps, goals, assists = 0, 0, 0
         points, rebounds = None, None
@@ -1024,7 +1275,7 @@ class EspnProvider(Provider):
         return {
             "name": disp_name,
             "team": team_name,
-            "appearances": apps if apps > 0 else 1,
+            "appearances": apps if apps > 0 else None,
             "goals": goals if goals > 0 else None,
             "assists": assists if assists > 0 else None,
             "points": points,
@@ -1042,7 +1293,7 @@ class EspnProvider(Provider):
             if fx:
                 sideline_sport = fx.get("sport")
                 league = fx.get("league_id")
-                espn_sport = "soccer" if sideline_sport == "football" else sideline_sport
+                espn_sport = _espn_sport(sideline_sport)
             else:
                 return {}
 
@@ -1080,7 +1331,7 @@ class EspnProvider(Provider):
             if fx:
                 sideline_sport = fx.get("sport")
                 league = fx.get("league_id")
-                espn_sport = "soccer" if sideline_sport == "football" else sideline_sport
+                espn_sport = _espn_sport(sideline_sport)
             else:
                 return []
 
@@ -1150,11 +1401,13 @@ class EspnProvider(Provider):
             if fx:
                 sideline_sport = fx.get("sport")
                 league = fx.get("league_id")
-                espn_sport = "soccer" if sideline_sport == "football" else sideline_sport
+                espn_sport = _espn_sport(sideline_sport)
             else:
                 return []
 
         summary = self._fetch_summary(espn_sport, league, fid)
+        if "injuries" not in summary:
+            return None                      # the feed gave no injury report at all: that is not the same as none
         out = []
         inj_groups = summary.get("injuries") or []
         for group in inj_groups:
@@ -1179,7 +1432,7 @@ class EspnProvider(Provider):
             if fx:
                 sideline_sport = fx.get("sport")
                 league = fx.get("league_id")
-                espn_sport = "soccer" if sideline_sport == "football" else sideline_sport
+                espn_sport = _espn_sport(sideline_sport)
             else:
                 return {}
 
@@ -1218,7 +1471,82 @@ class EspnProvider(Provider):
                 out.append({"id": key, "name": name, "country": c_country})
         return out
 
+    # espn sport -> Sideline sport, for fixtures read from a team schedule
+    _SIDELINE_SPORT = {"soccer": "football", "football": "american_football"}
+
+    def _find_team(self, want):
+        """(espn_sport, league, team_id) for a team name: from teams already seen, else one search request."""
+        for name, (espn_sport, league, t_id, display) in list(self._team_index.items()):
+            if name == want:
+                return espn_sport, league, t_id, display
+        words = " ".join(re.sub(r"[^\w\s]", " ", want).split())            # "bodo/glimt" -> "bodo glimt": ESPN's search finds nothing with the slash
+        url = "https://site.web.api.espn.com/apis/search/v2?query=%s&limit=5&type=team" % urllib.parse.quote(words or want)
+        for group in self._fetch_json(url, ttl=3600.0, strict=True).get("results") or []:
+            for hit in group.get("contents") or []:
+                match = re.search(r"~t:(\d+)", hit.get("uid") or "")
+                slug = hit.get("defaultLeagueSlug") or ""
+                if match and hit.get("sport") in ("soccer", "basketball", "football", "baseball", "hockey") \
+                        and ".w." not in slug and "women" not in slug:
+                    return hit["sport"], slug, match.group(1), hit.get("displayName")
+        return None
+
+    def _schedule_fixture(self, ev, espn_sport, default_league):
+        """A team-schedule event in the shape of a scoreboard event, then through the usual parser."""
+        comp = (ev.get("competitions") or [{}])[0]
+        competitors = []
+        for c in comp.get("competitors") or []:
+            score = c.get("score")
+            competitors.append(dict(c, score=score.get("displayValue") if isinstance(score, dict) else score))
+        raw = dict(ev, status=comp.get("status") or {}, competitions=[dict(comp, competitors=competitors)])
+        league = (ev.get("league") or {}).get("slug") or default_league
+        return self._norm_fixture(raw, self._SIDELINE_SPORT.get(espn_sport, espn_sport), league)
+
+    def _refreshed(self, fx):
+        """The live version of a match in play: its own summary, with the schedule's other fields kept."""
+        fid = str(fx["fixture_id"])
+        self._fixture_by_id.pop(fid, None)
+        try:
+            fresh = self.fixture(fid)
+        except ProviderUnavailable:
+            return fx
+        return dict(fx, **{k: v for k, v in (fresh or {}).items() if v not in (None, "")}) if fresh else fx
+
     def team_matches(self, team, days_back=30, days_ahead=30):
+        """A team's recent and coming matches across every competition, from its own schedule: a search request
+        for the team and one for its schedule, instead of a scoreboard per league per day."""
+        want = (team or "").strip().lower()
+        if not want:
+            return None
+        found = self._find_team(want)
+        if found:
+            espn_sport, league, t_id, official = found
+            where = "all" if espn_sport == "soccer" else league          # soccer: every competition at once
+            base = "https://site.api.espn.com/apis/site/v2/sports/%s/%s/teams/%s/schedule" % (espn_sport, where, t_id)
+            # ESPN lists what has been played, or with fixture=true what is still to come, never both in one answer.
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                played, coming = pool.map(lambda u: self._fetch_json(u, ttl=60.0, strict=True), (base, base + "?fixture=true"))
+            now = datetime.datetime.now(datetime.timezone.utc)
+            recent, upcoming, seen = [], [], set()
+            for ev in (played.get("events") or []) + (coming.get("events") or []):
+                if ev.get("id") in seen:
+                    continue
+                seen.add(ev.get("id"))
+                fx = self._schedule_fixture(ev, espn_sport, league)
+                if fx and fx.get("status") in IN_PLAY:
+                    fx = self._refreshed(fx)                  # a schedule's clock for a match in play is stale
+                ko = clock.kickoff(fx) if fx else None
+                if not fx or ko is None or not now - datetime.timedelta(days=days_back) <= ko <= now + datetime.timedelta(days=days_ahead):
+                    continue
+                (recent if fx.get("status") in FINISHED else upcoming).append((ko, fx))
+            if recent or upcoming:
+                return {"team": official or team, "team_id": t_id,          # the official name, not the typo or nickname
+                        "upcoming": [fx for _, fx in sorted(upcoming, key=lambda p: p[0])],
+                        "recent": [fx for _, fx in sorted(recent, key=lambda p: p[0], reverse=True)]}
+        return self._team_matches_scan(team)
+
+    def _team_matches_scan(self, team):
+        """The slow way, for a team the search cannot find: a scoreboard per league for each of five days."""
         want = (team or "").strip().lower()
         if not want:
             return None
@@ -1227,7 +1555,7 @@ class EspnProvider(Provider):
         recent = []
         team_id = None
 
-        for offset in (0, 1, 2, -1, -2):
+        for offset in (0,):                  # the search found no such team: today's list is the most worth trying
             for fx in self.fixtures_on(offset):
                 h, a = (fx.get("home") or "").lower(), (fx.get("away") or "").lower()
                 if want in h or want in a:

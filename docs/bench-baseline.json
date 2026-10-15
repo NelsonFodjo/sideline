@@ -1,0 +1,406 @@
+{
+  "listing": {
+    "tools": 30,
+    "tokens": 8026,
+    "core_tokens": 3840,
+    "per_tool": [
+      {
+        "tool": "get_event_detail",
+        "chars": 1937,
+        "tokens": 484
+      },
+      {
+        "tool": "get_match_report",
+        "chars": 1669,
+        "tokens": 417
+      },
+      {
+        "tool": "get_fixtures",
+        "chars": 1560,
+        "tokens": 390
+      },
+      {
+        "tool": "get_player_context",
+        "chars": 1496,
+        "tokens": 374
+      },
+      {
+        "tool": "sync_broadcast_delay",
+        "chars": 1494,
+        "tokens": 373
+      },
+      {
+        "tool": "follow_match",
+        "chars": 1457,
+        "tokens": 364
+      },
+      {
+        "tool": "get_head_to_head",
+        "chars": 1317,
+        "tokens": 329
+      },
+      {
+        "tool": "get_match_preview",
+        "chars": 1314,
+        "tokens": 328
+      },
+      {
+        "tool": "get_officials",
+        "chars": 1312,
+        "tokens": 328
+      },
+      {
+        "tool": "get_match_state",
+        "chars": 1253,
+        "tokens": 313
+      },
+      {
+        "tool": "get_lineups",
+        "chars": 1201,
+        "tokens": 300
+      },
+      {
+        "tool": "get_standouts",
+        "chars": 1157,
+        "tokens": 289
+      },
+      {
+        "tool": "get_match_stats",
+        "chars": 1083,
+        "tokens": 270
+      },
+      {
+        "tool": "get_injuries",
+        "chars": 1070,
+        "tokens": 267
+      },
+      {
+        "tool": "what_did_i_miss",
+        "chars": 1019,
+        "tokens": 254
+      },
+      {
+        "tool": "get_schedule",
+        "chars": 1004,
+        "tokens": 251
+      },
+      {
+        "tool": "get_player_profile",
+        "chars": 993,
+        "tokens": 248
+      },
+      {
+        "tool": "get_news",
+        "chars": 909,
+        "tokens": 227
+      },
+      {
+        "tool": "get_squad",
+        "chars": 866,
+        "tokens": 216
+      },
+      {
+        "tool": "get_standings",
+        "chars": 855,
+        "tokens": 213
+      },
+      {
+        "tool": "get_team_form",
+        "chars": 851,
+        "tokens": 212
+      },
+      {
+        "tool": "set_preferences",
+        "chars": 850,
+        "tokens": 212
+      },
+      {
+        "tool": "set_favourites",
+        "chars": 806,
+        "tokens": 201
+      },
+      {
+        "tool": "get_top_scorers",
+        "chars": 772,
+        "tokens": 193
+      },
+      {
+        "tool": "get_team_stats",
+        "chars": 761,
+        "tokens": 190
+      },
+      {
+        "tool": "search",
+        "chars": 732,
+        "tokens": 183
+      },
+      {
+        "tool": "get_player_stats",
+        "chars": 692,
+        "tokens": 173
+      },
+      {
+        "tool": "get_competitions",
+        "chars": 655,
+        "tokens": 163
+      },
+      {
+        "tool": "get_my_matches",
+        "chars": 591,
+        "tokens": 147
+      },
+      {
+        "tool": "get_capabilities",
+        "chars": 468,
+        "tokens": 117
+      }
+    ]
+  },
+  "tools": [
+    {
+      "tool": "follow_match",
+      "status": "ok",
+      "p50_ms": 0.1460210005461704,
+      "p95_ms": 0.2039580031123478,
+      "provider_calls": 6,
+      "spoken_words": 37
+    },
+    {
+      "tool": "get_match_state",
+      "status": "ok",
+      "p50_ms": 0.018541497411206365,
+      "p95_ms": 0.02612500247778371,
+      "provider_calls": 1,
+      "spoken_words": 7
+    },
+    {
+      "tool": "get_fixtures",
+      "status": "ok",
+      "p50_ms": 0.010959000064758584,
+      "p95_ms": 0.01529200017102994,
+      "provider_calls": 1,
+      "spoken_words": 10
+    },
+    {
+      "tool": "get_match_report",
+      "status": "ok",
+      "p50_ms": 0.024999499146360904,
+      "p95_ms": 0.0340410006174352,
+      "provider_calls": 1,
+      "spoken_words": 53
+    },
+    {
+      "tool": "get_match_preview",
+      "status": "ok",
+      "p50_ms": 0.024021001081564464,
+      "p95_ms": 0.030250001145759597,
+      "provider_calls": 2,
+      "spoken_words": 34
+    },
+    {
+      "tool": "get_lineups",
+      "status": "ok",
+      "p50_ms": 0.01608300044608768,
+      "p95_ms": 0.02154200046788901,
+      "provider_calls": 2,
+      "spoken_words": 38
+    },
+    {
+      "tool": "what_did_i_miss",
+      "status": "ok",
+      "p50_ms": 0.026208001145278104,
+      "p95_ms": 0.031457999284612015,
+      "provider_calls": 1,
+      "spoken_words": 38
+    },
+    {
+      "tool": "sync_broadcast_delay",
+      "status": "ok",
+      "p50_ms": 0.0020420011423993856,
+      "p95_ms": 0.003417000698391348,
+      "provider_calls": 0,
+      "spoken_words": 23
+    },
+    {
+      "tool": "get_event_detail",
+      "status": "ok",
+      "p50_ms": 0.018729000657913275,
+      "p95_ms": 0.02224999843747355,
+      "provider_calls": 1,
+      "spoken_words": 16
+    },
+    {
+      "tool": "get_officials",
+      "status": "ok",
+      "p50_ms": 0.02002099972742144,
+      "p95_ms": 0.023542001144960523,
+      "provider_calls": 2,
+      "spoken_words": 13
+    },
+    {
+      "tool": "get_player_context",
+      "status": "ok",
+      "p50_ms": 0.060374997701728716,
+      "p95_ms": 0.0719579984433949,
+      "provider_calls": 2,
+      "spoken_words": 15
+    },
+    {
+      "tool": "get_player_profile",
+      "status": "declined",
+      "p50_ms": 0.0032915013434831053,
+      "p95_ms": 0.006624999514315277,
+      "provider_calls": 1,
+      "spoken_words": 8
+    },
+    {
+      "tool": "get_news",
+      "status": "declined",
+      "p50_ms": 0.0032290008675772697,
+      "p95_ms": 0.0038750004023313522,
+      "provider_calls": 1,
+      "spoken_words": 8
+    },
+    {
+      "tool": "get_standouts",
+      "status": "declined",
+      "p50_ms": 0.012707998394034803,
+      "p95_ms": 0.014708002709085122,
+      "provider_calls": 1,
+      "spoken_words": 26
+    },
+    {
+      "tool": "get_head_to_head",
+      "status": "ok",
+      "p50_ms": 0.014666498827864416,
+      "p95_ms": 0.01758299913490191,
+      "provider_calls": 2,
+      "spoken_words": 23
+    },
+    {
+      "tool": "search",
+      "status": "ok",
+      "p50_ms": 0.0043125000956933945,
+      "p95_ms": 0.006457998097175732,
+      "provider_calls": 1,
+      "spoken_words": 8
+    },
+    {
+      "tool": "get_competitions",
+      "status": "ok",
+      "p50_ms": 0.003729499439941719,
+      "p95_ms": 0.005958001565886661,
+      "provider_calls": 1,
+      "spoken_words": 11
+    },
+    {
+      "tool": "get_standings",
+      "status": "ok",
+      "p50_ms": 0.007916500180726871,
+      "p95_ms": 0.012249998690094799,
+      "provider_calls": 1,
+      "spoken_words": 24
+    },
+    {
+      "tool": "get_top_scorers",
+      "status": "ok",
+      "p50_ms": 0.006229500286281109,
+      "p95_ms": 0.02029200186370872,
+      "provider_calls": 1,
+      "spoken_words": 21
+    },
+    {
+      "tool": "get_schedule",
+      "status": "ok",
+      "p50_ms": 0.024750499505898915,
+      "p95_ms": 0.03441700027906336,
+      "provider_calls": 4,
+      "spoken_words": 10
+    },
+    {
+      "tool": "get_squad",
+      "status": "declined",
+      "p50_ms": 0.0033545002224855125,
+      "p95_ms": 0.004083001840626821,
+      "provider_calls": 1,
+      "spoken_words": 8
+    },
+    {
+      "tool": "get_team_stats",
+      "status": "declined",
+      "p50_ms": 0.0030420014809351414,
+      "p95_ms": 0.003917000867659226,
+      "provider_calls": 1,
+      "spoken_words": 8
+    },
+    {
+      "tool": "get_match_stats",
+      "status": "ok",
+      "p50_ms": 0.02383350147283636,
+      "p95_ms": 0.03504200140014291,
+      "provider_calls": 2,
+      "spoken_words": 49
+    },
+    {
+      "tool": "get_player_stats",
+      "status": "ok",
+      "p50_ms": 0.004708999767899513,
+      "p95_ms": 0.007334001566050574,
+      "provider_calls": 1,
+      "spoken_words": 13
+    },
+    {
+      "tool": "get_injuries",
+      "status": "ok",
+      "p50_ms": 0.014875500710331835,
+      "p95_ms": 0.018708000425249338,
+      "provider_calls": 2,
+      "spoken_words": 13
+    },
+    {
+      "tool": "get_team_form",
+      "status": "ok",
+      "p50_ms": 0.03985449984611478,
+      "p95_ms": 0.05166600021766499,
+      "provider_calls": 6,
+      "spoken_words": 14
+    },
+    {
+      "tool": "set_favourites",
+      "status": "ok",
+      "p50_ms": 0.002416996721876785,
+      "p95_ms": 0.004208999598631635,
+      "provider_calls": 0,
+      "spoken_words": 7
+    },
+    {
+      "tool": "get_my_matches",
+      "status": "declined",
+      "p50_ms": 0.001625001459615305,
+      "p95_ms": 0.0027090027288068086,
+      "provider_calls": 0,
+      "spoken_words": 13
+    },
+    {
+      "tool": "set_preferences",
+      "status": "ok",
+      "p50_ms": 0.00145800004247576,
+      "p95_ms": 0.0024170003598555923,
+      "provider_calls": 0,
+      "spoken_words": 5
+    },
+    {
+      "tool": "get_capabilities",
+      "status": "ok",
+      "p50_ms": 0.015646000974811614,
+      "p95_ms": 0.020583996956702322,
+      "provider_calls": 0,
+      "spoken_words": 73
+    }
+  ],
+  "budget": {
+    "p95_ms": 50.0,
+    "provider_calls": 4,
+    "spoken_words": 60
+  }
+}

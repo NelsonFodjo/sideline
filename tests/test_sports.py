@@ -7,7 +7,7 @@ INVENTED fixture (data/replay/harbour-reef-basketball.json), alongside
 football on the same server.
 """
 
-from conftest import BASKETBALL, FOOTBALL, make_ctx
+from conftest import age_events, BASKETBALL, FOOTBALL, make_ctx
 
 from sideline import sports, sync
 from sideline.language import templates
@@ -81,7 +81,9 @@ def main():
 
     # a long absence is read as headlines: threes, not every layup
     ctx.provider.jump_to(30)
+    ctx.__dict__.pop("next_read", None)        # the poller waits between reads before tip-off; real time has passed
     poll_once(ctx)
+    age_events(ctx)
     spoken, structured, _ = run(ctx, bball, "what_did_i_miss")
     assert structured["mode"] == "milestones", structured["mode"]
     assert "hit a three" in spoken and "Want the rest" in spoken, spoken
@@ -135,6 +137,7 @@ def main():
     # "who is he": the sport decides what 'just happened' means
     ctx.provider.jump_to(36)
     poll_once(ctx)
+    age_events(ctx)
     spoken, structured, _ = run(ctx, fan, "get_event_detail", kind="score")
     assert structured["event"]["kind"] == "goal", structured["event"]
     print("ok  'that goal' resolves to a goal in football:", spoken)

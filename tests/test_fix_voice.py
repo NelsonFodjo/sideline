@@ -18,7 +18,7 @@ import urllib.request
 
 import conftest  # noqa: F401  (puts the repo root on the path)
 
-from sideline import voice
+from simulator import voice
 
 RATE = 16000
 ROOT = os.path.join(os.path.dirname(__file__), "..")

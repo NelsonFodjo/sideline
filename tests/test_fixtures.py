@@ -50,9 +50,10 @@ def main():
 
         spoken, s, _ = REGISTRY["get_fixtures"](ctx, {}, "ann")
         print("   ", spoken)
-        assert spoken.startswith("Today: Live Home against Live Away, live, 61 minutes in. "
+        assert spoken.startswith("Today: Some League: Live Home against Live Away, live, 61 minutes in. "
                                  "Early against Bird at 11 AM. Lowly against Minor at 2 PM. "
-                                 "Spurs against Chelsea at 5 PM. Arsenal against Lille at 11 PM."), spoken
+                                 "Premier League: Spurs against Chelsea at 5 PM. "
+                                 "UEFA Champions League: Arsenal against Lille at 11 PM."), spoken
         assert "more" not in spoken and s["total"] == 5 and len(s["matches"]) == 5
         print("ok  live first, then soonest first, each with its time")
 

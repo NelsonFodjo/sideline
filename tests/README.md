@@ -23,7 +23,6 @@ clock the test controls. The product ships no recorded or demo data; `test_clean
 | `test_what_did_i_miss.py` | The gap logic. **If this breaks, the product is not worth filming.** |
 | `test_language.py` | Phrasing, goals before cards, stoppage time, and the rule for Bedrock: on means a wrong score, an empty answer or an error is reported (and the listener's gap is kept); off means the template. Also a catch-up never loses headlines it did not read out. |
 | `test_agent.py` | Nova receives the full MCP catalog and schemas up front, can request multiple tools in one response, and receives their results together; thinking tags are stripped; no canned fallback. |
-| `test_sportmonks.py` | The live feed provider, against **invented** responses in Sportmonks' shape (checked against a real match too: see the README): states to our short codes, only the current score, a missed penalty is not a goal, a second yellow is a red, substitutions on/off, line-ups with formations, the token in a header and never a URL, 429/401/403 carrying the vendor's own words. It does not prove the live service agrees: that is `make verify-data` with a token. |
 | `test_dynamo.py` | The DynamoDB store against a fake table that rejects floats and honours the conditional write. Pins the two bugs the first real-table run found, and that only matches with a current follower are polled. |
 | `test_focus.py` | The conversation's topic: the match, team and player just discussed reach the next turn, a pronoun never becomes the topic, a new match drops the old player, and it expires. |
 | `test_finder.py` | Which match is meant: a played match reported in full with nothing followed, parts by name, `last`/`next`/a date, a numbered fork with scores and days and the pick answering the original question, a follow-up using the last match asked about, a stale followed match forgotten, no spoiler delay on a played match, squad/stats/form/schedule with no match, and a server built on test data never touching a real table. |
@@ -58,3 +57,10 @@ again, never guess.
 They run against invented data and fakes. What was actually run against a real feed and a real AWS account is in
 the README's verification table, with the commands to repeat it (`make verify-data`, `make aws-check`,
 `make stt-check`, `make compare-stt`).
+
+## About the fixtures
+
+`tests/fixtures/football-*.json` and `basketball-*.json` are **invented** (made-up matches). The `espn-*.json` files are
+**trimmed recorded ESPN responses**, kept so the parsers are tested against the real shape: scores, names, numbers,
+events and schedules (facts). ESPN's editorial text (news headlines, summaries, match commentary) is *not* kept: the news
+sample uses invented headlines, and only the few commentary lines the penalty parser reads remain. Do not add more.

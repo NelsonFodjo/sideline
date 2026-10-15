@@ -2,7 +2,7 @@
 PY ?= python3
 export PYTHONPATH := .:tests
 
-.PHONY: run sim test env verify-data next-matches route-check logs log-report aws-check create-table stt-check compare-stt clean
+.PHONY: run sim test bench env verify-data next-matches route-check logs log-report aws-check create-table stt-check compare-stt clean
 
 run:              ## start the server (bootstraps dependencies; live ESPN multi-sport)
 	PY="$(PY)" ./run.sh
@@ -24,6 +24,9 @@ test:             ## full suite, offline
 		    $(PY) $$t || exit 1; \
 	done
 	@echo "\nall suites passed"
+
+bench:            ## tool cost and tools/list size, offline (BENCH_ARGS="--check" to enforce the budgets)
+	$(PY) scripts/bench.py $(BENCH_ARGS)
 
 env:              ## show which environment variables are set (never prints a secret)
 	$(PY) scripts/env_status.py

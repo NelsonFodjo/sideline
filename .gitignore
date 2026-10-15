@@ -16,3 +16,6 @@ VIDEO_GUIDE.md
 
 # runtime logs (sideline/audit.py)
 logs/
+
+# local agent worktrees and settings: never part of the repository
+.claude/

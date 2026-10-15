@@ -1,0 +1,31 @@
+{
+ "athlete": {
+  "id": "290591",
+  "displayName": "Nuno Mendes",
+  "fullName": "Nuno Mendes",
+  "age": 24,
+  "citizenship": "Portugal",
+  "jersey": "25",
+  "position": {
+   "id": "2",
+   "name": "Defender",
+   "displayName": "Defender",
+   "abbreviation": "D",
+   "leaf": false,
+   "slug": "defender"
+  },
+  "status": {
+   "id": "1",
+   "name": "Active",
+   "type": "active",
+   "abbreviation": "Active"
+  },
+  "gender": "MALE",
+  "team": {
+   "id": "160",
+   "displayName": "Paris Saint-Germain",
+   "location": "Paris Saint-Germain",
+   "name": "Paris Saint-Germain"
+  }
+ }
+}

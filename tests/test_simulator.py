@@ -117,7 +117,7 @@ def main():
         page = r.read().decode("utf-8")
         assert r.status == 200 and "text/html" in r.headers["Content-Type"]
     # The page opens an MCP session and lists the tools; the agent it talks to
-    # (/agent/chat) makes every tools/call through sideline/mcp/client.py.
+    # (/agent/chat) makes every tools/call through simulator/mcp_client.py.
     assert '"initialize"' in page and '"tools/list"' in page and "Mcp-Session-Id" in page
     assert '"/agent/chat"' in page and "LIVE_MODE" not in page
     assert "webkitSpeechRecognition" in page and "startBrowserRecognition" in page

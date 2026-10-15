@@ -1,0 +1,22 @@
+[
+  {"say": "Hey, what happened in the PSG game last night?",
+   "tool": "get_match_report", "args": {"team": "Paris Saint-Germain", "opponent": "Manchester City", "when": "yesterday"}},
+  {"say": "Was that a fair result?",
+   "tool": "get_match_stats", "args": {}},
+  {"say": "Who was the most dangerous player on the pitch?",
+   "tool": "get_player_context", "args": {"player": "he"}},
+  {"say": "Did the referee do anything wrong?",
+   "tool": "get_officials", "args": {}},
+  {"say": "Tell me about the goalkeeper who saved the penalty.",
+   "tool": "get_player_context", "args": {"player": "Donnarumma"}},
+  {"say": "How are PSG doing in the league this season?",
+   "tool": "get_standings", "args": {"competition": "Ligue 1", "team": "Paris Saint-Germain"}},
+  {"say": "When do they play next?",
+   "tool": "get_schedule", "args": {"team": "Paris Saint-Germain", "which": "next"}},
+  {"say": "Is anyone injured on their side?",
+   "tool": "get_injuries", "args": {"team": "Paris Saint-Germain"}},
+  {"say": "I just got in. Did anything big happen in football yesterday?",
+   "tool": "get_fixtures", "args": {"when": "yesterday", "finished_only": true, "sport": "football"}},
+  {"say": "Who is the top scorer in the Champions League right now?",
+   "tool": "get_top_scorers", "args": {"competition": "Champions League"}}
+]
