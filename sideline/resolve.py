@@ -185,12 +185,15 @@ _GENERIC = {"united", "city", "town", "club", "real", "sporting", "athletic", "a
 class Item(object):
     """One thing the listener may have been offered."""
 
-    def __init__(self, say, aliases=None, label=None, ref=None):
+    def __init__(self, say, aliases=None, label=None, ref=None, agent_say=None):
         self.say = say                              # what we show they meant
         self.label = label or say                   # what we speak and prompt with
         # What the model is told. A fixture carries its id: "Arsenal" alone would
         # be ambiguous again and the model cannot see ids in our error message.
-        self.agent_say = "%s (fixture_id %s)" % (say, ref) if ref else say
+        if agent_say is not None:
+            self.agent_say = agent_say
+        else:
+            self.agent_say = "%s (fixture_id %s)" % (say, ref) if ref else say
         seen, self.aliases = set(), []
 
         def add(t):
@@ -432,8 +435,21 @@ def snap(listener_id, text, names=(), now=None):
         phrase = " ".join(tokens)
         if (phrase in _AFFIRMATIONS or any(t in _AFFIRMATIONS for t in tokens)) and len(offers) >= 1:
             it = offers[0]
-            res.update(text=it.say, agent_text=it.agent_say, changed=True, why="affirmation",
-                       matched=it.label)
+            m = re.match(r"^\W*(?:(?:yes|yeah|yep|sure|correct|right|ok|okay|yea|yup|that one)\b[\s,]*(?:please|thanks|thank you)?[\s,]*)+",
+                         heard, re.I)
+            tail = heard[m.end():].strip() if m else ""
+            tail = re.sub(r"^[\s,;:?.-]+", "", tail).strip()
+            if tail:
+                combined_text = "%s, %s" % (it.say, tail)
+                if tail.lower().rstrip("?.!") in it.agent_say.lower():
+                    combined_agent = it.agent_say
+                else:
+                    combined_agent = "%s, %s" % (it.agent_say, tail)
+                res.update(text=combined_text, agent_text=combined_agent, changed=True, why="affirmation",
+                           matched=it.label)
+            else:
+                res.update(text=it.say, agent_text=it.agent_say, changed=True, why="affirmation",
+                           matched=it.label)
             BOOK.clear(listener_id)
             return res
 
@@ -468,6 +484,7 @@ def snap(listener_id, text, names=(), now=None):
     # If sentence was not repaired by fix_names, check for entity typos needing clarification
     best_typo_score = 0.0
     best_typo_cand = None
+    best_typo_tok = None
 
     for tok in tokens:
         if len(tok) >= 4 and tok not in _COMMON_WORDS and tok not in _tool_words():
@@ -490,11 +507,20 @@ def snap(listener_id, text, names=(), now=None):
                 if sim > best_typo_score:
                     best_typo_score = sim
                     best_typo_cand = cand
+                    best_typo_tok = tok
 
     if best_typo_cand and 0.72 <= best_typo_score < NAME_MIN:
+        repaired = heard
+        if best_typo_tok:
+            repaired = re.sub(r"\b" + re.escape(best_typo_tok) + r"\b", best_typo_cand, heard, flags=re.IGNORECASE)
+            cand_words = words(best_typo_cand)
+            if len(cand_words) > 1:
+                for cw in cand_words:
+                    repaired = re.sub(r"\b(" + re.escape(cw) + r")\s+\1\b", r"\1", repaired, flags=re.IGNORECASE)
         res.update(
             clarify=True,
             suggestion=best_typo_cand,
+            repaired_text=repaired,
             changed=True,
             why="typo_clarify",
             matched=best_typo_cand

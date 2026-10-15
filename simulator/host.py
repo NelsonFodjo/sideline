@@ -42,8 +42,11 @@ def attach(srv, ctx, token=""):
         understood = resolve.understand(ctx, listener_id, question)
         if understood.get("clarify"):
             suggestion = understood["suggestion"]
+            repaired = understood.get("repaired_text") or suggestion
             resolve.BOOK.remember(listener_id, [
-                resolve.Item(suggestion, aliases=["yes", "yeah", "yep", "sure", "correct", "right", suggestion.lower()])
+                resolve.Item(suggestion,
+                             aliases=["yes", "yeah", "yep", "sure", "correct", "right", suggestion.lower()],
+                             agent_say=repaired)
             ])
             clarify_text = "Did you mean %s?" % suggestion
             return {

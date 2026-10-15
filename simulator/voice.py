@@ -880,9 +880,10 @@ async def _sonic_hear(pcm_bytes, hint=""):
     """
     import base64
     import uuid
+    transport = AWSCRTHTTPClient()
     cfg = await AsyncBedrockRuntimeConfig.resolve(
         endpoint_uri="https://bedrock-runtime.%s.amazonaws.com" % REGION,
-        region=REGION, transport=AWSCRTHTTPClient(), **_sonic_credentials())
+        region=REGION, transport=transport, **_sonic_credentials())
     client = AsyncBedrockRuntimeClient(config=cfg)
     stream = await client.invoke_model_with_bidirectional_stream(
         InvokeModelWithBidirectionalStreamOperationInput(model_id=SONIC_MODEL))
@@ -918,20 +919,23 @@ async def _sonic_hear(pcm_bytes, hint=""):
     heard = []
 
     async def reader():
-        output = await stream.await_output()
-        while True:
-            r = await output[1].receive()
-            if r is None:
-                return
-            if not r.value or not r.value.bytes_:
-                continue
-            ev = json.loads(r.value.bytes_.decode("utf-8"))["event"]
-            if "textOutput" in ev:
-                t = ev["textOutput"]
-                if t.get("role") == "USER":
-                    heard.append(t["content"])
-                else:
-                    return                  # its first reply: the user turn is done
+        try:
+            output = await stream.await_output()
+            while True:
+                r = await output[1].receive()
+                if r is None:
+                    return
+                if not r.value or not r.value.bytes_:
+                    continue
+                ev = json.loads(r.value.bytes_.decode("utf-8"))["event"]
+                if "textOutput" in ev:
+                    t = ev["textOutput"]
+                    if t.get("role") == "USER":
+                        heard.append(t["content"])
+                    else:
+                        return                  # its first reply: the user turn is done
+        except (asyncio.CancelledError, Exception):
+            pass
 
     task = asyncio.ensure_future(reader())
     padded = pcm_bytes + b"\0" * (SAMPLE_RATE * 2 * 2)
@@ -954,6 +958,10 @@ async def _sonic_hear(pcm_bytes, hint=""):
             await asyncio.wait_for(goodbye(), timeout=2)
         except Exception:                                      # noqa: BLE001
             pass
+        try:
+            await transport.close()
+        except Exception:                                      # noqa: BLE001
+            pass
     return " ".join(heard).strip()
 
 
@@ -972,6 +980,14 @@ def _transcribe_sonic(pcm_bytes, hint=""):
             text = loop.run_until_complete(
                 asyncio.wait_for(_sonic_hear(pcm_bytes, hint), timeout=20))
         finally:
+            try:
+                pending = asyncio.all_tasks(loop)
+                for t in pending:
+                    t.cancel()
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception:                                  # noqa: BLE001
+                pass
             loop.close()
     except Exception as e:                                     # noqa: BLE001
         msg = "%s %s" % (type(e).__name__, e)

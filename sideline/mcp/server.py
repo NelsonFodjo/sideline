@@ -403,9 +403,12 @@ class Handler(BaseHTTPRequestHandler):
             # never parsed as the next request (that is how a smuggled request got past Origin).
             self.send_header("Connection", "close")
             self.close_connection = True
-        self.end_headers()
-        if body:
-            self.wfile.write(body)
+        try:
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+        except OSError:
+            self.close_connection = True
 
     def _read_body(self, limit):
         """The request body, or None once an error has been sent. The one way any route reads a body."""
@@ -471,11 +474,14 @@ class Handler(BaseHTTPRequestHandler):
                 body = fh.read()
         except OSError:
             return self._send(404, {"error": "simulator not found in this checkout"})
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except OSError:
+            self.close_connection = True
 
     def _session_error(self):
         """Checks shared by every /mcp request after initialize. Sends the error and returns True on failure."""

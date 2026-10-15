@@ -78,7 +78,12 @@ body[data-mode="thinking"] .bg{filter:hue-rotate(8deg) brightness(.95)}
 
 .shell{position:relative;z-index:2;min-height:100vh;display:flex;flex-direction:column;
   pointer-events:none;
-  padding-top:env(safe-area-inset-top);padding-bottom:calc(env(safe-area-inset-bottom) + 54px)}
+  padding-top:env(safe-area-inset-top);padding-bottom:calc(env(safe-area-inset-bottom) + 54px);
+  transition:padding-right .32s var(--ease),padding-bottom .32s var(--ease)}
+body.dev-open .shell{padding-right:min(440px,92vw)}
+@media (max-width:600px){
+  body.dev-open .shell{padding-right:0;padding-bottom:calc(env(safe-area-inset-bottom) + 55vh + 54px)}
+}
 
 /* ------------------------------------------------------ the header (hidden for redesign) */
 .hud{display:none !important;padding:clamp(14px,2.6vh,28px) clamp(16px,3.2vw,40px) 0;
@@ -350,22 +355,33 @@ body.voice-only .stage .inner{
   .answer .w::after,.beam{display:none}
 }
 
-/* Developer log: what happens behind an answer. Off by default; the toggle is bottom-left (or Alt+D). */
-#devbtn{position:fixed;left:10px;bottom:10px;z-index:60;font:600 11px/1 ui-monospace,Menlo,Consolas,monospace;padding:8px 11px;
-  border-radius:999px;border:1px solid rgba(255,255,255,.28);background:rgba(10,14,22,.78);color:#cfe3ff;cursor:pointer;opacity:.72}
-#devbtn:hover,#devbtn[aria-expanded="true"]{opacity:1}
+/* Developer log: slide-out drawer on the right. Off by default; toggle top-right (or Alt+D). Never overlays the status bar or center visualizer. */
+#devbtn{position:fixed;right:16px;top:14px;z-index:60;font:600 11px/1 ui-monospace,Menlo,Consolas,monospace;padding:7px 12px;
+  border-radius:999px;border:1px solid rgba(255,255,255,.24);background:rgba(10,14,22,.82);color:#cfe3ff;cursor:pointer;opacity:.78;
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transition:all .2s ease;box-shadow:0 2px 10px rgba(0,0,0,.4)}
+#devbtn:hover,#devbtn[aria-expanded="true"]{opacity:1;background:rgba(18,26,42,.92);border-color:rgba(124,196,255,.5);color:#fff;box-shadow:0 0 14px rgba(124,196,255,.25)}
 #devbtn:focus-visible,#devpanel button:focus-visible{outline:2px solid #7cc4ff;outline-offset:2px}
-#devpanel{position:fixed;left:0;right:0;bottom:0;max-height:46vh;overflow:auto;z-index:55;background:rgba(6,9,15,.95);color:#cfe3ff;
-  font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;border-top:1px solid rgba(255,255,255,.2);padding:10px 14px 56px}
+#devpanel{position:fixed;top:0;right:0;bottom:48px;width:min(440px,92vw);max-height:calc(100vh - 48px);z-index:55;
+  background:rgba(8,12,20,.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);color:#cfe3ff;
+  font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;border-left:1px solid rgba(124,196,255,.2);box-shadow:-8px 0 32px rgba(0,0,0,.6);
+  display:flex;flex-direction:column;padding:0;overflow:hidden}
 #devpanel[hidden]{display:none}
-#devpanel .devbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;color:#8fb4e8}
-#devpanel .devbar button{font:inherit;color:#cfe3ff;background:transparent;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:3px 9px;cursor:pointer}
-#devpanel .devent{border-top:1px solid rgba(255,255,255,.1);padding:7px 0}
+#devpanel .devbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 16px;padding-right:96px;color:#8fb4e8;
+  background:rgba(14,20,32,.9);border-bottom:1px solid rgba(255,255,255,.1);flex-shrink:0}
+#devpanel .devbar strong{color:#fff;font-weight:700}
+#devpanel .devbar button{font:inherit;color:#cfe3ff;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:3px 9px;cursor:pointer;transition:all .2s ease}
+#devpanel .devbar button:hover{background:rgba(124,196,255,.15);border-color:#7cc4ff;color:#fff}
+#devpanel #devlist{flex:1 1 auto;overflow-y:auto;padding:12px 16px 24px;scrollbar-width:thin;scrollbar-color:rgba(124,196,255,.3) transparent}
+#devpanel .devent{border-top:1px solid rgba(255,255,255,.1);padding:8px 0}
+#devpanel .devent:first-child{border-top:none}
 #devpanel .devhead{color:#fff}
 #devpanel .devline{margin-left:14px;color:#b9d2f3;word-break:break-word}
 #devpanel .devline b{color:#7cc4ff;font-weight:600}
 #devpanel .devbad{color:#ff9b9b}
 #devpanel .devok{color:#8be9a8}
+@media (max-width:600px){
+  #devpanel{width:100vw;top:auto;bottom:48px;max-height:55vh;border-left:none;border-top:1px solid rgba(124,196,255,.25)}
+}
 </style>
 </head>
 <body data-mode="idle">
@@ -498,6 +514,10 @@ function devRender(){
 function devToggle(on){
   var panel=document.getElementById("devpanel"), btn=document.getElementById("devbtn");
   panel.hidden=!on; btn.setAttribute("aria-expanded", on?"true":"false");
+  if(typeof document!=="undefined" && document.body){
+    document.body.classList.toggle("dev-open", !!on);
+    setTimeout(function(){ if(typeof placeText==="function") placeText(); }, 40);
+  }
   try{ localStorage.setItem(DEV_ON_KEY, on?"1":"0"); }catch(e){}
   devRender();
 }
@@ -648,12 +668,15 @@ var RS=.86;                       // tighter rings, so the words get room below
 
 /* Where the eye sits: always the centre of the screen. The score and major
    updates are above it, the words below it. */
-var answering=false, geoK=0;
+var answering=false, geoK=0, devShift=0;
 function geometry(k){
-  var m=Math.min(W,H), narrow=W<700;
+  var isDev=typeof document!=="undefined" && document.body && document.body.classList.contains("dev-open");
+  var targetShift=(isDev && W>600)?Math.min(440, W*.92):0;
+  var availW=Math.max(320, W-devShift);
+  var m=Math.min(availW,H), narrow=availW<700;
   var cyHero=H*(narrow?.30:.405);
   var rHero=m*(narrow?.150:.118);
-  return {cx:W/2, cy:cyHero, R:rHero, m:m};
+  return {cx:availW/2, cy:cyHero, R:rHero, m:m};
 }
 
 /* The eye's resting outer edge (the base of its tick ring plus the shortest
@@ -674,6 +697,10 @@ function drawCore(now){
   var dt=Math.min(.05,((now||0)-lastT)/1000||.016); lastT=now||0;
   var k60=dt*60;                                  // frame-rate independent easing
   cx.clearRect(0,0,W,H);
+
+  var isDev=typeof document!=="undefined" && document.body && document.body.classList.contains("dev-open");
+  var targetShift=(isDev && W>600)?Math.min(440, W*.92):0;
+  devShift=ease(devShift, targetShift, 1-Math.pow(.86,k60));
 
   geoK=ease(geoK, answering?1:0, 1-Math.pow(.92,k60));
   var geo=geometry(geoK), cxp=geo.cx, cyp=geo.cy, R=geo.R, m=geo.m;
@@ -1006,7 +1033,11 @@ function startSpec(pcm){
 function commitSpec(s){                   // the speculative transcript becomes the question
   stopLiveCaption(); endCapture();
   devStt={provider:s.provider, ms:s.ms};
-  if(!s.text || s.text.length<2){ if(armed&&!paused) listen(); return; }
+  if(!s.text || s.text.length<2 || isAssistantEcho(s.text)){
+    if(isAssistantEcho(s.text)) console.info("Ignored echo in speculative transcription:", s.text);
+    if(armed&&!paused) setTimeout(function(){ if(armed&&!speaking) listen(); }, 300);
+    return;
+  }
   setMode("thinking"); setQuiet("");
   if(paused){ pendingQuestion=s.text; return; }
   showSaid(s.text); ask(s.text);
@@ -1081,6 +1112,7 @@ function listen(){
   setMode("listening");      // the state label already says so; the last
                              // answer stays on screen until you speak again
   sawVoice=false; startedAt=performance.now(); lastVoice=0; capText="";
+  vad=vadNew();              // re-calibrate room noise floor
   var spec=null;
   startCapture();
   startLiveCaption();
@@ -1124,7 +1156,7 @@ function listen(){
       var snapCap=candidate;
       stopLiveCaption();
       var pcm=endCapture();
-      if(sawVoice && (pcm.byteLength>2000 || (snapCap && pcm.byteLength>1200))) handleClip(pcm, snapCap);
+      if(sawVoice && (pcm.byteLength>4800 || (snapCap && pcm.byteLength>2400))) handleClip(pcm, snapCap);
       else if(armed) listen();
     }
   },60);
@@ -1220,26 +1252,30 @@ function duck(on){ if(audioEl){ try{ audioEl.volume=on?0.5:1; }catch(e){} } }
 function stopRolling(){ if(rolling){ rolling=false; if(capturing) endCapture(); } }
 
 var currentSpokenText="";
+var lastSpokenText="", lastSpokenAt=0;
 var STOP_WORDS=new Set(["stop","wait","pause","quiet","cancel","hold on","shut up","hush","nevermind","silence","enough","alright","okay","ok","cut"]);
 
 var ECHO_IGNORE=new Set(["a","an","the","in","on","at","to","for","of","and","is","it","are","was","be","that","this","with","as","by","have","has","had","do","does","did","but","or","so"]);
 function isAssistantEcho(heard){
-  if(!currentSpokenText || !heard) return false;
-  var s=currentSpokenText.toLowerCase().replace(/[^a-z0-9\s]/g," ");
+  var ref=currentSpokenText || ((typeof Date!=="undefined" && (Date.now()-lastSpokenAt<15000))?lastSpokenText:"");
+  if(!ref || !heard) return false;
+  var s=ref.toLowerCase().replace(/[^a-z0-9\s]/g," ");
   var h=heard.toLowerCase().replace(/[^a-z0-9\s]/g," ").trim();
   if(!h) return true;
-  // If the heard phrase is an exact substring of what the assistant is speaking, it's echo
-  if(s.indexOf(h)!==-1) return true;
-  var hWords=h.split(/\s+/).filter(function(w){ return w && !ECHO_IGNORE.has(w); });
+  var sNorm=s.replace(/\s+/g," ").trim();
+  var hNorm=h.replace(/\s+/g," ").trim();
+  // If the heard phrase is an exact substring of what the assistant spoke, it's echo
+  if(sNorm.indexOf(hNorm)!==-1) return true;
+  var hWords=hNorm.split(/\s+/).filter(function(w){ return w && !ECHO_IGNORE.has(w); });
   if(!hWords.length) return true; // only filler words
-  var sWords=new Set(s.split(/\s+/).filter(Boolean));
+  var sWords=new Set(sNorm.split(/\s+/).filter(Boolean));
   // Count how many non-filler words match what the assistant said
   var matchCount=0;
   for(var i=0; i<hWords.length; i++){
     if(sWords.has(hWords[i])) matchCount++;
   }
-  // If >65% of the meaningful words match the assistant sentence, it's acoustic feedback
-  return (matchCount / hWords.length) > 0.65;
+  // If >=50% of the meaningful words match the assistant sentence, it's acoustic feedback
+  return (matchCount / hWords.length) >= 0.5;
 }
 
 function stopBargeSR(){
@@ -1399,7 +1435,7 @@ function startBrowserRecognition(){
     REC=null;
     if(!armed||speaking||blocked) return;
     var t=justWords(finalText);
-    if(t.length>1){ liveSaid(t,false); setMode("thinking"); ask(t); }
+    if(t.length>1 && !isAssistantEcho(t)){ liveSaid(t,false); setMode("thinking"); ask(t); }
     else setTimeout(function(){ if(armed&&!speaking) listen(); },250);
   };
   REC=r;
@@ -1498,6 +1534,12 @@ async function handleClip(pcm, snapCap){
       sttFails=0;
       text=doc.text;
       devStt={provider:doc.provider||"?", ms:Math.round(performance.now()-t0)};
+      if(isAssistantEcho(text) || (opt && isAssistantEcho(opt))){
+        console.info("Ignored echo of assistant speech:", text || opt);
+        setMode("idle");
+        if(armed && !paused) setTimeout(function(){ if(armed && !speaking) listen(); }, 300);
+        return;
+      }
       if(doc.chat){
         devInput=doc.text||"";
         // The server has already run the agent: the answer is owed even if the listener paused meanwhile.
@@ -1517,7 +1559,11 @@ async function handleClip(pcm, snapCap){
   }
   if(!text){ if(armed&&!paused)listen(); return; }
   text=justWords(text);
-  if(text.length<2){ if(armed&&!paused)listen(); return; }
+  if(text.length<2 || isAssistantEcho(text)){
+    if(isAssistantEcho(text)) console.info("Ignored echo of assistant speech:", text);
+    if(armed&&!paused) setTimeout(function(){ if(armed&&!speaking) listen(); }, 300);
+    return;
+  }
   // Heard while paused: kept, and asked on resume. Nothing the listener said is dropped.
   if(paused){ pendingQuestion=text; return; }
   showSaid(text);
@@ -1658,6 +1704,11 @@ function reveal(spans,charIndex){
 }
 
 function stopSpeaking(){
+  if(speaking){
+    lastSpokenText=currentSpokenText||lastSpokenText;
+    lastSpokenAt=Date.now();
+  }
+  currentSpokenText="";
   speaking=false; speakGen++; clearInterval(bargeTimer); stopRolling(); stopBargeSR();
   markTimers.forEach(clearTimeout); markTimers=[];
   activeUtterances=[];
@@ -1755,6 +1806,8 @@ async function say(text, quick){
   stopListening(); stopSpeaking();
   announce(text);                                            // once, for screen readers
   currentSpokenText=text||"";
+  lastSpokenText=text||"";
+  lastSpokenAt=Date.now();
   capText=""; sawVoice=false; lastVoice=0;
   var spans=layout(text);
   speaking=true; setMode("speaking");
@@ -1946,6 +1999,9 @@ function armIdleClear(){
 
 function finishSpeaking(spans,done){
   if(!speaking) return;
+  lastSpokenText=currentSpokenText||lastSpokenText;
+  lastSpokenAt=Date.now();
+  currentSpokenText="";
   speaking=false;
   markTimers.forEach(clearTimeout); markTimers=[];
   activeUtterances=[];
@@ -1965,10 +2021,17 @@ function finishSpeaking(spans,done){
   clearInterval(bargeTimer); stopRolling(); stopBargeSR();
   armIdleClear();
   if(done)done();
-  // Clear any residual microphone echo before starting listening
+  // Clear any residual microphone echo and reset VAD
   pcmChunks=[]; capText=""; sawVoice=false; lastVoice=0;
-  // Hands-free: quick 50ms echo-clear before re-arming listening
-  setTimeout(function(){ if(armed && !speaking) listen(); }, 50);
+  vad=vadNew();
+  // Hands-free: wait 450ms for speaker reverberation and audio buffers to settle before re-arming listening
+  setTimeout(function(){
+    if(armed && !speaking && MODE!=="thinking"){
+      pcmChunks=[]; capText=""; sawVoice=false; lastVoice=0;
+      vad=vadNew();
+      listen();
+    }
+  }, 450);
 }
 
 /* =============================================================== match */

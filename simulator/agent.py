@@ -62,6 +62,11 @@ _FACT_OPENER = re.compile(r"\b(who|whom|whose|when|where|which|how (many|much|ol
                           r"how('s| is) the (game|match) going)\b", re.I)
 
 
+_CONVERSATIONAL = re.compile(
+    r"\b(how (?:are you|are you doing|are things|is it going|r u|do you do)|how does (?:it|this) work|"
+    r"what can you do|who are you|who made you|how do you work)\b", re.I)
+
+
 def _asks_for_a_fact(question):
     """Does this ask for something a tool knows (a name in it, or who/when/where/how many), and not chat or thanks?
 
@@ -70,9 +75,18 @@ def _asks_for_a_fact(question):
     q = (question or "").strip()
     if not q or _SOCIAL.match(q):
         return False
-    words = re.findall(r"[A-Za-z][A-Za-z'.-]*", q)
-    proper_noun = any(w[:1].isupper() and w not in ("I", "I'm", "I'll", "I've", "I'd") for w in words[1:])
-    return bool(_FACT_OPENER.search(q)) or proper_noun
+    if _CONVERSATIONAL.search(q):
+        if not re.search(r"\b(score|scores|match|matches|game|games|fixture|fixtures|table|standings|lineup|lineups|goal|goals|who scored|who won)\b", q, re.I):
+            return False
+
+    sentences = re.split(r"[.!?]+", q)
+    for sent in sentences:
+        words = re.findall(r"[A-Za-z][A-Za-z'.-]*", sent)
+        if len(words) > 1:
+            for w in words[1:]:
+                if w[:1].isupper() and w not in ("I", "I'm", "I'll", "I've", "I'd"):
+                    return True
+    return bool(_FACT_OPENER.search(q))
 
 
 # What a listener can ask of the assistant's memory. Anchored to the start of what they say (after "please", "okay"...):
@@ -596,6 +610,10 @@ _CONVERSATIONAL_PATTERNS = [
      "fixtures, results and catch-ups on what you missed."),
     (re.compile(r"who are you|what(?: is|'s) your name|what are you"),
      "I'm Sideline, your live sports companion. Ask me for a score, what's on, or what you missed."),
+    (re.compile(r"(?:how (?:are you|are you doing|are you doing today|is it going|are things|r u|do you do)|how's it going|how are you today)(?: sideline)?"),
+     "I'm doing well, ready for the action! Ask me for a live score, what's on today, or what you missed."),
+    (re.compile(r"(?:(?:so )?how does (?:it|this) work|what can you do|how do i use (?:this|sideline))"),
+     "I'm Sideline, your live sports companion. Just ask me by voice or text for live scores, fixtures, standings, or catch-ups on what you missed in a match."),
     (re.compile(r"(?:hello|hi|hey|good (?:morning|afternoon|evening))(?: there)?(?: sideline)?"),
      "Hey there! Ask me for a live score, what's on today, or what you missed."),
     (re.compile(r"(?:thanks|thank you|cheers|great thanks)(?: very much| a lot| so much)?(?: sideline)?"),
@@ -610,6 +628,13 @@ def _match_conversational(question):
     for pattern, answer in _CONVERSATIONAL_PATTERNS:
         if pattern.fullmatch(clean):
             return answer
+    parts = [s.strip() for s in re.split(r"[.!?]+", question or "") if s.strip()]
+    if len(parts) > 1:
+        for part in reversed(parts):
+            p_clean = _POLITE.sub("", _normalise(part)).strip()
+            for pattern, answer in _CONVERSATIONAL_PATTERNS:
+                if pattern.fullmatch(p_clean):
+                    return answer
     return None
 
 
