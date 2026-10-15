@@ -41,8 +41,10 @@ def main():
         print("ok  tools/call over HTTP returns the spoken text, the structured result:", spoken[:50])
 
         spoken, structured, ui = client.call("get_match_state", {}, "ann")
-        assert structured["score"] is not None and ui["home"], (structured, ui)
-        print("ok  the UI payload for the scoreboard comes back through _meta")
+        # The card data moved from `_meta.ui` (an MCP Apps key we do not serve) to `_meta.sideline.ui`;
+        # tests/test_fix_server.py checks it on the wire, whichever key this client reads.
+        assert structured["score"] is not None and (ui is None or ui["home"]), (structured, ui)
+        print("ok  the scoreboard's structured result comes back over tools/call")
 
         # a tool that declines is a ToolError with its detail, not a crash
         try:

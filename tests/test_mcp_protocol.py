@@ -113,12 +113,12 @@ def main():
         assert code == 404, code
         print("ok  unknown session -> 404")
 
-        # --- batch ---------------------------------------------------
+        # --- batch: removed from MCP in 2025-06-18, so refused -------
         code, doc, _ = _post([{"jsonrpc": "2.0", "id": 7, "method": "ping"},
                               {"jsonrpc": "2.0", "id": 8, "method": "tools/list"}],
                              {"Mcp-Session-Id": sid})
-        assert isinstance(doc, list) and len(doc) == 2
-        print("ok  batch request")
+        assert code == 400, code
+        print("ok  batch request -> 400 (not part of MCP 2025-11-25)")
 
         # --- DELETE ends the session --------------------------------
         req = urllib.request.Request(BASE + "/mcp", method="DELETE",

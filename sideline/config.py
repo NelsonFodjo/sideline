@@ -24,7 +24,7 @@ VARIABLES = [
     ("SIDELINE_LOG", False, "INFO", "Log level"),
     ("SIDELINE_LOG_DIR", False, "logs", "Folder for daily log files (a text log and a JSON line per call); off disables. Git-ignored"),
     ("SIDELINE_LOG_KEEP_DAYS", False, "14", "Days of log files to keep; older ones are deleted"),
-    ("SIDELINE_ALLOWED_ORIGINS", False, "localhost,127.0.0.1", "Browser origins allowed (DNS-rebinding guard)"),
+    ("SIDELINE_ALLOWED_ORIGINS", False, "localhost,127.0.0.1", "Browser origins allowed (DNS-rebinding guard): full origins such as https://host:8443, or bare host names meaning http://<host>:<SIDELINE_PORT>"),
     # AWS: credentials, then what uses them
     ("AWS_REGION", False, "us-east-1", "Region for Bedrock, DynamoDB and Polly"),
     ("AWS_ACCESS_KEY_ID", True, "", "AWS credentials (with the secret below)"),
@@ -47,6 +47,11 @@ VARIABLES = [
 ]
 
 _ON = ("1", "true", "yes", "on")
+STATES = ("auto", "memory", "dynamo")
+
+
+class ConfigError(RuntimeError):
+    """The server cannot start with what it has been given. The message says what to do."""
 _OFF = ("0", "false", "no", "off")
 
 
@@ -80,26 +85,55 @@ def state_kind(env=None):
     return "auto" if aws_credentials(env) else "memory"
 
 
+def _int(errors, name, raw, low, high):
+    """An integer setting, or None (with the problem noted) when it is not one in range."""
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        errors.append("%s must be a whole number, not %r" % (name, raw))
+        return None
+    if not low <= value <= high:
+        errors.append("%s must be between %d and %d, not %d" % (name, low, high, value))
+        return None
+    return value
+
+
 class Config:
-    host = os.environ.get("SIDELINE_HOST", "127.0.0.1")
-    port = int(os.environ.get("SIDELINE_PORT", "8765"))
-    log_level = os.environ.get("SIDELINE_LOG", "INFO")
-    log_dir = os.environ.get("SIDELINE_LOG_DIR", "logs")
-    log_keep_days = int(os.environ.get("SIDELINE_LOG_KEEP_DAYS", "14"))
+    """Read once at import. A bad value never raises here (scripts import this too): it falls back
+    to the default and is listed in `errors`; `check()` turns the list into one readable ConfigError."""
 
-    # Seconds between polls of each followed match.
-    poll_seconds = int(os.environ.get("SIDELINE_POLL_SECONDS", "30"))
+    def __init__(self):
+        errors = self.errors = []
+        self.host = os.environ.get("SIDELINE_HOST", "127.0.0.1")
+        self.port = _int(errors, "SIDELINE_PORT", os.environ.get("SIDELINE_PORT", "8765"), 1, 65535) or 8765
+        self.log_level = os.environ.get("SIDELINE_LOG", "INFO")
+        self.log_dir = os.environ.get("SIDELINE_LOG_DIR", "logs")
+        self.log_keep_days = _int(errors, "SIDELINE_LOG_KEEP_DAYS",
+                                  os.environ.get("SIDELINE_LOG_KEEP_DAYS", "14"), 1, 3650) or 14
 
-    # Listener state: DynamoDB, or memory. Table: docs/AWS_SETUP.md.
-    state = state_kind()
-    table = os.environ.get("SIDELINE_TABLE", "sideline")
-    region = os.environ.get("AWS_REGION", "us-east-1")
+        # Seconds between polls of each followed match.
+        self.poll_seconds = _int(errors, "SIDELINE_POLL_SECONDS",
+                                 os.environ.get("SIDELINE_POLL_SECONDS", "30"), 5, 3600) or 30
 
-    # Origin allow-list. Alexa+ sends no Origin header, so this only affects
-    # browsers: it closes the DNS-rebinding hole the MCP spec warns about for
-    # locally bound servers.
-    allowed_origins = [o.strip() for o in os.environ.get(
-        "SIDELINE_ALLOWED_ORIGINS", "localhost,127.0.0.1").split(",") if o.strip()]
+        # Listener state: DynamoDB, or memory. Table: docs/AWS_SETUP.md.
+        self.state = state_kind()
+        if self.state not in STATES:
+            errors.append("SIDELINE_STATE must be one of %s, not %r" % (", ".join(STATES), self.state))
+            self.state = "memory"
+        self.table = os.environ.get("SIDELINE_TABLE", "sideline")
+        self.region = os.environ.get("AWS_REGION", "us-east-1")
+
+        # Origin allow-list. Alexa+ sends no Origin header, so this only affects
+        # browsers: it closes the DNS-rebinding hole the MCP spec warns about for
+        # locally bound servers. Entries are full origins, or bare host names on this port.
+        self.allowed_origins = [o.strip() for o in os.environ.get(
+            "SIDELINE_ALLOWED_ORIGINS", "localhost,127.0.0.1").split(",") if o.strip()]
+
+    def check(self):
+        """Raise ConfigError naming every bad setting, so the server stops with a sentence, not a traceback."""
+        if self.errors:
+            raise ConfigError("Sideline cannot start:\n  " + "\n  ".join(self.errors)
+                              + "\nFix these in your environment or .env (see docs/ENVIRONMENT.md).")
 
 
 CONFIG = Config()

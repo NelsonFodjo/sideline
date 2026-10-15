@@ -27,28 +27,31 @@ if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) 
 fi
 
 VENV="$ROOT/.venv"
-VENV_PYTHON=""
-if [ -x "$VENV/bin/python" ]; then
-    VENV_PYTHON="$VENV/bin/python"
-elif [ -x "$VENV/Scripts/python.exe" ]; then
-    VENV_PYTHON="$VENV/Scripts/python.exe"
-elif [ -x "$VENV/Scripts/python" ]; then
-    VENV_PYTHON="$VENV/Scripts/python"
-fi
 
+find_venv_python() {
+    VENV_PYTHON=""
+    for candidate in "$VENV/bin/python" "$VENV/Scripts/python.exe" "$VENV/Scripts/python"; do
+        # -x is false for a dangling symlink; running it proves the interpreter really works here
+        # (a .venv copied from another machine points at a Python that does not exist).
+        if [ -x "$candidate" ] && "$candidate" -c 'import sys' >/dev/null 2>&1; then
+            VENV_PYTHON="$candidate"
+            return
+        fi
+    done
+}
+
+find_venv_python
 if [ -z "$VENV_PYTHON" ]; then
-    echo "Creating Sideline's isolated Python environment..."
-    if ! "$PYTHON" -m venv "$VENV"; then
+    if [ -e "$VENV" ]; then
+        echo "The .venv here does not work on this machine (its Python is missing); rebuilding it..."
+    else
+        echo "Creating Sideline's isolated Python environment..."
+    fi
+    if ! "$PYTHON" -m venv --clear "$VENV"; then
         echo "Could not create .venv. Install Python's venv/ensurepip support and try again." >&2
         exit 1
     fi
-    if [ -x "$VENV/bin/python" ]; then
-        VENV_PYTHON="$VENV/bin/python"
-    elif [ -x "$VENV/Scripts/python.exe" ]; then
-        VENV_PYTHON="$VENV/Scripts/python.exe"
-    elif [ -x "$VENV/Scripts/python" ]; then
-        VENV_PYTHON="$VENV/Scripts/python"
-    fi
+    find_venv_python
 fi
 
 if [ -z "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)'; then

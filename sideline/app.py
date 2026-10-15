@@ -5,7 +5,7 @@ import sys
 import threading
 
 from . import audit, language
-from .config import CONFIG
+from .config import CONFIG, ConfigError  # noqa: F401  (ConfigError is part of this module's surface)
 from .mcp import registry
 from .mcp import server as mcp_server
 from .mcp.client import McpClient
@@ -13,10 +13,6 @@ from .poller import Poller
 from .providers import build as build_provider
 from .state import build as build_store
 from .tools import REGISTRY
-
-
-class ConfigError(RuntimeError):
-    """The server cannot start with what it has been given. The message says what to do."""
 
 
 class Context:
@@ -50,6 +46,7 @@ def tool_runner(ctx):
 def build(provider=None):
     """The context, server and poller. `provider` is for tests; the product
     always reads the live football feed."""
+    CONFIG.check()
     logging.basicConfig(
         level=getattr(logging, CONFIG.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)-5s %(name)s  %(message)s")
@@ -122,11 +119,24 @@ def build(provider=None):
 
     srv = mcp_server.serve(CONFIG.host, CONFIG.port, run_tool, resolve_listener,
                            CONFIG.allowed_origins, agent_runner=run_agent)
-    bridge = McpClient("http://127.0.0.1:%d/mcp" % srv.server_address[1])
+    bridge = McpClient(_local_url(srv.server_address))
     from . import voice
     srv.voice_hint = lambda listener_id: voice.vocabulary_hint(ctx, listener_id)
     poller = Poller(ctx, CONFIG.poll_seconds)
     return ctx, srv, poller
+
+
+def _local_url(address):
+    """The /mcp URL this process can reach its own server on: the address it is bound to, or
+    loopback when it is bound to every interface."""
+    host, port = address[0], address[1]
+    if host in ("", "0.0.0.0"):
+        host = "127.0.0.1"
+    elif host == "::":
+        host = "::1"
+    if ":" in host:
+        host = "[%s]" % host
+    return "http://%s:%d/mcp" % (host, port)
 
 
 def main():

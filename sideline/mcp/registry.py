@@ -34,7 +34,7 @@ CHANGES_LISTENER_STATE = {"follow_match": True, "sync_broadcast_delay": True, "s
 NEEDS_NO_FEED = ("set_favourites", "set_preferences", "get_capabilities", "sync_broadcast_delay")
 
 
-def tool(name, title, description, input_schema, output_hint=None, ui=None):
+def tool(name, title, description, input_schema, output_hint=None):
     writes = name in CHANGES_LISTENER_STATE
     spec = {
         "name": name,
@@ -47,12 +47,7 @@ def tool(name, title, description, input_schema, output_hint=None, ui=None):
     }
     if output_hint:
         spec["_outputHint"] = output_hint
-    if ui:
-        # MCP Apps extension. Alexa+ renders this on screened devices
-        # (Echo Show, Fire TV). Voice-only devices ignore it, which is
-        # why no tool is allowed to put essential information here and
-        # nowhere else - see docs/ACCESSIBILITY.md.
-        spec["_meta"] = {"ui": ui}
+    # No `_meta.ui`: this server serves no MCP Apps (ui://) resources, so it must not point at any.
     TOOLS.append(spec)
     return spec
 
@@ -66,8 +61,10 @@ _obj = lambda props, required=(): {
 
 _team = {"type": "string", "minLength": 2, "maxLength": 60,
          "description": "Team name as the listener said it, e.g. 'Arsenal'."}
-_fixture = {"type": "integer", "minimum": 1,
-            "description": "Fixture id. Omit to use the match the listener is following."}
+# Feed ids are digit strings and tools hand them back as given, so a model echoing one back
+# (as a string or as a number) must be accepted either way.
+_fixture = {"type": ["integer", "string"], "minimum": 1, "pattern": "^[1-9][0-9]{0,19}$",
+            "description": "Fixture id from a previous answer. Omit to use the match the listener is following."}
 
 
 tool(
@@ -94,7 +91,6 @@ tool(
     "The score and the clock, right now. Say: 'what's the score', 'how long left', 'who's winning', 'has it finished'. Not what happened (what_did_i_miss); not 'I'm watching X' or 'follow X' (follow_match).",
     _obj({"fixture_id": _fixture}),
     output_hint="score, minute, period, whether the match has finished",
-    ui="mcp-apps://scoreboard",
 )
 
 tool(
@@ -148,7 +144,6 @@ tool(
           "team": {"type": "string", "maxLength": 60,
                    "description": "Limit to one side. Omit for both."}}),
     output_hint="starting eleven, formation, bench, captain, shirt numbers",
-    ui="mcp-apps://lineups",
 )
 
 tool(
@@ -164,7 +159,6 @@ tool(
                                   "offered the headlines - 'yes', 'the rest', "
                                   "'tell me everything'."}}),
     output_hint="one spoken paragraph covering the gap, plus the events behind it",
-    ui="mcp-apps://catchup",
 )
 
 tool(
@@ -453,7 +447,9 @@ def public_tools(core_only=False):
 
 
 def by_name(name):
+    """The contract of a tool this server offers now; None for unknown tools and for tools the feed
+    cannot answer (a tool hidden from tools/list must not answer tools/call either)."""
     for t in TOOLS:
         if t["name"] == name:
-            return t
+            return t if available(name) else None
     return None

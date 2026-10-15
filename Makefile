@@ -7,9 +7,12 @@ export PYTHONPATH := .:tests
 run:              ## start the server (bootstraps dependencies; live ESPN multi-sport)
 	PY="$(PY)" ./run.sh
 
+# The URL and the log folder come from the same settings the server reads (environment, then .env).
+SIM_URL = $(PY) -c "from sideline.config import CONFIG as C; h = C.host if C.host not in ('', '0.0.0.0', '::') else '127.0.0.1'; print('http://%s:%d/' % ('[%s]' % h if ':' in h else h, C.port))"
+
 sim:              ## open the voice simulator (served by the running server)
-	@$(PY) -c "import webbrowser;webbrowser.open('http://127.0.0.1:8765/')" \
-	  || echo "open http://127.0.0.1:8765/"
+	@url="$$($(SIM_URL))" && { $(PY) -c "import sys, webbrowser; webbrowser.open(sys.argv[1])" "$$url" \
+	  || echo "open $$url"; }
 
 # The suite needs no network and no credentials. Secrets are blanked (an empty
 # value beats .env) so a developer's own keys can never leak into a test run.
@@ -26,7 +29,9 @@ env:              ## show which environment variables are set (never prints a se
 	$(PY) scripts/env_status.py
 
 logs:             ## follow today's log file
-	@tail -f logs/sideline-$$(date +%Y-%m-%d).log
+	@dir="$$($(PY) -c "from sideline.config import CONFIG; d = CONFIG.log_dir.strip(); print('' if d.lower() in ('', 'off', 'none', '0', 'false', 'no') else d)")" && \
+	  if [ -z "$$dir" ]; then echo "logs are off (SIDELINE_LOG_DIR)"; \
+	  else tail -f "$$dir/sideline-$$(date +%Y-%m-%d).log"; fi
 
 log-report:       ## summarise the call logs: tools used, speed, declines, speech (ARGS=2026-10-17 for one day)
 	$(PY) scripts/log_report.py $(ARGS)
