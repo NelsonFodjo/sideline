@@ -84,8 +84,15 @@ def main():
             assert gone not in page, "%r was removed from the page" % gone
         req = urllib.request.Request(
             "http://127.0.0.1:8799/mcp",
-            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).encode(),
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                        "params": {"protocolVersion": "2025-11-25"}}).encode(),
             {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            sid = resp.headers["Mcp-Session-Id"]
+        req = urllib.request.Request(
+            "http://127.0.0.1:8799/mcp",
+            json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}).encode(),
+            {"Content-Type": "application/json", "Mcp-Session-Id": sid})
         with urllib.request.urlopen(req, timeout=2) as resp:
             assert len(json.loads(resp.read())["result"]["tools"]) == 27
         print("ok  `python -m sideline` serves on a clean shell with zero setup:",

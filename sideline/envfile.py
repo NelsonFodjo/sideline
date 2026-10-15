@@ -13,7 +13,8 @@ So environment variables are the priority; the file is only a
 convenience for the ones you have not exported. It is git-ignored.
 
 Rules, kept deliberately small:
-  * KEY=value lines; `#` comments; optional `export `; optional quotes.
+  * KEY=value lines; `#` comments (also after a value: `KEY="abc" # note`);
+    optional `export `; optional quotes.
   * Empty values are skipped, so a blank `AWS_ACCESS_KEY_ID=` in a copied
     .env.example never masks anything.
 """
@@ -31,8 +32,12 @@ def parse(text):
             line = line[7:].lstrip()
         key, _, value = line.partition("=")
         key, value = key.strip(), value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
+        if value[:1] in ("\"", "'") and value.find(value[0], 1) != -1:
+            # Quoted: the value is what is inside the quotes; a `# comment` may follow them.
+            end = value.find(value[0], 1)
+            rest = value[end + 1:].strip()
+            if not rest or rest.startswith("#"):
+                value = value[1:end]
         elif " #" in value:
             value = value.split(" #", 1)[0].rstrip()
         if key and value:

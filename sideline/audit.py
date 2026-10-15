@@ -120,9 +120,18 @@ def prune(today=None):
         return []
     cutoff = (today or datetime.date.today()) - datetime.timedelta(days=_state["keep"])
     removed = []
-    for name in os.listdir(directory):
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return removed
+    for name in names:
         m = _FILES.match(name)
-        if m and datetime.date.fromisoformat(m.group(2)) < cutoff:
+        try:
+            # A name that looks like ours but is not a real date (sideline-2026-13-40.log) is not ours.
+            old = bool(m) and datetime.date.fromisoformat(m.group(2)) < cutoff
+        except ValueError:
+            old = False
+        if old:
             try:
                 os.remove(os.path.join(directory, name))
                 removed.append(name)
