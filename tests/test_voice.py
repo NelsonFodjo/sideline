@@ -90,12 +90,12 @@ def main():
     pcm = pcm_of(speech_like(1.5))
 
     # ------------------------------------------------------ choosing
-    # Groq leads when GROQ_API_KEY is present; Voxtral and Sonic on Bedrock are fallbacks.
+    # auto is AWS only (VO-05): a Groq key in the environment never sends audio to Groq unless it is named.
     set_env(groq="test-key", aws=True, have_sonic=True)
-    assert voice.stt_order() == ["groq", "voxtral", "sonic"]
-    assert voice.capabilities()["stt"] == "groq"
+    assert voice.stt_order() == ["voxtral", "sonic"]
+    assert voice.capabilities()["stt"] == "voxtral"
     set_env(groq="test-key", aws=False)
-    assert voice.stt_order() == ["groq"]
+    assert voice.stt_order() == []
 
     # When Groq is not configured, AWS Bedrock order applies
     set_env(aws=True, have_sonic=True)
@@ -105,10 +105,10 @@ def main():
     assert voice.stt_order() == ["voxtral"], "no streaming SDK: Voxtral still works (it needs only boto3)"
     set_env(aws=False, have_sonic=True)
     caps = voice.capabilities()
-    assert caps["stt"] is None and "GROQ_API_KEY or AWS credentials" in caps["stt_hint"], caps
+    assert caps["stt"] is None and "AWS credentials" in caps["stt_hint"], caps
     set_env(stt="off", aws=True, have_sonic=True)
     assert voice.stt_order() == []
-    print("ok  auto order is Groq (when key is set), then Voxtral, then Nova Sonic")
+    print("ok  auto order is Voxtral, then Nova Sonic (Bedrock only); Groq only when named")
 
     # naming a provider means that provider, and never a silent swap
     set_env(stt="groq", groq="", aws=True, have_sonic=True)
@@ -123,7 +123,7 @@ def main():
     assert voice.stt_order() == [], "no AWS credentials: nothing to name"
     print("ok  a provider named in SIDELINE_STT is used alone")
 
-    # live captions: on by default when recognition is server-side, switchable
+    # live captions: off by default (VO-05); when switched on, only meaningful with server recognition
     set_env(aws=True)
     voice.LIVE_CAPTION = "browser"
     assert voice.capabilities()["caption"] == "browser"
@@ -267,7 +267,7 @@ def main():
             return MockResp()
 
         urllib.request.urlopen = mock_urlopen
-        set_env(groq="test-secret")
+        set_env(stt="groq", groq="test-secret")
         out = voice.transcribe(long_pcm, "audio/pcm", hint="Arsenal, Saka, Ødegaard")
         assert out == {"text": "Who is refereeing?", "provider": "groq"}, out
         assert sent["url"] == voice.GROQ_URL
@@ -319,7 +319,7 @@ def main():
     # A recogniser prints its own vocabulary when it is given noise: team names nobody said.
     hint = voice._BASE_HINT + " Hartlepool, Newcastle United U21"
     assert voice.echoes_hint("Hartlepool, Newcastle U21", hint), "the names alone are an echo"
-    assert voice.echoes_hint("Newcastle United U21.", hint)
+    assert not voice.echoes_hint("Newcastle United U21.", hint), "one team's full name is an answer (VO-06)"
     assert not voice.echoes_hint("Follow Hartlepool", hint), "a real command is kept"
     assert not voice.echoes_hint("Who is refereeing?", hint), "a real question is kept"
     assert not voice.echoes_hint("", hint) and not voice.echoes_hint("Hartlepool", "")
@@ -416,9 +416,14 @@ def main():
     # ------------------------------------------------------ TTS capabilities & providers
     set_env(tts="browser")
     assert voice.capabilities()["tts"] == "browser"
+    # auto stays inside AWS (VO-05): a third-party key alone is not a choice to use it
     set_env(tts="auto", cartesia="cart-key")
+    assert voice.capabilities()["tts"] == "browser"
+    set_env(tts="auto", elevenlabs="eleven-key", aws=True)
+    assert voice.capabilities()["tts"] == "polly"
+    set_env(tts="cartesia", cartesia="cart-key")
     assert voice.capabilities()["tts"] == "cartesia"
-    set_env(tts="auto", elevenlabs="eleven-key")
+    set_env(tts="elevenlabs", elevenlabs="eleven-key")
     assert voice.capabilities()["tts"] == "elevenlabs"
     set_env(tts="auto", aws=True)
     assert voice.capabilities()["tts"] == "polly"
@@ -453,7 +458,7 @@ def main():
         assert len(res["marks"]) == 1 and res["marks"][0]["value"] == "Arsenal"
     finally:
         urllib.request.urlopen = real_urlopen
-    print("ok  TTS selection: browser (<15ms), Cartesia (~60ms), ElevenLabs (~75ms), or AWS Polly")
+    print("ok  TTS selection: AWS Polly by default, browser without AWS; Cartesia/ElevenLabs only when named")
 
     print("\nvoice: all good")
 

@@ -318,12 +318,13 @@ body.calm .hud,body.calm .wire,body.calm .stage{opacity:0;pointer-events:none}
   background:rgba(25,198,244,.08);border:1px solid rgba(25,198,244,.3);
   color:var(--cyan);font-family:"IBM Plex Mono",monospace;font-size:11px;
   letter-spacing:.05em;padding:3px 10px;border-radius:999px;cursor:pointer;
-  transition:all .25s var(--ease);user-select:none;outline:none;
+  transition:all .25s var(--ease);user-select:none;
 }
 .sub-toggle-btn:hover{
   background:rgba(25,198,244,.18);border-color:var(--cyan);color:var(--white);
   box-shadow:0 0 14px rgba(25,198,244,.28);transform:translateY(-1px);
 }
+.sub-toggle-btn:focus-visible{outline:2px solid var(--cyan);outline-offset:3px;color:var(--white)}
 .sub-toggle-btn.voice-only{
   background:rgba(245,200,76,.08);border-color:rgba(245,200,76,.35);color:var(--warm);
 }
@@ -403,7 +404,7 @@ body.voice-only .stage .inner{
 
 <!-- Everything said, once, for screen readers. The animated copy above is
      aria-hidden so word-by-word updates are not announced. -->
-<div class="sr" id="sr" role="status" aria-live="off"></div>
+<div class="sr" id="sr" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script>
 (function(){
@@ -428,30 +429,59 @@ async function rpc(method,params){
 var ctx=null, mic=null, micAn=null, outAn=null, micBuf=null, outBuf=null;
 var micFreq=null, outFreq=null;
 var caps={stt:null,tts:null};
+var micSrc=null, micPending=null;
+var MIC_CONSTRAINTS={audio:{
+  echoCancellation:true,     // so our own voice does not retrigger us
+  noiseSuppression:true,
+  autoGainControl:true}};
+
+/* Everything a sighted listener reads on screen also goes to the screen reader's live region:
+   answers, and status lines too (paused, can't reach the server, switching recognition). */
+var srT=null;
+function announce(t){
+  var sr=$("sr"); if(!sr||!t) return;
+  clearTimeout(srT);
+  sr.textContent="";                          // cleared first, so the same words twice are announced twice
+  srT=setTimeout(function(){ sr.textContent=t; },40);
+}
+
+/* The microphone. No time limit on the permission prompt: a listener who takes a while to find
+   "Allow" (a screen reader, a slow dialog) must not be stranded with a dead button and a live mic.
+   After 12 s the gate just says what it is waiting for. */
+function ensureMic(){
+  if(mic) return Promise.resolve(mic);
+  if(micPending) return micPending;
+  micPending=navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS).then(function(stream){
+    micPending=null;
+    if(paused){ stream.getTracks().forEach(function(t){ try{t.stop()}catch(e){} }); return null; }
+    mic=stream;
+    micSrc=ctx.createMediaStreamSource(stream);
+    micSrc.connect(micAn);
+    return stream;
+  },function(e){ micPending=null; throw e; });
+  return micPending;
+}
+/* Paused means the microphone is off: the tracks are stopped, so the browser's mic light goes out. */
+function releaseMic(){
+  if(micSrc){ try{micSrc.disconnect()}catch(e){} micSrc=null; }
+  if(mic){ try{ mic.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} mic=null; }
+}
 
 async function openAudio(){
   ctx=new (window.AudioContext||window.webkitAudioContext)();
-  var timeout=new Promise(function(_,reject){
-    setTimeout(function(){ reject(new Error("Microphone access timed out — check permissions")); }, 12000);
-  });
-  var stream=await Promise.race([
-    navigator.mediaDevices.getUserMedia({audio:{
-      echoCancellation:true,     // so our own voice does not retrigger us
-      noiseSuppression:true,
-      autoGainControl:true}}),
-    timeout
-  ]);
-  mic=stream;
-  var src=ctx.createMediaStreamSource(stream);
   micAn=ctx.createAnalyser(); micAn.fftSize=1024; micAn.smoothingTimeConstant=.7;
-  src.connect(micAn);
   micBuf=new Uint8Array(micAn.fftSize);
   micFreq=new Uint8Array(micAn.frequencyBinCount);
 
   outAn=ctx.createAnalyser(); outAn.fftSize=1024; outAn.smoothingTimeConstant=.72;
   outBuf=new Uint8Array(outAn.fftSize);
   outFreq=new Uint8Array(outAn.frequencyBinCount);
-  return stream;
+  var slow=setTimeout(function(){
+    var m="Waiting for microphone permission. Allow it in your browser to carry on.";
+    $("gatenote").textContent=m; announce(m);
+  },12000);
+  try{ return await ensureMic(); }
+  finally{ clearTimeout(slow); }
 }
 
 /* ============================================================== state */
@@ -837,7 +867,7 @@ function toInt16(f32){
 }
 
 function startCapture(){
-  if(capturing) return;
+  if(capturing||!mic) return;
   // A clip can begin with audio already heard (the start of a word that cut Sideline off),
   // so the first syllable is not lost to the time it took to decide it was speech.
   pcmChunks=preroll||[]; preroll=null; capturing=true;
@@ -968,13 +998,15 @@ function stopListening(){
    resumes. Pause/Break and Escape do the same. An answer that was already on its
    way is kept and spoken on resume, so nothing the listener asked for is lost.
    Once the page is live, the "Go live" button is gone, so Space cannot click it. */
-var paused=false, pendingAnswer=null;
+var paused=false, pendingAnswer=null, pendingQuestion=null, resumeGen=0;
 function setPaused(on){
   if(!armed||on===paused) return;
   paused=on;
   wake();
+  var gen=++resumeGen;
   if(on){
     stopSpeaking(); stopListening();
+    releaseMic();                          // paused means the microphone is really off
     clearTimeout(idleT);
     setMode("idle");
     setQuiet("Paused. Press the space bar to carry on.");
@@ -982,13 +1014,26 @@ function setPaused(on){
   }else{
     $("hint").innerHTML="<kbd>space</kbd> to pause";
     setQuiet("");
-    if(pendingAnswer){ var t=pendingAnswer; pendingAnswer=null; say(t); }
-    else listen();
+    // What arrived while paused is delivered first: the answer, or the question heard just before the pause.
+    if(pendingAnswer){ var t=pendingAnswer; pendingAnswer=null; pendingQuestion=null; say(t); }
+    else if(pendingQuestion){ var q=pendingQuestion; pendingQuestion=null; showSaid(q); ask(q); }
+    ensureMic().then(function(){
+      if(gen!==resumeGen||paused) return;
+      if(!speaking && MODE!=="thinking") listen();
+    },function(){
+      if(gen!==resumeGen||paused) return;
+      paused=true;                         // so the space bar tries again
+      $("hint").innerHTML="microphone off &middot; <kbd>space</kbd> twice to retry";
+      var m="I can’t use the microphone. Allow it, then press the space bar twice.";
+      if(speaking) announce(m); else setQuiet(m);
+    });
   }
 }
 document.addEventListener("keydown",function(e){
   if(e.repeat) return;
   if(!armed) return;                       // before "Go live", Space keeps its usual job
+  // On a focused button or field, Space presses it (the subtitles toggle) rather than pausing.
+  if(e.code==="Space" && e.target && e.target.closest && e.target.closest("button,input,textarea,select,[contenteditable]")) return;
   if(e.code==="Space"||e.code==="Pause"||e.code==="Escape"){
     e.preventDefault(); setPaused(!paused);
   }
@@ -1061,18 +1106,23 @@ function stopBargeSR(){
   }
 }
 
+/* A stop word counts only as the whole utterance or its first word(s) ("stop", "wait, which one?"),
+   never somewhere inside: "Okay, Arsenal lead" read back by the speaker must not cut Sideline off. */
+function leadsWithStopWord(clean){
+  var words=(clean||"").toLowerCase().replace(/[^a-z0-9'\s]/g," ").split(/\s+/).filter(Boolean);
+  if(!words.length) return false;
+  return STOP_WORDS.has(words.join(" ")) || STOP_WORDS.has(words[0]) || STOP_WORDS.has(words.slice(0,2).join(" "));
+}
+function shouldBargeIn(recognizedWords){
+  var clean=(recognizedWords||"").toLowerCase().trim();
+  if(!clean) return false;
+  if(isAssistantEcho(clean)) return false;   // our own voice through the speakers, stop word or not
+  return leadsWithStopWord(clean) || clean.split(/\s+/).filter(Boolean).length>=2;
+}
+
 function triggerWordBargeIn(recognizedWords){
   if(!speaking) return;
-  var clean=(recognizedWords||"").toLowerCase().trim();
-  if(!clean) return;
-  var words=clean.split(/\s+/).filter(Boolean);
-  var isStopWord=STOP_WORDS.has(clean) || words.some(function(w){ return STOP_WORDS.has(w); });
-
-  // Explicit stop word (stop, wait, quiet, pause, hold on, etc.) stops immediately without echo check
-  if(!isStopWord){
-    if(words.length < 2) return;
-    if(isAssistantEcho(clean)) return;
-  }
+  if(!shouldBargeIn(recognizedWords)) return;
 
   stopBargeSR();
   clearInterval(bargeTimer);
@@ -1214,58 +1264,117 @@ function startBrowserRecognition(){
 }
 
 /* ========================================================= speech in */
+/* What Sideline had said when the listener cut in rides along as a header. Headers carry Latin-1 only, and
+   answers have curly quotes and dashes ("I’m", "—"), on which fetch throws; so it is percent-encoded
+   (the server decodes it), and capped at 300 characters before encoding. */
+function interruptedHeader(said){
+  if(!said) return "";
+  var s=String(said).slice(0,300).replace(/[\uD800-\uDBFF]$/,"");   // never cut a character in half
+  try{ return encodeURIComponent(s); }catch(e){ return ""; }
+}
+
+/* Server recognition. One failed clip falls back for that clip only (its live caption if there is one, or
+   "please say it again"); the session moves to the browser's recognition only after STT_MAX_FAILS failures
+   in a row, or when the server says it has no recogniser left. A request that takes too long is given up
+   after STT_TIMEOUT_MS, and the listener is told it is still working well before that. */
+var sttFails=0, STT_MAX_FAILS=3, STT_TIMEOUT_MS=15000, STILL_WORKING_MS=6000;
+function stillWorking(){
+  if(paused||speaking) return;
+  setQuiet("Still working on it…");
+  // A short courtesy in the browser's voice (nothing is listening while thinking, so it is not heard as a
+  // question); the answer, when it comes, cancels it.
+  if(window.speechSynthesis){
+    try{ speechSynthesis.speak(new SpeechSynthesisUtterance("Still working on it.")); }catch(e){}
+  }
+}
+async function sttStatus(){
+  // Asked only after a failure: does the server still have a recogniser? "none", "ok", or "down" (unreachable).
+  var ctl=new AbortController(), t=setTimeout(function(){ try{ctl.abort()}catch(e){} },3000);
+  try{
+    var r=await fetch(BASE+"/voice/capabilities",{signal:ctl.signal});
+    if(!r.ok) return "down";
+    var c=await r.json();
+    return c.stt ? "ok" : "none";
+  }catch(e){ return "down"; }
+  finally{ clearTimeout(t); }
+}
+function switchToBrowserSTT(){
+  console.warn("server speech recognition unavailable; switching to browser");
+  var failed={groq:"Groq Whisper speech recognition",voxtral:"Voxtral speech recognition",sonic:"Nova Sonic speech recognition"}[caps.stt]||"Speech recognition";
+  caps.stt=null;
+  useBrowserSTT=!!SR;
+  $("stack").innerHTML="simulated Alexa+ · in <b>"+(useBrowserSTT?"browser":"unavailable")+
+    "</b> · out <b>"+((caps.tts&&caps.tts!=="browser")?(caps.tts+" "+(caps.voice||"")):"browser (<15ms)")+"</b>";
+  var m;
+  if(useBrowserSTT){
+    // Said aloud, not only shown: the listener is not looking, and their audio now goes to the browser's engine.
+    m=failed+" unavailable; switching to browser speech recognition. Please repeat.";
+  }else{
+    armed=false;
+    m=failed+" unavailable and this browser has no speech recognition.";
+  }
+  if(paused) pendingAnswer=m; else say(m);
+}
+async function sttFailed(err,timedOut,opt){
+  console.warn("server speech recognition failed for this clip",err);
+  sttFails++;
+  var status=sttFails>=STT_MAX_FAILS ? "none" : await sttStatus();
+  if(status==="none"){ switchToBrowserSTT(); return; }
+  var m;
+  if(!timedOut && status==="ok" && opt && opt.split(/\s+/).length>=2){
+    // This clip only: the live caption already heard the words, so they are not lost.
+    if(paused){ pendingQuestion=opt; return; }
+    showSaid(opt); ask(opt); return;
+  }
+  if(status==="down") m="I can’t reach the server right now. Please try again shortly.";
+  else if(timedOut) m="Sorry, that took too long. Please ask again.";
+  else m="Sorry, I didn’t catch that. Please say it again.";
+  if(paused) pendingAnswer=m; else say(m);
+}
+
 async function handleClip(pcm, snapCap){
   setMode("thinking"); setQuiet("");
   var text=null;
   var opt=justWords(snapCap||capText);
   if(caps.stt){
+    var ctl=new AbortController(), timedOut=false;
+    var killT=setTimeout(function(){ timedOut=true; try{ctl.abort()}catch(e){} },STT_TIMEOUT_MS);
+    var slowT=setTimeout(stillWorking,STILL_WORKING_MS);
     try{
       var t0=performance.now();
-      var r=await fetch(BASE+"/voice/stt",{method:"POST",
+      var r=await fetch(BASE+"/voice/stt",{method:"POST",signal:ctl.signal,
         headers:{
           "X-Audio-Type":"audio/pcm;rate=16000",
           "X-Run-Agent":"1",
           "X-Tz-Offset":String(-new Date().getTimezoneOffset()),
-          "X-Interrupted":takeCut()||""
+          "X-Interrupted":interruptedHeader(takeCut())
         },body:pcm});
       if(!r.ok) throw new Error("HTTP "+r.status);
       var doc=await r.json();
+      clearTimeout(killT); clearTimeout(slowT);
+      sttFails=0;
       text=doc.text;
       if(doc.chat){
-        if(paused) return;
+        // The server has already run the agent: the answer is owed even if the listener paused meanwhile.
+        // renderAgentAnswer keeps it while paused and says it on resume.
         text=justWords(text);
         if(text.length>=2) showSaid(text);
         renderAgentAnswer(doc.chat, t0);
         return;
       }
     }catch(e){
-      console.warn("server speech recognition unavailable; switching to browser",e);
-      var failed={groq:"Groq Whisper speech recognition",voxtral:"Voxtral speech recognition",sonic:"Nova Sonic speech recognition"}[caps.stt]||"Speech recognition";
-      caps.stt=null;
-      useBrowserSTT=!!SR;
-      $("stack").innerHTML="simulated Alexa+ · in <b>"+(useBrowserSTT?"browser":"unavailable")+
-        "</b> · out <b>"+((caps.tts&&caps.tts!=="browser")?(caps.tts+" "+(caps.voice||"")):"browser (<15ms)")+"</b>";
-      if(useBrowserSTT){
-        setQuiet(failed+" unavailable; switching to browser speech recognition. Please repeat.");
-        if(armed) listen();
-      }else{
-        armed=false;
-        setQuiet(failed+" unavailable and this browser has no speech recognition.");
-      }
+      clearTimeout(killT); clearTimeout(slowT);
+      await sttFailed(e,timedOut,opt);
       return;
     }
   }else if(opt && opt.split(/\s+/).length>=2){
     text=opt;
   }
-  if(paused) return;
-  if(!text){ if(armed)listen(); return; }
+  if(!text){ if(armed&&!paused)listen(); return; }
   text=justWords(text);
-  if(text.length<2){ if(armed)listen(); return; }
-  var cleanT=text.toLowerCase().trim().replace(/[.!?]/g,"");
-  if(cleanT==="thank you" || cleanT==="thanks for watching" || cleanT==="thank you for watching" || cleanT==="bye" || cleanT==="goodbye" || cleanT==="you" || cleanT==="the"){
-    if(armed) listen();
-    return;
-  }
+  if(text.length<2){ if(armed&&!paused)listen(); return; }
+  // Heard while paused: kept, and asked on resume. Nothing the listener said is dropped.
+  if(paused){ pendingQuestion=text; return; }
   showSaid(text);
   ask(text);
 }
@@ -1356,6 +1465,7 @@ function setQuiet(t){
   answer.textContent=t; allSpans=[]; flowTokens=[]; beam=null; curIdx=-1;
   answer.style.maxWidth="";
   answering=false;
+  if(t) announce(t);              // status lines are heard too, not only seen
 }
 
 /* The underline glides to the word being spoken. */
@@ -1468,21 +1578,35 @@ function speechParts(text){
 
 /* One try more before the browser's voice: a throttled or dropped Polly request is usually fine a moment later,
    and falling back changes the voice mid-answer. */
-var ttsCache={};
-function fetchSpeech(text,again){
-  if(!again && ttsCache[text]) return ttsCache[text];
+/* The retry bypasses the cache with its own flag (isRetry) and never waits on itself; a request that finally
+   fails is dropped from the cache, so the same words are asked for afresh next time instead of failing forever.
+   The cache keeps the last TTS_CACHE_MAX answers (the intro is fetched ahead, so it is one of them). */
+var ttsCache={}, ttsKeys=[], TTS_CACHE_MAX=24;
+function forgetSpeech(text,p){
+  if(ttsCache[text]!==p) return;
+  delete ttsCache[text];
+  var i=ttsKeys.indexOf(text); if(i!==-1) ttsKeys.splice(i,1);
+}
+function fetchSpeech(text,isRetry){
+  if(!isRetry && ttsCache[text]) return ttsCache[text];
   var p=fetch(BASE+"/voice/tts",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({text:text})}).then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
     .catch(function(e){
-      if(again===0) throw e;
-      return new Promise(function(ok){ setTimeout(ok,400); }).then(function(){ return fetchSpeech(text,0); });
+      if(isRetry) throw e;
+      return new Promise(function(ok){ setTimeout(ok,400); }).then(function(){ return fetchSpeech(text,true); });
     });
-  if(!again) ttsCache[text]=p;
+  if(!isRetry){
+    ttsCache[text]=p; ttsKeys.push(text);
+    while(ttsKeys.length>TTS_CACHE_MAX){ delete ttsCache[ttsKeys.shift()]; }
+    p.then(function(doc){ if(!doc||!doc.audio) forgetSpeech(text,p); },function(){ forgetSpeech(text,p); });
+  }
   return p;
 }
 
 async function say(text, quick){
-  $("sr").textContent=""; $("sr").textContent=text;          // announce once
+  // One voice at a time, and the microphone is not listening to it: whatever was speaking or listening stops.
+  stopListening(); stopSpeaking();
+  announce(text);                                            // once, for screen readers
   currentSpokenText=text||"";
   capText=""; sawVoice=false; lastVoice=0;
   var spans=layout(text);
@@ -1500,7 +1624,7 @@ async function say(text, quick){
     var first=await asked[0];
     if(gen!==speakGen) return;                              // interrupted or paused while it was being made
     if(first && first.audio){
-      await playChain(parts,asked,first,spans,gen);
+      await playChain(parts,asked,first,spans,gen,text);
       return;
     }
   }catch(e){ if(gen!==speakGen) return; }
@@ -1508,7 +1632,7 @@ async function say(text, quick){
 }
 
 /* Play part 0 now, then each next part as its audio is ready. */
-function playChain(parts,asked,first,spans,gen){
+function playChain(parts,asked,first,spans,gen,text){
   return new Promise(function(done){
     var i=0;
     var preloaded={};
@@ -1550,9 +1674,22 @@ function playChain(parts,asked,first,spans,gen){
                         browserSay(parts[i].text,spans,parts[i].base); done();
                       });
       };
-      el.onerror=function(){ if(gen===speakGen) finishSpeaking(spans,done); };
+      // Audio that will not play (Safari's autoplay rule, a bad decode): the rest of the answer, from this part
+      // on, is said in the browser's voice instead of being skipped in silence.
+      var fellBack=false;
+      function sayRestInBrowser(){
+        if(gen!==speakGen||fellBack) return;
+        fellBack=true;
+        el.onended=null; el.onerror=null;
+        markTimers.forEach(clearTimeout); markTimers=[];
+        if(audioEl===el){ try{ el.pause(); }catch(e){} audioEl=null; }
+        browserSay(text!=null?text.slice(base):parts.slice(i).map(function(p){return p.text}).join(" "),spans,base);
+        done();
+      }
+      el.onerror=sayRestInBrowser;
       if(i===0) watchForBargeIn();
-      el.play().catch(function(){ if(gen===speakGen) finishSpeaking(spans,done); });
+      var played=el.play();
+      if(played && played.catch) played.catch(sayRestInBrowser);
     }
     next(first);
   });
@@ -1585,6 +1722,7 @@ function splitSentences(text){
 function browserSay(text,spans,base){
   base=base||0;
   hasBoundary=false;
+  var gen=speakGen;      // a cancelled utterance's late onend/onerror must not end the one that replaced it
   if(!("speechSynthesis" in window)){ timedReveal(spans); return; }
   if(speechSynthesis.speaking || speechSynthesis.pending){
     speechSynthesis.cancel();
@@ -1607,6 +1745,7 @@ function browserSay(text,spans,base){
     var sentBase=base+sent.base;
 
     u.onboundary=function(e){
+      if(gen!==speakGen) return;
       if(!e.name||e.name==="word"){
         if(!hasBoundary){
           hasBoundary=true;
@@ -1617,11 +1756,13 @@ function browserSay(text,spans,base){
     };
     if(isLast){
       u.onend=function(){
+        if(gen!==speakGen) return;
         activeUtterances=[];
         markTimers.forEach(clearTimeout); markTimers=[];
         finishSpeaking(spans);
       };
       u.onerror=function(){
+        if(gen!==speakGen) return;
         activeUtterances=[];
         markTimers.forEach(clearTimeout); markTimers=[];
         finishSpeaking(spans);
@@ -1813,11 +1954,14 @@ async function ask(text){
     var result=await response.json();
     renderAgentAnswer(result, t0);
   }catch(e){
+    // Superseded by a newer question (its request aborted this one): that one answers, nothing to say here.
+    if(e && e.name==="AbortError") return;
     // There is no offline fallback: the answer comes from Nova and the live
     // feed, or the listener is told it did not.
     $("dot").className="dot err"; $("tool").textContent="no answer";
     $("via").textContent="unavailable"; $("via").className="via";
-    say("I can't get an answer right now. Please try again shortly.");
+    var m="I can't get an answer right now. Please try again shortly.";
+    if(paused) pendingAnswer=m; else say(m);
   }
 }
 
@@ -1865,19 +2009,24 @@ $("begin").onclick=async function(){
   $("begin").disabled=true;
   try{ await openAudio(); }
   catch(e){
-    $("gatenote").textContent="microphone blocked — allow it and reload";
+    // Refused or failed: say so, and leave the button usable so the listener can try again after allowing it.
+    if(ctx){ try{ ctx.close(); }catch(e2){} ctx=null; }
+    var m="Microphone blocked. Allow it, then press Go live again.";
+    $("gatenote").textContent=m; announce(m);
+    introStarted=false; $("begin").disabled=false;
     return;
   }
   $("gate").classList.add("gone");
   sizeCore(); armed=true;
   startPassiveTicker();
-  var connPromise=connect();
   if(!caps.stt && !SR){
     setQuiet("This browser can’t turn speech into text. Try Chrome.");
     return;
   }
-  say(INTRO);
-  await connPromise;
+  // Connected first, then the intro: it says "connected to Sideline", which must be true when it is said,
+  // and a failure line must not interleave with the intro's words.
+  if(await connect()) say(INTRO);
+  else say("I can’t reach the Sideline server right now. Check that it is running, then reload this page.");
 };
 
 /* Ask the server what it can do, so the gate can say so before anyone

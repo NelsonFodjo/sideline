@@ -5,6 +5,13 @@ listening and the talking, and the MCP server never touches audio. The simulator
 is our own client, so it has to BE the voice. The browser captures audio and
 posts it here; this module calls a provider; keys never reach the browser.
 
+WHERE AUDIO AND TEXT GO. By default (SIDELINE_STT=auto, SIDELINE_TTS=auto, SIDELINE_LIVE_CAPTION=off) only AWS
+services are used: Bedrock hears the listener, Polly speaks, so the listener's audio stays in the AWS account.
+Groq (speech in), Cartesia and ElevenLabs (speech out) are third-party services outside AWS: they are used only
+when named (SIDELINE_STT=groq, SIDELINE_TTS=cartesia or elevenlabs), never because a key happens to be set.
+Without AWS credentials the page falls back to the browser's own engines, which may send audio to the browser
+vendor; the page says so.
+
 SPEECH OUT: Amazon Polly, its generative voice (the most natural) with the neural one as the fallback.
 The page also needs speech marks, every word with its offset in milliseconds, so it can highlight each
 word at the moment the voice reaches it; only the neural voice returns them, so they are fetched from it
@@ -19,7 +26,7 @@ clips, clean and noisy (scripts/compare_stt.py; docs/SPEECH.md):
     3. the browser's own recognition, the least accurate, used when neither works
 
 A clip one provider fails goes to the next, so a throttle never leaves a listener unheard. Naming a provider
-(SIDELINE_STT=sonic) uses it alone.
+(SIDELINE_STT=sonic, or SIDELINE_STT=groq for Whisper on Groq, outside AWS) uses it alone.
 
 /voice/stt and /voice/tts are simulator support, not part of the MCP surface.
 Nothing in sideline/tools/ knows they exist.
@@ -31,6 +38,7 @@ import json
 import logging
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 
@@ -60,7 +68,8 @@ except ImportError:                                            # pragma: no cove
 
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 
-# --- speech out: Cartesia Sonic (40-80ms), ElevenLabs Flash (~75ms), browser (<15ms), or AWS Polly
+# --- speech out: AWS Polly by default; Cartesia Sonic or ElevenLabs Flash (third parties, outside AWS) only
+# when named; browser (<15ms) when there are no AWS credentials.
 TTS_PROVIDER = os.environ.get("SIDELINE_TTS", "auto").strip().lower()  # auto|browser|cartesia|elevenlabs|polly|off
 ELEVENLABS_VOICE = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 POLLY_VOICE = os.environ.get("SIDELINE_POLLY_VOICE", "Amy")
@@ -88,10 +97,13 @@ def active_tts_provider():
 
     Options:
       - 'browser': ultra-low latency (<15ms), 0 server overhead, native word boundaries.
-      - 'cartesia': Cartesia Sonic SSE (40-80ms) with word timestamps.
-      - 'elevenlabs': ElevenLabs Flash v2.5 (~75ms) with character/word timestamps.
+      - 'cartesia': Cartesia Sonic SSE (40-80ms) with word timestamps. Outside AWS: only when named.
+      - 'elevenlabs': ElevenLabs Flash v2.5 (~75ms) with character/word timestamps. Outside AWS: only when named.
       - 'polly': Amazon Polly generative/neural voice on AWS.
       - None / off: disabled.
+
+    'auto' stays inside AWS: Polly when credentials resolve, else the browser's voice. A Cartesia or
+    ElevenLabs key in the environment never sends the answer text to that company on its own.
     """
     if TTS_PROVIDER == "off":
         return None
@@ -104,17 +116,13 @@ def active_tts_provider():
     if TTS_PROVIDER == "polly":
         return "polly" if _have_aws_credentials() else None
 
-    # auto mode:
-    if _have_cartesia_key():
-        return "cartesia"
-    if _have_elevenlabs_key():
-        return "elevenlabs"
+    # auto mode: AWS only
     if _have_aws_credentials():
         return "polly"
     return "browser"
 
 
-STT_PROVIDER = os.environ.get("SIDELINE_STT", "auto")          # auto|groq|voxtral|sonic|off
+STT_PROVIDER = os.environ.get("SIDELINE_STT", "auto")          # auto (Bedrock only)|groq|voxtral|sonic|off
 GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_MODEL = "whisper-large-v3-turbo"
 SONIC_MODEL = "amazon.nova-2-sonic-v1:0"
@@ -134,14 +142,33 @@ def _have_groq_key():
 # live typing the page also runs the browser's own recognition on the side,
 # purely to show interim words, and replaces them with the server's more
 # accurate transcript. The cost: that audio also reaches the browser vendor
-# (Chrome and Edge send it to theirs). SIDELINE_LIVE_CAPTION=off keeps the
-# audio with the chosen provider only, and nothing types until the clip ends.
-LIVE_CAPTION = os.environ.get("SIDELINE_LIVE_CAPTION", "browser").strip().lower()
+# (Chrome and Edge send it to theirs). So it is OFF by default: the audio stays
+# with the chosen provider, and nothing types until the clip ends.
+# SIDELINE_LIVE_CAPTION=browser turns it on, knowingly.
+LIVE_CAPTION = os.environ.get("SIDELINE_LIVE_CAPTION", "off").strip().lower()
 
-# Providers that failed in a way retrying will not fix (a bad key, access
-# denied). Taken out of rotation so every utterance does not pay a failing
-# round trip before falling back.
-_DISABLED = set()
+# Providers that failed in a way retrying soon will not fix (a bad key, access
+# denied). Taken out of rotation for a while, so every utterance does not pay a
+# failing round trip before falling back; tried again after DISABLE_SECONDS, so
+# rotated credentials or newly granted model access recover without a restart.
+# name -> time.monotonic() at which it may be tried again.
+DISABLE_SECONDS = 600
+_DISABLED = {}
+
+
+def _disable(name, why=""):
+    _DISABLED[name] = time.monotonic() + DISABLE_SECONDS
+    LOG.warning("%s unavailable, out of rotation for %d s: %s", name, DISABLE_SECONDS, str(why)[:200])
+
+
+def _is_disabled(name):
+    until = _DISABLED.get(name)
+    if until is None:
+        return False
+    if time.monotonic() >= until:
+        _DISABLED.pop(name, None)
+        return False
+    return True
 
 _polly = None
 
@@ -179,14 +206,16 @@ def stt_order():
 
     A named provider (SIDELINE_STT=groq) is used alone, never silently
     swapped for another, so a choice about where audio goes is respected.
+    'auto' is Bedrock only (Voxtral, then Nova Sonic): audio stays in the AWS
+    account. Groq is outside AWS and is used only when named.
     """
     groq = _have_groq_key()
     aws = _have_aws_credentials()
     ok = {"groq": groq, "voxtral": aws and HAVE_BOTO3, "sonic": aws and HAVE_SONIC}
     if STT_PROVIDER == "off":
         return []
-    names = ["groq", "voxtral", "sonic"] if STT_PROVIDER == "auto" else [STT_PROVIDER]
-    return [n for n in names if ok.get(n) and n not in _DISABLED]
+    names = ["voxtral", "sonic"] if STT_PROVIDER == "auto" else [STT_PROVIDER]
+    return [n for n in names if ok.get(n) and not _is_disabled(n)]
 
 
 def capabilities():
@@ -233,8 +262,9 @@ def capabilities():
             out["stt_hint"] = "speech-to-text disabled"
         elif STT_PROVIDER == "groq" and not _have_groq_key():
             out["stt_hint"] = "set GROQ_API_KEY in .env for Groq Whisper"
-        elif not aws and not _have_groq_key():
-            out["stt_hint"] = "set GROQ_API_KEY or AWS credentials (Bedrock) for speech recognition"
+        elif not aws:
+            out["stt_hint"] = ("set AWS credentials (Bedrock) for speech recognition "
+                               "(or SIDELINE_STT=groq with GROQ_API_KEY, outside AWS)")
         else:
             out["stt_hint"] = "no speech-to-text provider available"
     if not tts:
@@ -373,16 +403,27 @@ def _one_sentence(client, sentence):
         # Polly returns speech marks as newline-delimited JSON, one object per mark - not an array.
         return [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
 
+    def marks_or_none(f):
+        # Word timings are a nicety for the highlight; the audio is the answer. Failing marks must not
+        # throw the audio away: with none, the words are spread over the audio's real length (_marks_fitted).
+        try:
+            return f.result()
+        except Exception as e:                                      # noqa: BLE001
+            LOG.warning("polly speech marks unavailable (%s); word timings estimated", e)
+            return []
+
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=2) as pool:
         f_marks = pool.submit(marks)
         if POLLY_ENGINE == "generative":
+            mp3 = None
             try:
                 mp3 = audio("generative")
-                return mp3, f_marks.result(), "generative"
             except Exception as e:                                  # noqa: BLE001
                 LOG.warning("polly generative voice unavailable (%s); using neural", e)
-        return audio("neural"), f_marks.result(), "neural"
+            if mp3 is not None:
+                return mp3, marks_or_none(f_marks), "generative"
+        return audio("neural"), marks_or_none(f_marks), "neural"
 
 
 def _synthesize_cartesia(text):
@@ -545,7 +586,10 @@ def synthesize(text):
     Returns {"audio": base64 mp3, "marks": [{"time": ms, "start": char, "end": char, "value": word}],
     "voice": ..., "engine": ...} or None to fall back to the browser's voice.
     """
-    if not text or not text.strip():
+    if not isinstance(text, str):
+        LOG.warning("tts asked for a %s, not text; refused", type(text).__name__)
+        return None
+    if not text.strip():
         return None
     prov = active_tts_provider()
     if prov == "cartesia":
@@ -556,10 +600,8 @@ def synthesize(text):
         res = _synthesize_elevenlabs(text)
         if res:
             return res
-    elif prov == "browser":
-        if _polly_client():
-            return _synthesize_polly(text)
-        return None
+    elif prov in ("browser", None):
+        return None                  # the browser's own voice was chosen (or speech is off): no AWS call
     return _synthesize_polly(text)
 
 
@@ -627,6 +669,14 @@ _WHISPER_HALLUCINATIONS = {
     "thanks for watching", "bye.", "bye", "goodbye.", "goodbye",
     "subtitles by", "translated by", "amara.org", "you", "silence", "the", "."
 }
+# Whisper (Groq) writes one of those for a clip with almost no speech in it. Only then is it dropped: a
+# listener who really says "Thank you" or "Goodbye" speaks for longer than this, and other recognisers
+# (Voxtral, Nova Sonic) do not have the habit, so their "Thank you" is always kept.
+WHISPER_HALLUCINATION_MAX_VOICED_MS = 400
+
+# Recognisers that are given the vocabulary hint, and so can read it back on a clip of noise. Voxtral is not
+# given it (see _transcribe_voxtral), so its transcript of team names is what was said.
+_HINTED = ("groq", "sonic")
 
 
 def transcribe(audio_bytes, mime="audio/pcm", hint=""):
@@ -637,7 +687,8 @@ def transcribe(audio_bytes, mime="audio/pcm", hint=""):
     Safari). Voxtral takes it wrapped as WAV; Nova Sonic streams it as is. `hint` is vocabulary for the
     recogniser (see `vocabulary_hint`).
     """
-    if voiced_ms(audio_bytes) < GATE_MIN_VOICED_MS:
+    voiced = voiced_ms(audio_bytes)
+    if voiced < GATE_MIN_VOICED_MS:
         # Clicks, a thump, or a room: nothing to transcribe, and nothing worth
         # a request. An empty text is an answer ("heard nothing"), not a failure.
         LOG.info("no sustained speech in this clip (%d bytes); not sent to a provider",
@@ -652,11 +703,13 @@ def transcribe(audio_bytes, mime="audio/pcm", hint=""):
             out = _transcribe_sonic(audio_bytes, hint)
         if out is not None:
             clean_txt = only_words(out.get("text"))
-            if clean_txt.lower().strip().rstrip(".!?") in _WHISPER_HALLUCINATIONS:
-                LOG.info("transcript %r is a silence/noise hallucination; dropped", clean_txt)
+            if (which == "groq" and voiced < WHISPER_HALLUCINATION_MAX_VOICED_MS
+                    and clean_txt.lower().strip().rstrip(".!?") in _WHISPER_HALLUCINATIONS):
+                LOG.info("transcript %r is a Whisper silence/noise hallucination (%d ms voiced); dropped",
+                         clean_txt, voiced)
                 clean_txt = ""
             out = dict(out, text=clean_txt)
-            if out.get("text") and echoes_hint(out["text"], hint):
+            if out.get("text") and which in _HINTED and echoes_hint(out["text"], hint):
                 LOG.info("transcript %r is the recogniser echoing its own vocabulary hint "
                          "(noise, not speech); dropped", out["text"])
                 out = dict(out, text="")
@@ -681,6 +734,14 @@ def vocabulary_hint(ctx, listener_id, max_names=24):
     difference between "Ødegaard" and "oh the guard". Names come from our own
     event log and stored fixture, so this costs no feed requests.
     """
+    try:
+        return _vocabulary_hint(ctx, listener_id, max_names)
+    except Exception as e:                                 # noqa: BLE001  a hint is a courtesy, never a failure
+        LOG.warning("vocabulary hint unavailable (%s); using the base hint", e)
+        return _BASE_HINT
+
+
+def _vocabulary_hint(ctx, listener_id, max_names):
     from sideline import resolve
     # What the listener was just offered goes first: their next words are most
     # likely one of those, and the start of a prompt weighs most.
@@ -706,20 +767,22 @@ def echoes_hint(text, hint):
     """Is this transcript only the recogniser reading its own vocabulary back?
 
     A recogniser, given a vocabulary and a clip of noise, tends to print the vocabulary: a room
-    of background sound became "Hartlepool, Newcastle U21", team names nobody said.
-    A transcript of two or more words made up only of names from the hint, with none
-    of the question words, is that echo. Not applied while the listener has been offered a choice,
-    because then a bare name is exactly the right answer.
+    of background sound became "Hartlepool, Newcastle U21", team names nobody said. That echo is a
+    LIST: two or more separated items, each made only of name words from the hint, with none of the
+    question words. One name, however many words ("Real Madrid", "Manchester United"), is a plausible
+    answer and is kept. Only meaningful for a recogniser that was given the hint (see _HINTED). Not
+    applied while the listener has been offered a choice, because then a bare name is exactly the
+    right answer.
     """
-    if not hint or hint.startswith("The listener is choosing between"):
+    if not hint or not text or hint.startswith("The listener is choosing between"):
         return False
-    words = re.findall(r"[a-z0-9']+", text.lower())
-    if len(words) < 2:
-        return False            # one name is a plausible answer ("Arsenal", to "which team?"); noise prints several
+    items = [i for i in re.split(r"[,;/]|\s-\s|\.\s", text.lower()) if re.search(r"[a-z0-9]", i)]
+    if len(items) < 2:
+        return False            # one name is a plausible answer ("Real Madrid", to "which team?"); noise prints a list
     tail = hint[len(_BASE_HINT):].lower() if hint.startswith(_BASE_HINT) else hint.lower()
     base = set(re.findall(r"[a-z0-9']+", _BASE_HINT.lower()))
     names = set(re.findall(r"[a-z0-9']+", tail)) - base
-    return all(w in names for w in words)
+    return all(w in names for i in items for w in re.findall(r"[a-z0-9']+", i))
 
 
 def _wav(pcm_bytes):
@@ -746,7 +809,7 @@ def _transcribe_groq(pcm_bytes, hint=""):
     from sideline import tls
 
     key = _groq_key()
-    if not key or len(pcm_bytes) < SAMPLE_RATE * 2 // 5:      # under 0.4 s
+    if not key or len(pcm_bytes) < SAMPLE_RATE * 2 // 5:      # under 0.2 s (16-bit samples: 2 bytes each)
         return None
 
     boundary = "----sideline%s" % os.urandom(8).hex()
@@ -781,14 +844,12 @@ def _transcribe_groq(pcm_bytes, hint=""):
         with urllib.request.urlopen(req, timeout=10, context=ctx) as r:
             doc = json.loads(r.read().decode("utf-8"))
         text = (doc.get("text") or "").strip()
-        from sideline import audit
-        audit.record("stt", provider="groq", heard=text, bytes=len(pcm_bytes))
+        # Not audited here: the /voice/stt handler records every transcript once, whichever provider made it.
         return {"text": text, "provider": "groq"}
     except urllib.error.HTTPError as he:
         LOG.warning("groq whisper HTTP error %s: %s", he.code, he.reason)
         if he.code == 401:
-            _DISABLED.add("groq")
-            LOG.warning("groq authentication failed; disabled for this run")
+            _disable("groq", "authentication failed (401)")
         return None
     except Exception as e:                                     # noqa: BLE001
         LOG.warning("groq whisper failed: %s", e)
@@ -903,7 +964,7 @@ def _transcribe_sonic(pcm_bytes, hint=""):
     rotation (it will not fix itself); a timeout or blip falls back for this
     clip only.
     """
-    if len(pcm_bytes) < SAMPLE_RATE * 2 // 5:               # under 0.4 s
+    if len(pcm_bytes) < SAMPLE_RATE * 2 // 5:               # under 0.2 s (16-bit samples: 2 bytes each)
         return None
     try:
         loop = asyncio.new_event_loop()
@@ -914,10 +975,10 @@ def _transcribe_sonic(pcm_bytes, hint=""):
             loop.close()
     except Exception as e:                                     # noqa: BLE001
         msg = "%s %s" % (type(e).__name__, e)
-        if any(w in msg for w in ("AccessDenied", "UnrecognizedClient", "ValidationException",
+        # A ValidationException is about this request (this clip), not the provider: it is not counted.
+        if any(w in msg for w in ("AccessDenied", "UnrecognizedClient",
                                   "ResourceNotFound", "SubscriptionRequired")):
-            _DISABLED.add("sonic")
-            LOG.warning("nova sonic unavailable, disabled for this run: %s", msg[:200])
+            _disable("sonic", msg)
         else:
             LOG.warning("nova sonic transcription failed: %s", msg[:200])
         return None
@@ -925,6 +986,14 @@ def _transcribe_sonic(pcm_bytes, hint=""):
 
 
 _voxtral = None
+
+
+def _streaming_unsupported(e):
+    """Does this error mean ConverseStream cannot be used at all (so Converse is worth one try)?"""
+    if isinstance(e, (AttributeError, NotImplementedError)):
+        return True
+    msg = ("%s %s" % (type(e).__name__, e)).lower()
+    return "unknownoperation" in msg or ("stream" in msg and "support" in msg)
 
 
 def _transcribe_voxtral(pcm_bytes, hint="", model=None):   # `hint` is accepted and not sent: see below
@@ -936,7 +1005,7 @@ def _transcribe_voxtral(pcm_bytes, hint="", model=None):   # `hint` is accepted 
     it down is caught by length: more words than the clip could hold is not a transcript.
     """
     global _voxtral
-    if len(pcm_bytes) < SAMPLE_RATE * 2 // 5:               # under 0.4 s
+    if len(pcm_bytes) < SAMPLE_RATE * 2 // 5:               # under 0.2 s (16-bit samples: 2 bytes each)
         return None
     # No vocabulary goes in the prompt, on purpose. Given a list of team names, this chat model printed the list for
     # "The first one." and answered questions from it ("The score is Arsenal 1..."): measured on twelve clips, 0
@@ -967,8 +1036,12 @@ def _transcribe_voxtral(pcm_bytes, hint="", model=None):   # `hint` is accepted 
                         usage = event["metadata"].get("usage") or {}
                 text = "".join(chunks).strip().strip('"').strip()
                 used_stream = True
-            except Exception as stream_err:
-                LOG.debug("voxtral converse_stream fallback: %s", stream_err)
+            except Exception as stream_err:                  # noqa: BLE001
+                # Only a client or model without streaming is retried without it. A throttle, a timeout or a
+                # refused clip would fail the same way again, at the cost of a second paid request.
+                if not _streaming_unsupported(stream_err):
+                    raise
+                LOG.debug("voxtral converse_stream unsupported, using converse: %s", stream_err)
 
         if not used_stream:
             resp = _voxtral.converse(
@@ -986,8 +1059,8 @@ def _transcribe_voxtral(pcm_bytes, hint="", model=None):   # `hint` is accepted 
         msg = "%s %s" % (type(e).__name__, e)
         if any(w in msg for w in ("AccessDenied", "UnrecognizedClient", "ResourceNotFound", "not authorized",
                                   "Authentication failed")):
-            _DISABLED.add("voxtral")
-            LOG.warning("voxtral unavailable, disabled for this run: %s", msg[:200])
+            _disable("voxtral", msg)
+            _voxtral = None                  # a fresh client next time picks up rotated credentials
         else:
             LOG.warning("voxtral transcription failed: %s", msg[:200])
         return None
