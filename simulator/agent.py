@@ -19,29 +19,36 @@ LOG = logging.getLogger("sideline.agent")
 MAX_TURNS = 4
 MAX_TOOL_CALLS = 8
 MAX_TOOL_RESULT_CHARS = 6000
-MAX_TOKENS = 90
+# Room for a few complete spoken sentences (or a tool call plus a short preamble). Too small a budget cuts answers
+# mid-sentence and leaves a truncated <thinking> preamble with nothing to say (AG-13).
+MAX_TOKENS = 300
 MAX_HISTORY_MESSAGES = 12
 MAX_CONVERSATIONS = 256
 CONVERSATION_TTL_SECONDS = 1800
 
 SYSTEM = (
-    "You are Sideline, a hyper-concise universal live sports voice companion covering Football (Soccer), "
-    "Basketball (NBA/WNBA), American Football (NFL/College), Baseball (MLB), and Hockey (NHL). "
-    "Use the available MCP tools for current sports facts, following their descriptions and schemas. "
-    "Match each tool's full use case to what the listener actually asked; do not "
-    "choose a tool just because it shares a word with the request. All available "
-    "tool descriptions and schemas are already provided. Compare overlapping "
-    "tools, call only those needed, and ask a focused clarification rather than "
-    "guessing when no tool clearly fits. "
-    "Treat tool results as the source of truth; do not guess or invent live facts. "
-    "You have access to live scores, upcoming fixtures, and COMPLETED matches with final scores from today and yesterday via get_fixtures (using finished_only=True). Never claim you cannot provide match results, past games, or finished matches. "
-    "If a tool fails or the request is ambiguous, explain briefly and ask a "
-    "focused clarification. For general questions about what you do or other sports you cover, "
-    "answer directly, naturally, and conversationally. "
-    "STRICT VOICE CONSTRAINT: Deliver only 1 or 2 concise sentences (maximum 25 words total). "
-    "State only the direct score, time, or key fact. Never include filler, polite pleasantries, "
-    "background context, lists, or extra statistics unless explicitly requested."
+    "You are Sideline, a live sports companion people listen to, built first for blind and low-vision fans. "
+    "You cover football (soccer), basketball, American football, baseball and ice hockey. "
+    "Speak like a warm, knowledgeable commentator talking to a friend: lead with what matters (the score, who, "
+    "when), then at most one vivid but factual detail. "
+    "Truth comes first: use only facts from tool results and this conversation. Never invent or guess scores, "
+    "names, times, stats or weather; if the tools did not say it, say plainly that you don't know. "
+    "Never mention a moment the tools did not return: the listener may be behind live and results are already "
+    "held back to their point. "
+    "You do have live scores, fixtures, results and tables: call a tool for any current fact rather than "
+    "answering from memory or saying you can't. All available tool descriptions and schemas are already "
+    "provided; pick the tool whose description fits the whole question, call only what you need, and ask one "
+    "short question when the match or team is unclear. "
+    "If a tool fails, say briefly that you couldn't get it just now; never read out errors, ids, field names "
+    "or code. "
+    "Reply only with the words to be spoken: 1 to 3 short, complete sentences unless asked for more; no lists, "
+    "markdown, emojis or reasoning. Questions about you or what you cover, answer directly."
 )
+
+# The tools whose call changes what the listener has been told or what they follow. A shortcut must never run
+# one of them: if its result is then not spoken, the change has still happened (AG-01).
+STATEFUL_TOOLS = frozenset(("what_did_i_miss", "get_lineups", "get_event_detail", "follow_match",
+                            "set_preferences", "set_favourites", "sync_broadcast_delay"))
 
 class AgentUnavailable(Exception):
     """Nova could not complete an agent turn."""
@@ -67,13 +74,20 @@ class ConversationMemory:
                 raw_history = rec.get("history") or []
                 if raw_history:
                     history = []
+                    oldest = time.time() - CONVERSATION_TTL_SECONDS
                     for h in raw_history[-MAX_HISTORY_MESSAGES:]:
                         role = h.get("role")
                         text = h.get("text")
+                        # Yesterday's conversation is not today's context (AG-16): an undated turn counts as old.
+                        if (h.get("at") or 0) < oldest:
+                            continue
                         if role and text:
                             history.append({"role": role, "content": [{"text": text}]})
-                    with self._lock:
-                        self._conversations[listener_id] = (now, history)
+                    while history and history[0]["role"] != "user":
+                        history.pop(0)                 # a conversation sent to the model starts with the listener
+                    if history:
+                        with self._lock:
+                            self._conversations[listener_id] = (now, history)
                     return list(history)
             except Exception as exc:
                 LOG.warning("Failed to load conversation history from store: %s", exc)
@@ -171,7 +185,7 @@ class Focus:
         """The latest match, competition, count, team and player named by answered tool calls."""
         topic = {}
         for record in records:
-            if record.get("declined"):
+            if record.get("declined") or record.get("is_error"):
                 continue
             args, structured = record.get("args") or {}, record.get("structured") or {}
             name = record.get("name")
@@ -198,6 +212,8 @@ class Focus:
                 topic["competition_name"] = _clean_comp_name(comp)
             if "total" in structured:
                 topic["total"] = structured["total"]
+                topic["fixtures_kind"] = ("finished" if structured.get("finished_only")
+                                          else "live" if structured.get("live_only") else "")
             if structured.get("when") or args.get("when"):
                 topic["when"] = structured.get("when") or args.get("when")
             if args.get("team"):
@@ -220,10 +236,13 @@ class Focus:
         if store:
             try:
                 rec = store.listener(listener_id)
-                top = rec.get("topic") or {}
-                if top:
+                top = dict(rec.get("topic") or {})
+                # A stored topic carries when it was last true; an old one (or an undated one) is not today's
+                # context (AG-16), or yesterday's match and team would be read into today's questions.
+                age = time.time() - (top.pop("at", None) or 0)
+                if top and age <= FOCUS_TTL_SECONDS:
                     with self._lock:
-                        self._by[listener_id] = (time.monotonic(), top)
+                        self._by[listener_id] = (time.monotonic() - age, top)
                     return dict(top)
             except Exception as exc:
                 LOG.warning("Failed to load topic from store: %s", exc)
@@ -239,13 +258,14 @@ class Focus:
             if "match" in topic and topic["match"] != merged.get("match"):
                 merged.pop("player", None)
             merged.update(topic)
+            self._by.pop(listener_id, None)            # re-inserted last: the oldest-used is evicted first
             self._by[listener_id] = (time.monotonic(), merged)
             while len(self._by) > MAX_CONVERSATIONS:
                 self._by.pop(next(iter(self._by)))
         if store:
             try:
                 rec = store.listener(listener_id)
-                rec["topic"] = merged
+                rec["topic"] = dict(merged, at=int(time.time()))
                 store.save_listener(rec)
             except Exception as exc:
                 LOG.warning("Failed to persist topic to store: %s", exc)
@@ -263,6 +283,7 @@ class Focus:
         with self._lock:
             kept = self._by.get(listener_id)
         if not kept or time.monotonic() - kept[0] > FOCUS_TTL_SECONDS:
+            kept = None
             if store:
                 top = self.topic(listener_id, store=store)
                 if top:
@@ -284,11 +305,8 @@ class Focus:
         if not said:
             return ""
         return (
-            " The listener's ongoing context is %s. Maintain continuity with this context: "
-            "when their question refers to 'them', 'they', 'how many', 'who', 'the match', 'the lineup', or 'that game', "
-            "resolve it to this active subject. "
-            "Always answer accurately and intrigue the listener with a relevant, proactive follow-up question or suggestion "
-            "to keep the sports conversation going." % ", ".join(said)
+            " The listener was last talking about %s: read 'they', 'him', 'that game' and similar as this, "
+            "unless they name something else. Offer a natural follow-up only when it truly helps." % ", ".join(said)
         )
 
 
@@ -300,8 +318,8 @@ def _usage(usage):
     return {"input": int(usage.get("inputTokens") or 0), "output": int(usage.get("outputTokens") or 0)}
 
 
-def _listener_answer(text):
-    """Remove model-emitted private reasoning before display or speech and ensure strict voice conciseness."""
+def _listener_answer(text, max_sentences=3):
+    """Remove model-emitted private reasoning before display or speech and keep it short enough for voice."""
     text = re.sub(r"<thinking\b[^>]*>.*?</thinking\s*>", " ",
                   text, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r"<thinking\b[^>]*>.*$", " ",
@@ -309,9 +327,18 @@ def _listener_answer(text):
     text = re.sub(r"</?[A-Za-z][^<>]{0,40}>", " ", text)         # a stray <response> wrapper is not for the listener
     text = " ".join(text.split())
     parts = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", text)
-    if len(parts) > 3:
-        text = " ".join(parts[:3])
+    if len(parts) > max_sentences:
+        text = " ".join(parts[:max_sentences])
     return text
+
+
+_SENTENCE_END = re.compile(r"[.!?][\"')\]]*(?=\s|$)")
+
+
+def _complete_sentences(text):
+    """Only the whole sentences of an answer the token limit cut short: half a sentence is never spoken (AG-13)."""
+    ends = list(_SENTENCE_END.finditer(text or ""))
+    return text[:ends[-1].end()].strip() if ends else ""
 
 
 _WEATHER_WORDS = re.compile(r"(\d\s*°|\bdegrees\b|\bforecast\b|\brain(y|ing)?\b|\bsunny\b|\bcloud(y|s)\b|"
@@ -365,12 +392,18 @@ def _today(ctx, listener_id):
         return ""
 
 
-def _preference(ctx, listener_id):
-    """The listener's own wish for how much to say (set_preferences), as one more instruction."""
+def _detail(ctx, listener_id):
+    """How much the listener asked us to say (set_preferences): "brief", "normal", "full" or None."""
     try:
-        detail = ctx.store.listener(listener_id).get("detail")
+        return ctx.store.listener(listener_id).get("detail")
     except Exception:                                      # noqa: BLE001  a courtesy, never a failure
-        return ""
+        return None
+
+
+def _preference(ctx, listener_id, detail=False):
+    """The listener's own wish for how much to say (set_preferences), as one more instruction."""
+    if detail is False:
+        detail = _detail(ctx, listener_id)
     return {"brief": " The listener asked for brief answers: one short sentence.",
             "full": " The listener asked for more detail: up to five short sentences."}.get(detail, "")
 
@@ -416,7 +449,8 @@ def _without_invented_id(args, question):
     """
     if not isinstance(args, dict) or "fixture_id" not in args:
         return args
-    if "fixture_id %s" % args["fixture_id"] in question:
+    # whole id only: "(fixture_id 12)" does not vouch for an invented 1 (AG-22)
+    if re.search(r"\bfixture_id %s\b" % re.escape(str(args["fixture_id"])), question):
         return args
     return {k: v for k, v in args.items() if k != "fixture_id"}
 
@@ -456,6 +490,28 @@ def _converse(**kwargs):
         return bedrock.client().converse(**kwargs)
 
 
+# The JSON Schema words a model needs to form a call. Length and range limits are left to the server, which still
+# validates every call against the full schema; dropping them keeps the prompt small and avoids keywords a
+# Bedrock model may refuse (AG-20).
+_SCHEMA_KEYS = ("type", "description", "properties", "required", "enum", "items", "additionalProperties")
+
+
+def _model_schema(schema):
+    if not isinstance(schema, dict):
+        return schema
+    out = {}
+    for key in _SCHEMA_KEYS:
+        if key not in schema:
+            continue
+        value = schema[key]
+        if key == "properties" and isinstance(value, dict):
+            value = {name: _model_schema(sub) for name, sub in value.items()}
+        elif key == "items":
+            value = _model_schema(value)
+        out[key] = value
+    return out
+
+
 def _bedrock_tools(mcp_tools):
     """Adapt the MCP server's current tools/list result to Bedrock's schema."""
     if not isinstance(mcp_tools, list):
@@ -470,389 +526,399 @@ def _bedrock_tools(mcp_tools):
             {"toolSpec": {
                 "name": spec["name"],
                 "description": spec.get("description", ""),
-                "inputSchema": {"json": spec["inputSchema"]},
+                "inputSchema": {"json": _model_schema(spec["inputSchema"])},
             }})
     return tools
 
 
+
+
+def _normalise(question):
+    """The question as plain lower-case words, the way the patterns below are written."""
+    text = (question or "").lower().replace("’", "'").replace("‘", "'")
+    text = re.sub(r"[^\w'&-]+", " ", text)
+    return " ".join(text.split())
+
+
+_FILLER = re.compile(r"^(?:(?:hey|ok|okay|so|and|um|uh|right|well|sideline|alexa)\b ?)+")
+_POLITE = re.compile(r"(?: please| then| now please)$")
+
+
+def _core_words(question):
+    """The question without a leading "hey sideline, so..." or a trailing "please"."""
+    text = _FILLER.sub("", _normalise(question))
+    return _POLITE.sub("", text).strip()
+
+
+# Only for an utterance that is nothing but a greeting or a question about Sideline itself: "Hey, what's the score?"
+# and "Thanks, who scored?" are real questions and go to the model (AG-07).
 _CONVERSATIONAL_PATTERNS = [
-    (re.compile(r"^(can you (access|cover|track|follow)|do you (support|cover|have)|what) (other )?sports\b", re.I),
-     "Yes! I cover Football (Soccer), Basketball (NBA/WNBA), American Football (NFL/College), Baseball (MLB), and Ice Hockey (NHL) with live scores, stats, and updates."),
-    (re.compile(r"^(who are you|what is your name|what are you)\b", re.I),
-     "I'm Sideline, your universal live sports voice companion covering Football, Basketball, NFL, MLB, and NHL."),
-    (re.compile(r"^(hello|hi|hey|good morning|good afternoon|good evening)\b", re.I),
-     "Hey there! I'm Sideline. Ask me for live scores, upcoming games, or team updates across soccer, basketball, NFL, MLB, and hockey."),
-    (re.compile(r"^(thanks|thank you|cheers|great thanks)\b", re.I),
-     "You're welcome! Let me know if you need any more live scores or stats."),
-    (re.compile(r"^(goodbye|bye|see you|that'?s all)\b", re.I),
-     "Goodbye! Enjoy the games."),
+    (re.compile(r"(?:can you (?:access|cover|track|follow|do)|do you (?:support|cover|have|do)) (?:any )?(?:other )?sports"
+                r"|(?:what|which) (?:other )?sports (?:do|can) you (?:cover|support|do|track|follow|have)"),
+     "I cover Football (soccer), Basketball, American Football (NFL), Baseball (MLB) and Hockey (NHL): live scores, "
+     "fixtures, results and catch-ups on what you missed."),
+    (re.compile(r"who are you|what(?: is|'s) your name|what are you"),
+     "I'm Sideline, your live sports companion. Ask me for a score, what's on, or what you missed."),
+    (re.compile(r"(?:hello|hi|hey|good (?:morning|afternoon|evening))(?: there)?(?: sideline)?"),
+     "Hey there! Ask me for a live score, what's on today, or what you missed."),
+    (re.compile(r"(?:thanks|thank you|cheers|great thanks)(?: very much| a lot| so much)?(?: sideline)?"),
+     "You're welcome! Shout if you want another score."),
+    (re.compile(r"(?:goodbye|bye|bye bye|see you|that's all|that is all)(?: for now)?"),
+     "Goodbye! Enjoy the game."),
 ]
 
 
 def _match_conversational(question):
-    clean = question.strip().lower().rstrip("?.! ")
+    clean = _POLITE.sub("", _normalise(question)).strip()
     for pattern, answer in _CONVERSATIONAL_PATTERNS:
-        if pattern.search(clean):
+        if pattern.fullmatch(clean):
             return answer
     return None
 
 
-_FAST_INTENTS = [
-    # Score / match state
-    (re.compile(r"\b(what('?s| is) the score|current score|score right now|who('?s| is) winning|how long left|how much time left|what minute is it|is the match still on|is the game over|score for\b|\b\w+\s+score\b|did they win|who won)\b", re.I),
-     "get_match_state", {}),
-    # Catch up / what did I miss
-    (re.compile(r"\b(what did i miss|what happened|catch me up|did i miss anything|fill me in|match recap|recap|match summary|summary|how did (they|the game|the match) go|game summary|box score)\b", re.I),
-     "what_did_i_miss", {}),
-    # Today's fixtures
-    (re.compile(r"\b(what('?s| is) on today|matches today|fixtures today|which teams are playing|games today|any games today|today'?s matches|what\s+(matches|games|fixtures)\s+(are\s+on|on|playing)\s+today|what\s+(games|matches)\s+are\s+on\b)\b", re.I),
-     "get_fixtures", {}),
-    # Completed / finished matches
-    (re.compile(r"\b(what\s+(matches|match|games?|fixtures?)\s+(already\s+)?(finished|completed|ended|done)|which\s+(matches|match|games?|fixtures?)\s+(already\s+)?(finished|completed|ended|done)|(matches|match)\s+finished|finished\s+(matches|match)|completed\s+(matches|match|games?)|results\s+(from\s+)?(today|earlier|yesterday)|scores\s+(from\s+)?(earlier|today|yesterday)|previous\s+(matches|match|games?))\b", re.I),
-     "get_fixtures", {"finished_only": True}),
-    # Upcoming / next fixtures
-    (re.compile(r"\b(next matches|upcoming matches|upcoming games|next fixtures|when is the next match|next game|what games are next|who plays next)\b", re.I),
-     "get_fixtures", {"when": "next"}),
-    # Lineups / Coaches
-    (re.compile(r"\b(who('?s| is) playing|what('?s| is) the line-?up|starting eleven|team line-?up|who is starting|starting lineup|starting xi|team sheet|who is coaching|who is the coach|who is the manager)\b", re.I),
-     "get_lineups", {}),
-    # Officials
-    (re.compile(r"\b(who('?s| is) refereeing|who('?s| is) the ref(eree)?|who is the ref|referee for today|who is the official|who is the umpire)\b", re.I),
-     "get_officials", {}),
-    # Match report / events
-    (re.compile(r"\b(who scored|who got booked|who got a yellow|who got a red|any red cards|any goals|who scored the goals|goal scorers|any cards|did anyone score|touchdowns?|field goals?|home runs?)\b", re.I),
-     "get_match_report", {}),
-    # Table / Standings
-    (re.compile(r"\b(league table|standings|where are they in the table|show me the table|standings table|premier league table|nfl standings|nba standings|mlb standings|nhl standings)\b", re.I),
-     "get_table", {}),
-    # Injuries
-    (re.compile(r"\b(who('?s| is) injured|any injuries|who is suspended|injury list|who is out)\b", re.I),
-     "get_injuries", {}),
-    # Head to Head
-    (re.compile(r"\b(head to head|past meetings|last time they played)\b", re.I),
-     "get_head_to_head", {}),
-    # Capabilities / help
-    (re.compile(r"\b(what can you do|what can i ask|help me)\b", re.I),
-     "get_capabilities", {}),
-    # Sport preferences
-    (re.compile(r"\b(i follow|switch to|focus on|set sport to)\s+(basketball|football|soccer|nfl|baseball|hockey|mlb|nhl|american football)\b", re.I),
-     "set_preferences", {}),
-]
-
+# ------------------------------------------------------------------ which tools the model is shown
+# Words that point at a tool, keyed by the real tool names. The names themselves are words too, so a tool added to the
+# server later still has a way in; a name in this table that the server does not list is simply never offered.
 _TOOL_KEYWORDS = {
-    "get_match_state": ["score", "minute", "time", "clock", "quarter", "inning", "period", "winning", "lead", "state", "status", "live", "game", "match", "how long", "won", "win"],
-    "what_did_i_miss": ["miss", "happened", "catch up", "recap", "summary", "timeline", "story"],
-    "get_fixtures": ["fixture", "schedule", "today", "tomorrow", "tonight", "next", "upcoming", "when", "calendar", "games", "matches", "play", "playing", "on", "who plays", "finished", "completed", "ended", "results", "earlier", "done", "previous matches"],
-    "follow_match": ["follow", "track", "tune", "watch", "listen", "switch"],
-    "unfollow_match": ["unfollow", "stop"],
-    "get_lineups": ["lineup", "roster", "starting", "xi", "bench", "who plays", "coach", "manager", "squad", "team sheet"],
-    "get_match_events": ["event", "yellow", "red", "card", "goal", "foul", "penalty", "var", "penalty kick", "touchdown", "home run"],
-    "get_match_report": ["report", "scorer", "scored", "booking", "booked", "half time", "full time", "goals"],
-    "get_match_stats": ["stat", "possession", "shot", "pass", "corner", "accuracy", "strike", "rebound", "turnover"],
-    "get_match_preview": ["preview", "weather", "forecast", "venue", "pitch", "rain", "temperature", "degrees"],
-    "get_officials": ["referee", "ref", "official", "umpire", "var", "linesman"],
-    "get_table": ["table", "standing", "rank", "position", "points", "top", "relegation", "playoff"],
-    "get_head_to_head": ["head to head", "h2h", "past meetings", "history", "meeting", "last time they played"],
-    "get_form_guide": ["form", "streak", "last 5", "last five", "recent games", "run of form"],
-    "get_injuries": ["injur", "hurt", "suspended", "sidelined", "out", "doubtful", "fitness"],
-    "get_team_top_scorers": ["top scorer", "leading scorer", "most goals", "golden boot"],
-    "get_player_profile": ["profile", "who is", "player", "age", "nationality", "height", "position", "bio"],
-    "get_player_season_stats": ["season stats", "player stat", "assists this season", "goals this season"],
-    "get_player_form": ["player form", "how is he playing", "rating"],
-    "get_tactical_shape": ["tactic", "formation", "shape", "4-3-3", "4-4-2", "system", "setup"],
-    "get_key_battles": ["key battle", "matchup", "duel"],
-    "get_milestones": ["milestone", "record", "achievement"],
-    "get_stadium_intel": ["stadium", "arena", "capacity", "crowd", "attendance", "pitch"],
-    "get_substitutes": ["sub", "bench", "substitution", "came on"],
-    "set_preferences": ["prefer", "setting", "detail", "brief", "favorite", "sport"],
-    "get_capabilities": ["help", "what can you do", "feature", "ability"],
-    "get_match_commentary": ["commentary", "text", "live text", "play by play"],
+    "get_match_state": ["score", "scores", "winning", "losing", "leading", "minute", "clock", "quarter", "inning",
+                        "period", "time left", "how long", "won", "win", "lost", "draw", "status"],
+    "what_did_i_miss": ["miss", "missed", "happened", "catch me up", "catch up", "recap", "fill me in"],
+    "get_fixtures": ["fixtures", "today", "tonight", "tomorrow", "yesterday", "games", "matches", "what's on", "live",
+                     "finished", "results", "completed"],
+    "get_schedule": ["next", "last", "when", "what time", "results", "fixtures", "playing next", "play next"],
+    "follow_match": ["follow", "following", "track", "keep me updated", "watch", "watching", "listen", "switch",
+                     "stop following"],
+    "get_lineups": ["lineup", "lineups", "line-up", "line-ups", "starting", "xi", "eleven", "bench", "formation",
+                    "team sheet", "playing"],
+    "get_match_report": ["scored", "scorer", "scorers", "goals", "booked", "booking", "bookings", "card", "cards",
+                         "yellow", "red", "sub", "subs", "substitute", "substitutes", "substitution", "came on", "var",
+                         "report"],
+    "get_match_stats": ["stats", "statistics", "possession", "shots", "corners", "fouls"],
+    "get_match_preview": ["preview", "weather", "forecast", "venue", "stadium", "kick off", "kick-off", "kickoff",
+                          "start", "starts", "where"],
+    "get_officials": ["referee", "ref", "refereeing", "official", "officials", "umpire", "var"],
+    "get_head_to_head": ["head to head", "head-to-head", "h2h", "beaten", "beat", "last time", "meetings", "history"],
+    "get_team_form": ["form", "streak", "been playing", "recent"],
+    "get_injuries": ["injured", "injury", "injuries", "suspended", "suspension", "fitness", "doubtful", "fit"],
+    "get_top_scorers": ["top scorer", "top scorers", "golden boot", "leading scorer", "most goals"],
+    "get_standings": ["table", "standings", "top of", "bottom", "position", "points", "relegation", "league",
+                      "rank", "first place"],
+    "get_squad": ["squad", "roster", "goalkeeper", "keeper", "manager", "coach", "players"],
+    "get_team_stats": ["season", "stats", "doing this season"],
+    "get_player_stats": ["this season", "goals", "assists", "has he scored", "has she scored"],
+    "get_player_context": ["who is", "number", "he", "him", "his", "she", "her", "player"],
+    "get_event_detail": ["that goal", "assisted", "assist", "again", "that card", "tell me about that"],
+    "sync_broadcast_delay": ["kick-off just", "half time", "half-time", "just scored", "whistle", "sync", "delay",
+                             "spoiled", "spoiler", "behind", "ahead", "stream", "radio", "broadcast"],
+    "set_favourites": ["support", "my team", "favourite", "favourites", "favorite", "favorites"],
+    "get_my_matches": ["my teams", "my matches", "for me", "my team"],
+    "set_preferences": ["short", "shorter", "brief", "detail", "more detail", "speak", "language", "keep it"],
+    "get_capabilities": ["help", "what can you do", "what can i ask"],
+    "search": ["called", "find", "search", "is there a team"],
+    "get_competitions": ["leagues", "competitions", "cover", "what leagues"],
 }
+_NAME_STOPWORDS = frozenset(("get", "set", "my", "match", "team", "player", "what", "did", "i", "of"))
 
-_CORE_TOOLS = ["get_match_state", "what_did_i_miss", "get_fixtures", "follow_match", "get_lineups"]
+# Always offered: the questions most listeners ask. Everything else must be pointed at by the question.
+_CORE_TOOLS = ("get_fixtures", "get_match_state", "get_schedule", "what_did_i_miss")
+MAX_EXTRA_TOOLS = 4
+
+_KEYWORD_RES = {}
+
+
+def _keyword_re(word):
+    found = _KEYWORD_RES.get(word)
+    if found is None:
+        # whole words only: "on" is not in "Lyon", "ref" is not in "prefer" (AG-02)
+        found = _KEYWORD_RES[word] = re.compile(r"(?<![\w'])%s(?![\w'])" % re.escape(word))
+    return found
+
+
+def _keywords(name):
+    words = set(_TOOL_KEYWORDS.get(name, ()))
+    words.update(w for w in name.split("_") if len(w) > 2 and w not in _NAME_STOPWORDS)
+    return words
 
 
 def _select_candidate_tools(question, mcp_tools, context_topic=None):
-    """Dynamic Top-K Schema Pruning: Select 3-6 relevant tools to reduce prompt token tax by ~85%."""
-    q_lower = question.lower()
-    scores = {}
-    for name, keywords in _TOOL_KEYWORDS.items():
-        score = sum(2 for kw in keywords if kw in q_lower)
-        if name in _CORE_TOOLS:
-            score += 1
-        if context_topic and context_topic.get("match") and name in ("get_match_state", "what_did_i_miss"):
-            score += 2
-        scores[name] = score
+    """The live tools worth showing the model for this question: a fixed core plus the best keyword matches.
 
-    sorted_names = sorted(scores.keys(), key=lambda n: scores[n], reverse=True)
-    selected_names = set()
-    for name in sorted_names:
-        if scores[name] > 1 or len(selected_names) < 3:
-            selected_names.add(name)
-        if len(selected_names) >= 6:
-            break
-
-    if not selected_names:
-        selected_names = set(_CORE_TOOLS)
-
-    tool_by_name = {spec["name"]: spec for spec in mcp_tools}
-    candidates = [tool_by_name[n] for n in selected_names if n in tool_by_name]
-    return candidates or mcp_tools
+    Names come from the server's own tools/list, never from a list of our own (AG-02, AG-03). The result is sorted
+    by name, so the same question always produces the same prompt.
+    """
+    live = {spec["name"]: spec for spec in mcp_tools if isinstance(spec, dict) and spec.get("name")}
+    text = _normalise(question)
+    chosen = set(n for n in _CORE_TOOLS if n in live)
+    scored = []
+    for name in live:
+        if name in chosen:
+            continue
+        score = sum(2 if " " in word else 1 for word in _keywords(name) if _keyword_re(word).search(text))
+        if score:
+            scored.append((-score, name))
+    chosen.update(name for _, name in sorted(scored)[:MAX_EXTRA_TOOLS])
+    if not chosen:
+        return list(mcp_tools)
+    return [live[name] for name in sorted(chosen)]
 
 
-class SubAgent:
-    """Specialized sub-agent that owns a domain of tools and executes concurrently."""
-    def __init__(self, name, tools, patterns):
-        self.name = name
-        self.tools = set(tools)
-        self.patterns = patterns
-
-    def plan(self, clean, topic, known_teams, question):
-        tasks = []
-        for pat, tool_name, default_args in self.patterns:
-            m = pat.search(clean)
-            if m:
-                call_args = dict(default_args)
-                if tool_name == "set_preferences":
-                    sport_match = re.search(r"\b(basketball|football|soccer|nfl|baseball|hockey|mlb|nhl|american football)\b", clean, re.I)
-                    if sport_match:
-                        s = sport_match.group(1).lower()
-                        if s in ("soccer", "football"):
-                            call_args["sport"] = "football"
-                        elif s in ("nfl", "american football"):
-                            call_args["sport"] = "american_football"
-                        elif s in ("baseball", "mlb"):
-                            call_args["sport"] = "baseball"
-                        elif s in ("hockey", "nhl"):
-                            call_args["sport"] = "hockey"
-                        elif s == "basketball":
-                            call_args["sport"] = "basketball"
-                # Check for explicit team
-                for t in known_teams:
-                    if t.lower() in clean.lower():
-                        call_args["team"] = t
-                        break
-                if "team" not in call_args and tool_name in ("get_match_state", "get_lineups", "get_officials", "get_injuries", "get_match_report", "what_did_i_miss", "get_table", "get_head_to_head"):
-                    m_team = re.search(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:score|line-?up|match|game|injuries|news)\b", question)
-                    if m_team and m_team.group(1).lower() not in ("what", "who", "the", "current", "any", "how", "did"):
-                        call_args["team"] = m_team.group(1).strip()
-                # Check for explicit competition
-                for pat, comp_key, _ in COMP_PATTERNS:
-                    if pat.search(clean):
-                        call_args["competition"] = comp_key
-                        break
-                # Inherit competition from topic if not explicit
-                if "competition" not in call_args and topic.get("competition") and tool_name in ("get_fixtures", "get_table"):
-                    call_args["competition"] = topic["competition"]
-                # Context continuation fallback
-                if "team" not in call_args and topic.get("team"):
-                    call_args["team"] = topic["team"]
-                if "fixture_id" not in call_args and topic.get("fixture_id"):
-                    call_args["fixture_id"] = topic["fixture_id"]
-                if "sport" not in call_args and topic.get("sport"):
-                    call_args["sport"] = topic["sport"]
-
-                tasks.append((tool_name, call_args))
-        return tasks
-
-
-SWARM_AGENTS = [
-    SubAgent("StateAgent", ["get_match_state"], [
-        (re.compile(r"\b(what('?s| is) the score|current score|score right now|who('?s| is) winning|how long left|how much time left|what minute is it|is the match still on|is the game over|score for\b|\b\w+\s+score\b|did they win|who won)\b", re.I), "get_match_state", {}),
-    ]),
-    SubAgent("TimelineAgent", ["what_did_i_miss", "get_match_report"], [
-        (re.compile(r"\b(what did i miss|what happened|catch me up|did i miss anything|fill me in|match recap|recap|match summary|summary|how did (they|the game|the match) go|game summary|box score)\b", re.I), "what_did_i_miss", {}),
-        (re.compile(r"\b(who scored|who got booked|who got a yellow|who got a red|any red cards|any goals|who scored the goals|goal scorers|any cards|did anyone score|touchdowns?|field goals?|home runs?)\b", re.I), "get_match_report", {}),
-    ]),
-    SubAgent("ScheduleAgent", ["get_fixtures"], [
-        (re.compile(r"\b(what\s+(matches|match|games?|fixtures?)\s+(already\s+)?(finished|completed|ended|done)|which\s+(matches|match|games?|fixtures?)\s+(already\s+)?(finished|completed|ended|done)|(matches|match)\s+finished|finished\s+(matches|match)|completed\s+(matches|match|games?)|results\s+(from\s+)?(today|earlier|yesterday)|scores\s+(from\s+)?(earlier|today|yesterday)|previous\s+(matches|match|games?))\b", re.I), "get_fixtures", {"finished_only": True}),
-        (re.compile(r"\b(what('?s| is) on today|matches today|fixtures today|which teams are playing|games today|any games today|today'?s matches|what\s+(matches|games|fixtures)\s+(are\s+on|on|playing)(\s+today|\s+tonight)?|what\s+(games|matches)\s+are\s+on\b|for today|today'?s (games|schedule|fixtures)|(today|tonight)('?s)?\s+(games|schedule|matches|fixtures)|who('?s| is) playing (today|tonight)?|any matches (today|tonight)?|are there any (games|matches)|schedule for today|all\s+the\s+.*matches|show\s+me\s+.*matches|matches\s+of\s+today)\b", re.I), "get_fixtures", {}),
-        (re.compile(r"\b(next matches|upcoming matches|upcoming games|next fixtures|when is the next match|next game|what games are next|who plays next)\b", re.I), "get_fixtures", {"when": "next"}),
-    ]),
-    SubAgent("RosterAgent", ["get_lineups"], [
-        (re.compile(r"\b(line-?ups?|rosters?|squads?|team sheet|starting (eleven|xi|lineup)|who('?s| is) (playing|starting|coaching|the coach|the manager))\b", re.I), "get_lineups", {}),
-    ]),
-    SubAgent("StandingsAgent", ["get_table"], [
-        (re.compile(r"\b(league table|standings|where are they in the table|show me the table|standings table|premier league table|nfl standings|nba standings|mlb standings|nhl standings)\b", re.I), "get_table", {}),
-    ]),
-    SubAgent("StatsAgent", ["get_match_stats", "get_team_stats", "get_player_stats"], [
-        (re.compile(r"\b(match stats|game stats|team stats|possession|shots on target|how many shots|box score stats|match statistics)\b", re.I), "get_match_stats", {}),
-    ]),
-    SubAgent("FormAgent", ["get_team_form"], [
-        (re.compile(r"\b(recent form|team form|how is (their|the) form|last 5 games|past five games|win streak|form guide)\b", re.I), "get_team_form", {}),
-    ]),
-    SubAgent("IntelAgent", ["get_officials", "get_injuries", "get_head_to_head", "get_capabilities", "set_preferences"], [
-        (re.compile(r"\b(who('?s| is) refereeing|who('?s| is) the ref(eree)?|who is the ref|referee for today|who is the official|who is the umpire)\b", re.I), "get_officials", {}),
-        (re.compile(r"\b(who('?s| is) injured|any injuries|who is suspended|injury list|who is out)\b", re.I), "get_injuries", {}),
-        (re.compile(r"\b(head to head|past meetings|last time they played)\b", re.I), "get_head_to_head", {}),
-        (re.compile(r"\b(what can you do|what can i ask|help me)\b", re.I), "get_capabilities", {}),
-        (re.compile(r"\b(i follow|switch to|focus on|set sport to)\s+(basketball|football|soccer|nfl|baseball|hockey|mlb|nhl|american football)\b", re.I), "set_preferences", {}),
-    ]),
+# ------------------------------------------------------------------ shortcuts that skip the model
+# Each is the WHOLE question, so "what's the score" fires and "what's the score of the golden boot race" does not
+# (AG-09). They only ever run tools that change nothing (AG-01): if a shortcut fails, nothing is lost and the model
+# answers instead. A (?P<team>...) must be a team the feed knows, or the model is asked instead.
+_ON = r"(?: on| playing| there)?(?: today| tonight)?"
+_FAST_PATTERNS = [
+    (r"(?:what's|what is|whats) the score(?: now| right now| at the moment)?", "get_match_state", {}),
+    (r"(?:what's|what is|whats) the score (?:in|of) the (?P<team>.+?) (?:game|match)", "get_match_state", {}),
+    (r"(?:what's|what is|whats) the (?P<team>.+?) score", "get_match_state", {}),
+    (r"(?:who's|who is|whos) winning(?: the (?P<team>.+?) (?:game|match))?", "get_match_state", {}),
+    (r"(?:how long|how much time)(?: is)? left", "get_match_state", {}),
+    (r"what minute is it", "get_match_state", {}),
+    (r"(?:what's|what is|whats) on(?: today| tonight)?", "get_fixtures", {}),
+    (r"what (?:games|matches|fixtures) are" + _ON, "get_fixtures", {}),
+    (r"(?:are there )?any (?:games|matches)" + _ON, "get_fixtures", {}),
+    (r"which teams are playing(?: today| tonight)?", "get_fixtures", {}),
+    (r"(?:today's|tonight's) (?:games|matches|fixtures)", "get_fixtures", {}),
+    (r"(?:games|matches|fixtures) (?:today|tonight)", "get_fixtures", {}),
+    (r"(?:what|which) (?:games|matches) (?:have )?(?:already )?(?:finished|ended)(?: today)?", "get_fixtures",
+     {"finished_only": True}),
+    (r"(?:today's )?results(?: today| so far)?", "get_fixtures", {"finished_only": True}),
+    (r"(?:what's|what is|whats) live(?: now)?", "get_fixtures", {"live_only": True}),
+    (r"(?:(?:show me|what's|what is|whats) )?the (?:league )?(?:table|standings)", "get_standings", {}),
+    (r"(?:league )?(?:table|standings)", "get_standings", {}),
+    (r"(?:who's|who is|whos) (?:the )?(?:ref|referee|refereeing)(?: today)?", "get_officials", {}),
+    (r"(?:who's|who is|whos) (?:injured|suspended)", "get_injuries", {}),
+    (r"any injuries|injury (?:news|list)", "get_injuries", {}),
+    (r"(?:when's|when is|whens) the next (?:game|match)", "get_schedule", {"which": "next"}),
+    (r"(?:when's|when is|whens) (?P<team>.+?)'s next (?:game|match)", "get_schedule", {"which": "next"}),
+    (r"when (?:is|are|do|does) (?P<team>.+?) play(?:ing)?(?: next)?", "get_schedule", {"which": "next"}),
+    (r"what can you do|what can i ask(?: you)?|help", "get_capabilities", {}),
 ]
+_FAST_PATTERNS = [(re.compile(p), tool, args) for p, tool, args in _FAST_PATTERNS]
+
+_HOW_MANY = re.compile(r"how many (?:matches|games)(?: are there| is that| in total| total| are on)?(?: today)?")
+_SPORT_KEYS = {"nba": "basketball", "nfl": "american_football"}
+_SAID_DAYS = ("today", "tonight", "tomorrow", "yesterday")
 
 
-def _execute_subagent_task(task, listener_id, tool_runner, tool_specs):
-    agent_name, tool_name, call_args = task
+def _schema_args(name, args, tool_specs):
+    """Only the arguments the tool's schema has: every schema refuses anything else (AG-04)."""
+    props = ((tool_specs.get(name) or {}).get("inputSchema") or {}).get("properties") or {}
+    return {k: v for k, v in args.items() if k in props and v not in (None, "")}
+
+
+def _known_team(ctx, said):
+    """The one team the feed knows by this name (whole words), or None: a guess is never passed on."""
+    said = _normalise(said)
+    if not said or not ctx or not hasattr(getattr(ctx, "provider", None), "known_teams"):
+        return None
     try:
-        content, is_err, rec = _execute_tool(tool_name, call_args, listener_id, tool_runner, tool_specs)
-        if not is_err and rec.get("spoken"):
-            return agent_name, rec
-    except Exception as e:
-        LOG.debug("subagent %s execution error: %s", agent_name, e)
-    return None
-
-
-def _try_swarm_fast_path(question, listener_id, tool_runner, tool_specs, ctx=None):
-    clean = question.strip()
-    topic = FOCUSES.topic(listener_id, store=ctx.store if ctx else None)
-
-    # Conversational follow-up: total match count inquiry
-    if re.search(r"\b(how many\b.*(them|total|matches|games|there)|total\s+(matches|games)|in total)\b", clean, re.I):
-        if topic.get("total") is not None:
-            total = topic["total"]
-            c_name = topic.get("competition_name") or topic.get("competition") or "scheduled"
-            intrigue = "Would you like to hear the kick-off times or check the lineups for any of them?"
-            ans = "There are %d %s matches in total today. %s" % (total, c_name, intrigue)
-            CONVERSATIONS.remember(listener_id, question, ans, store=ctx.store if ctx else None)
-            return {
-                "text": ans,
-                "generated_by": "swarm-fast",
-                "agents_used": ["ScheduleAgent"],
-                "tool_results": [{"name": "get_fixtures", "spoken": ans, "structured": topic}],
-            }
-
-    known_teams = []
-    if ctx and hasattr(ctx, "provider") and hasattr(ctx.provider, "known_teams"):
-        try:
-            known_teams = ctx.provider.known_teams()
-        except Exception:
-            pass
-
-    # Collect speculative plans across all 8 specialized sub-agents
-    tasks = []
-    seen_tools = set()
-
-    # Broad multi-agent fanout: "tell me everything about / full update on [team]"
-    is_full_update = bool(re.search(r"\b(tell me everything about|full (update|report|recap) on|all about|complete update on)\b", clean, re.I))
-    if is_full_update:
-        target_team = None
-        for t in known_teams:
-            if t.lower() in clean.lower():
-                target_team = t
-                break
-        if not target_team and topic.get("team"):
-            target_team = topic["team"]
-        if not target_team:
-            m_team = re.search(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b", question)
-            if m_team and m_team.group(1).lower() not in ("tell", "me", "everything", "about", "full", "update", "what"):
-                target_team = m_team.group(1).strip()
-
-        core_fanout = [
-            ("StateAgent", "get_match_state", {"team": target_team} if target_team else {}),
-            ("TimelineAgent", "what_did_i_miss", {"team": target_team} if target_team else {}),
-            ("RosterAgent", "get_lineups", {"team": target_team} if target_team else {}),
-            ("StandingsAgent", "get_table", {}),
-            ("FormAgent", "get_team_form", {"team": target_team} if target_team else {}),
-            ("StatsAgent", "get_match_stats", {"team": target_team} if target_team else {}),
-            ("IntelAgent", "get_officials", {"team": target_team} if target_team else {}),
-        ]
-        for a_name, t_name, t_args in core_fanout:
-            if t_name in tool_specs and t_name not in seen_tools:
-                seen_tools.add(t_name)
-                tasks.append((a_name, t_name, t_args))
-
-    for agent_worker in SWARM_AGENTS:
-        sub_tasks = agent_worker.plan(clean, topic, known_teams, question)
-        for tool_name, call_args in sub_tasks:
-            if tool_name in tool_specs and tool_name not in seen_tools:
-                seen_tools.add(tool_name)
-                tasks.append((agent_worker.name, tool_name, call_args))
-
-    # If lineups were asked for without a specific team or context, also dispatch today's schedule
-    has_lineups = any(t[1] == "get_lineups" and not t[2].get("team") for t in tasks)
-    if has_lineups and "get_fixtures" in tool_specs and "get_fixtures" not in seen_tools:
-        seen_tools.add("get_fixtures")
-        tasks.append(("ScheduleAgent", "get_fixtures", {"when": "today"}))
-
-    if not tasks:
+        teams = ctx.provider.known_teams() or []
+    except Exception:                                      # noqa: BLE001  the model can still answer
         return None
+    exact = [t for t in teams if _normalise(t) == said]
+    if exact:
+        return exact[0]
+    near = [t for t in teams if re.search(r"(?<!\w)%s(?!\w)" % re.escape(said), _normalise(t))]
+    return near[0] if len(near) == 1 else None
 
-    # Execute all scheduled sub-agent tool calls concurrently in parallel (< 15ms)
-    results = []
-    if len(tasks) == 1:
-        res = _execute_subagent_task(tasks[0], listener_id, tool_runner, tool_specs)
-        if res:
-            results.append(res)
-    else:
-        from concurrent.futures import ThreadPoolExecutor
-        # Concurrently execute >5 subagents simultaneously without queueing
-        with ThreadPoolExecutor(max_workers=max(8, len(tasks))) as pool:
-            futures = [
-                pool.submit(_execute_subagent_task, t, listener_id, tool_runner, tool_specs)
-                for t in tasks
-            ]
-            for fut in futures:
-                try:
-                    res = fut.result()
-                    if res:
-                        results.append(res)
-                except Exception as e:
-                    LOG.debug("swarm agent error: %s", e)
 
-    if not results:
+def _scope(text):
+    """A competition or sport named in the question: (text without it, {argument: value}) or (text, None)."""
+    for pat, key, name in COMP_PATTERNS:
+        m = pat.search(text)
+        if m:
+            rest = " ".join((text[:m.start()] + " " + text[m.end():]).split())
+            sport = _SPORT_KEYS.get(key)
+            return rest, ({"sport": sport} if sport else {"competition": name})
+    return text, None
+
+
+def _how_many(question, topic):
+    """"How many is that?" straight after a fixture list: the count it already gave (AG-08)."""
+    if topic.get("last_tool") != "get_fixtures" or topic.get("total") is None:
         return None
-
-    spoken_parts = []
-    tool_records = []
-    agents_used = []
-    for agent_name, rec in results:
-        if rec.get("spoken") and not rec.get("declined"):
-            spoken_parts.append(rec["spoken"])
-            tool_records.append(rec)
-            agents_used.append(agent_name)
-
-    if not spoken_parts:
+    text = _core_words(question)
+    if not _HOW_MANY.fullmatch(text):
         return None
+    when = str(topic.get("when") or "")
+    if "today" in text and when != "today":
+        return None
+    total = int(topic["total"])
+    kind = topic.get("fixtures_kind") or ""
+    comp = topic.get("competition_name") or ""
+    where = (" in %s%s" % ("the " if comp.lower().endswith(("league", "cup")) else "", comp)) if comp else ""
+    day = (" " + when) if when in _SAID_DAYS or when.startswith("on ") else ""
+    return "That's %d %s%s%s%s." % (total, (kind + " ") if kind else "", "match" if total == 1 else "matches",
+                                     where, day)
 
-    combined = " ".join(spoken_parts)
-    # Proactively intrigue the next response if appropriate
-    if len(tool_records) == 1 and not combined.rstrip().endswith("?"):
-        t_name = tool_records[0].get("name")
-        if t_name == "get_fixtures":
-            combined += " Would you like to check the starting lineups or follow one of these matches?"
-        elif t_name == "get_match_state":
-            combined += " Would you like live updates on this match?"
-        elif t_name == "get_lineups":
-            combined += " Would you like to check their recent form or head-to-head record?"
-        elif t_name == "what_did_i_miss":
-            combined += " Would you like the current score and match stats?"
 
-    combined = _listener_answer(combined)
-
-    CONVERSATIONS.remember(listener_id, question, combined, store=ctx.store if ctx else None)
-    FOCUSES.remember(listener_id, tool_records, store=ctx.store if ctx else None)
-
-    return {
-        "text": combined,
-        "generated_by": "swarm-fast",
-        "agents_used": agents_used,
-        "tool_results": tool_records,
-    }
+def _fast_plan(question, tool_specs, topic, ctx):
+    """The one read-only tool call a question plainly asks for, or None when the model should decide."""
+    text = _core_words(question)
+    rest, scope = _scope(text)
+    plans = []
+    for pattern, tool, fixed in _FAST_PATTERNS:
+        if tool not in tool_specs or tool in STATEFUL_TOOLS:
+            continue
+        props = (tool_specs[tool].get("inputSchema") or {}).get("properties") or {}
+        if scope:
+            # A competition only narrows a tool that takes one; "the Premier League score" is for the model.
+            if not set(scope) <= set(props):
+                continue
+            m = pattern.fullmatch(rest)
+        else:
+            m = pattern.fullmatch(text)
+        if m:
+            plans.append((tool, dict(fixed, **(scope or {})), m.groupdict().get("team")))
+    if len(set(p[0] for p in plans)) != 1:
+        return None                                   # nothing, or more than one tool fits: the model decides
+    tool, args, said_team = plans[0]
+    if said_team:
+        team = _known_team(ctx, said_team)
+        if not team:
+            return None
+        args["team"] = team
+    required = (tool_specs[tool].get("inputSchema") or {}).get("required") or []
+    if "team" in required and not args.get("team"):
+        if not topic.get("team"):
+            return None
+        args["team"] = topic["team"]
+    return tool, _schema_args(tool, args, tool_specs)
 
 
 def _try_fast_path(question, listener_id, tool_runner, tool_specs, ctx=None):
-    return _try_swarm_fast_path(question, listener_id, tool_runner, tool_specs, ctx=ctx)
+    """Answer a plain, unambiguous question with one read-only tool and no model call, or return None."""
+    store = ctx.store if ctx else None
+    topic = FOCUSES.topic(listener_id, store=store)
+    counted = _how_many(question, topic)
+    if counted:
+        CONVERSATIONS.remember(listener_id, question, counted, store=store)
+        return {"text": counted, "generated_by": "fast", "tool_results": []}
+
+    plan = _fast_plan(question, tool_specs, topic, ctx)
+    if not plan:
+        return None
+    name, args = plan
+    _, is_err, record = _execute_tool(name, args, listener_id, tool_runner, tool_specs)
+    record["args"] = args
+    if is_err or not record.get("spoken"):
+        # Read-only, so nothing was used up: the model takes it from here and can explain.
+        return None
+    text = " ".join(record["spoken"].split())
+    CONVERSATIONS.remember(listener_id, question, text, store=store)
+    FOCUSES.remember(listener_id, [record], store=store)
+    return {"text": text, "generated_by": "fast", "tool_results": [record]}
+
+
+# ------------------------------------------------------------------ the model loop
+# A single factual tool whose sentence is already ear-ready is said as it is, saving a second model call. Never a tool
+# that only returns facts for the model (what_did_i_miss for the agent speaks "").
+_SAID_AS_IS = frozenset(("get_fixtures", "get_match_state", "get_officials", "get_lineups", "get_injuries",
+                         "get_head_to_head", "get_match_preview", "get_team_form", "get_match_stats", "get_team_stats",
+                         "get_player_stats", "get_match_report", "get_capabilities", "get_schedule", "get_standings",
+                         "get_top_scorers", "get_squad"))
+
+COMBINE = ("Combine the tool results into one concise, natural spoken answer using only facts they contain: most "
+           "important first, in complete sentences. If a result failed, do not read it out; say briefly what you "
+           "couldn't get.")
+FINAL = "[No more tools now. Answer the listener from what you already have, or say briefly what you couldn't get.]"
+
+
+def _spoken_from_tools(tool_results):
+    """What the tools themselves said, when the model gave nothing: answers first, then a tool's own refusal.
+
+    An error (bad arguments, a transport failure) is never spoken (AG-06).
+    """
+    for usable in (lambda r: not r.get("is_error"), lambda r: r.get("declined")):
+        parts = [" ".join(r["spoken"].split()) for r in tool_results if r.get("spoken") and usable(r)]
+        if parts:
+            return " ".join(parts)
+    return ""
+
+
+def _text_only(messages):
+    """The conversation with tool calls and results written out as text, for a call that offers no tools.
+
+    Bedrock refuses toolUse and toolResult blocks without a toolConfig, so the last answer call reads them as text.
+    """
+    out = []
+    for message in messages:
+        parts = []
+        for block in message.get("content", []):
+            if not isinstance(block, dict):
+                continue
+            if isinstance(block.get("text"), str) and block["text"].strip():
+                parts.append(block["text"])
+            elif "toolUse" in block:
+                use = block["toolUse"]
+                parts.append("[Called %s with %s]" % (use.get("name"), json.dumps(use.get("input"), ensure_ascii=False)))
+            elif "toolResult" in block:
+                said = " ".join(c.get("text", "") for c in block["toolResult"].get("content", []) if isinstance(c, dict))
+                parts.append("[Result: %s]" % said)
+        text = "\n".join(parts) or "..."
+        if out and out[-1]["role"] == message.get("role"):
+            out[-1]["content"][0]["text"] += "\n" + text
+        else:
+            out.append({"role": message.get("role"), "content": [{"text": text}]})
+    return out
+
+
+def _ask(system, messages, tool_config=None):
+    """One Converse call. Any failure is AgentUnavailable: the listener hears that we're unavailable, not why."""
+    from sideline.language import bedrock
+    request = {
+        "modelId": bedrock.MODEL_ID,
+        "system": [{"text": system}],
+        "messages": messages,
+        "inferenceConfig": {"maxTokens": MAX_TOKENS, "temperature": 0.2},
+    }
+    if tool_config:
+        request["toolConfig"] = tool_config
+    try:
+        response = _converse(**request) or {}
+    except Exception as exc:
+        LOG.warning("Nova agent request failed: %s", exc)
+        raise AgentUnavailable("Bedrock Converse request failed") from exc
+    audit.record("tokens", source="agent", model=bedrock.MODEL_ID, **_usage(response.get("usage")))
+    if response.get("stopReason") in ("guardrail_intervened", "content_filtered"):
+        raise AgentUnavailable("Bedrock withheld the answer (%s)" % response["stopReason"])
+    return response
+
+
+def _answer_text(response, message, max_sentences):
+    """The words to speak from an assistant message: no reasoning, no half sentence, short enough for voice."""
+    text = " ".join(block["text"] for block in message.get("content", [])
+                    if isinstance(block, dict) and isinstance(block.get("text"), str))
+    text = _listener_answer(text, max_sentences=99)
+    if response.get("stopReason") == "max_tokens":
+        text = _complete_sentences(text)
+    return _listener_answer(text, max_sentences=max_sentences)
 
 
 def run(ctx, question, listener_id, tool_runner, interrupted=None,
         mcp_tools=None, mcp_instructions=""):
-    """Give Nova the MCP catalog, then execute its selected tool calls."""
+    """Give Nova the MCP catalog, then execute its selected tool calls.
+
+    Every failure leaves as AgentUnavailable, so /agent/chat answers 503 and never a 500 (AG-14).
+    """
+    try:
+        return _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_instructions)
+    except AgentUnavailable:
+        raise
+    except Exception as exc:                               # noqa: BLE001
+        LOG.exception("agent turn failed")
+        raise AgentUnavailable("The agent turn failed") from exc
+
+
+def _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_instructions):
     from sideline.language import bedrock
 
     if not bedrock.available():
         raise AgentUnavailable("Bedrock is disabled or boto3 is unavailable")
 
-    messages = CONVERSATIONS.get(listener_id, store=ctx.store if ctx else None)
+    store = ctx.store if ctx else None
+    messages = CONVERSATIONS.get(listener_id, store=store)
     pending = FOCUSES.take_pending(listener_id)
     asked = question
     if pending and "(fixture_id" in question and not _FOLLOW_INTENT.search(pending):
@@ -862,86 +928,56 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None,
     if interrupted:
         # They talked over the last answer: what they say next belongs to it.
         asked = ("[The listener cut in while you were saying: \"%s\". What follows "
-                 "is a follow-up to that, not a new subject.] %s" % (interrupted, question))
-    tool_results = []
-    weather_retried = live_retried = False
+                 "is a follow-up to that, not a new subject.] %s" % (interrupted, asked))
     if mcp_tools is None:
         mcp_tools = public_tools()
     tool_specs = {spec["name"]: spec for spec in mcp_tools}
+    # A scripted test model (it records .calls) sees the whole catalog and every turn, with no shortcuts.
+    scripted = hasattr(bedrock.client(), "calls")
 
-    # Tier 0: Conversational bypass for instant capability/greetings answers
-    if not hasattr(bedrock.client(), "calls") and not interrupted and not pending:
+    if not scripted and not interrupted and not pending:
         conv_answer = _match_conversational(question)
         if conv_answer:
-            CONVERSATIONS.remember(listener_id, question, conv_answer, store=ctx.store if ctx else None)
-            return {
-                "text": conv_answer,
-                "generated_by": "conversational",
-                "tool_results": [],
-            }
-
-    # Tier 1 Fast-path: for standard sports queries, execute directly in ~15ms bypassing Bedrock latency
-    if not hasattr(bedrock.client(), "calls") and not interrupted and not pending:
+            CONVERSATIONS.remember(listener_id, question, conv_answer, store=store)
+            return {"text": conv_answer, "generated_by": "conversational", "tool_results": []}
         fast_result = _try_fast_path(question, listener_id, tool_runner, tool_specs, ctx=ctx)
         if fast_result is not None:
             return fast_result
 
-    # Tier 2: Dynamic Tool Attention / Top-K Schema Pruning
-    if hasattr(bedrock.client(), "calls"):
-        active_tools = mcp_tools
-    else:
-        active_tools = _select_candidate_tools(asked, mcp_tools, FOCUSES.topic(listener_id, store=ctx.store if ctx else None))
-
-    messages.append({"role": "user", "content": [{"text": asked}]})
+    active_tools = mcp_tools if scripted else _select_candidate_tools(asked, mcp_tools)
     tool_config = {"tools": _bedrock_tools(active_tools)}
+    messages.append({"role": "user", "content": [{"text": asked}]})
+
+    detail = _detail(ctx, listener_id)
+    max_sentences = {"brief": 1, "full": 5}.get(detail, 3)
+    system = SYSTEM
+    if mcp_instructions:
+        system += "\n\nMCP server instructions: " + mcp_instructions
+    system += _today(ctx, listener_id) + _preference(ctx, listener_id, detail) + FOCUSES.line(listener_id, store=store)
+
+    tool_results = []
+    weather_retried = live_retried = False
+
+    def finish(text, how):
+        CONVERSATIONS.remember(listener_id, question, text, store=store)
+        FOCUSES.remember(listener_id, tool_results, store=store)
+        return {"text": text, "generated_by": how, "model": getattr(bedrock, "MODEL_ID", ""),
+                "tool_results": tool_results}
 
     for _ in range(MAX_TURNS):
-        try:
-            system = SYSTEM
-            if mcp_instructions:
-                system += "\n\nMCP server instructions: " + mcp_instructions
-            system += (_today(ctx, listener_id) + _preference(ctx, listener_id)
-                       + FOCUSES.line(listener_id, store=ctx.store if ctx else None))
-            request = {
-                "modelId": bedrock.MODEL_ID,
-                "system": [{"text": system}],
-                "messages": messages,
-                "inferenceConfig": {"maxTokens": MAX_TOKENS,
-                                    "temperature": 0.2},
-                "toolConfig": tool_config,
-            }
-            response = _converse(**request)
-        except Exception as exc:
-            LOG.warning("Nova agent request failed: %s", exc)
-            raise AgentUnavailable("Bedrock Converse request failed") from exc
-
-        audit.record("tokens", source="agent", model=bedrock.MODEL_ID, **_usage(response.get("usage")))
+        response = _ask(system, messages, tool_config)
         message = response.get("output", {}).get("message")
         if not isinstance(message, dict):
-            if tool_results:
-                spoken_parts = [r.get("spoken", "") for r in tool_results if r.get("spoken") and not r.get("declined")]
-                if spoken_parts:
-                    text = _listener_answer(" ".join(spoken_parts).strip())
-                    CONVERSATIONS.remember(listener_id, question, text, store=ctx.store if ctx else None)
-                    FOCUSES.remember(listener_id, tool_results, store=ctx.store if ctx else None)
-                    return {"text": text, "generated_by": "bedrock-fallback",
-                            "model": getattr(bedrock, "MODEL_ID", ""),
-                            "tool_results": tool_results}
+            text = _spoken_from_tools(tool_results)
+            if text:
+                return finish(text, "bedrock-fallback")
             raise AgentUnavailable("Bedrock returned no assistant message")
         messages.append(message)
 
         requests = [block["toolUse"] for block in message.get("content", [])
-                    if isinstance(block, dict) and "toolUse" in block]
+                    if isinstance(block, dict) and isinstance(block.get("toolUse"), dict)]
         if not requests:
-            text = " ".join(
-                block["text"] for block in message.get("content", [])
-                if isinstance(block, dict) and isinstance(block.get("text"), str)
-            ).strip()
-            text = _listener_answer(text)
-            if not text and tool_results:
-                spoken_parts = [r.get("spoken", "") for r in tool_results if r.get("spoken") and not r.get("declined")]
-                if spoken_parts:
-                    text = _listener_answer(" ".join(spoken_parts).strip())
+            text = _answer_text(response, message, max_sentences) or _spoken_from_tools(tool_results)
             if not text:
                 raise AgentUnavailable("Bedrock returned no answer text")
             if _denies_live(text) and not tool_results and not live_retried:
@@ -959,15 +995,10 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None,
                         "it returns. If it has no weather, say you do not have it.]")}]})
                     continue
                 text = "I don't have the weather for that match."
-            CONVERSATIONS.remember(listener_id, question, text, store=ctx.store if ctx else None)
-            FOCUSES.remember(listener_id, tool_results, store=ctx.store if ctx else None)
-            return {"text": text, "generated_by": "nova",
-                    "model": getattr(bedrock, "MODEL_ID", ""),
-                    "tool_results": tool_results}
+            return finish(text, "nova")
 
-        results = []
         remaining = MAX_TOOL_CALLS - len(tool_results)
-        to_run = requests[:remaining]
+        to_run, skipped = requests[:remaining], requests[remaining:]
         if len(to_run) > 1:
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=min(4, len(to_run))) as executor:
@@ -979,41 +1010,43 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None,
             executed = [_execute_single_request(
                 to_run[0], tool_specs, question, listener_id, tool_runner)] if to_run else []
 
+        results = []
         for result_record, tool_result_item in executed:
-            called_tools_this_turn = True
             tool_results.append(result_record)
             results.append(tool_result_item)
-            if len(tool_results) >= MAX_TOOL_CALLS:
-                break
+        for req in skipped:
+            # Bedrock wants an answer for every call it asked for, even one we will not run.
+            results.append({"toolResult": {"toolUseId": req.get("toolUseId"), "status": "error", "content": [
+                {"text": json.dumps({"tool": req.get("name"), "ok": False,
+                                     "error": "Not run: the tool-call limit for one question was reached."})}]}})
         for record in tool_results:
             if record.get("declined") and (record.get("detail") or {}).get("fork"):
                 FOCUSES.set_pending(listener_id, question)
 
-        # Fast synthesis bypass (Proposal A): If a single factual tool answered with ear-ready text,
-        # return it immediately to avoid a second 1.2s Bedrock Converse turn.
-        if (not hasattr(bedrock.client(), "calls") and len(requests) == 1 and len(tool_results) == 1
-                and not tool_results[0].get("declined") and tool_results[0].get("spoken")
-                and tool_results[0]["name"] in ("get_fixtures", "get_match_state", "get_officials", "get_lineups",
-                                                "get_injuries", "get_table", "get_head_to_head", "what_did_i_miss",
-                                                "get_match_preview", "get_team_form", "get_match_stats",
-                                                "get_team_stats", "get_player_stats", "get_match_report",
-                                                "get_capabilities", "get_schedule", "get_standings")):
-            text = tool_results[0]["spoken"]
-            CONVERSATIONS.remember(listener_id, question, text, store=ctx.store if ctx else None)
-            FOCUSES.remember(listener_id, tool_results, store=ctx.store if ctx else None)
-            return {"text": text, "generated_by": "bedrock-fast",
-                    "model": getattr(bedrock, "MODEL_ID", ""),
-                    "tool_results": tool_results}
+        # One factual tool that answered with ear-ready text: say it, and save a second model call.
+        if (not scripted and len(requests) == 1 and len(tool_results) == 1
+                and not tool_results[0].get("is_error") and tool_results[0].get("spoken")
+                and tool_results[0]["name"] in _SAID_AS_IS):
+            return finish(" ".join(tool_results[0]["spoken"].split()), "bedrock-fast")
 
-        results.append({"text": (
-            "Combine the tool results into one concise, natural answer using only supported facts. "
-            "STRICT CONSTRAINT: Exactly 1 or 2 short sentences (maximum 20 words total). "
-            "State only the primary fact or score. No filler or extra lists.")})
+        results.append({"text": COMBINE})
         messages.append({"role": "user", "content": results})
         if len(tool_results) >= MAX_TOOL_CALLS:
             break
 
-    raise AgentUnavailable("Nova exceeded the agent tool-use limit")
+    # Out of turns or tool calls: what was found is still said, from one last call that offers no tools (AG-12).
+    final = _text_only(messages)
+    if final and final[-1]["role"] == "user":
+        final[-1]["content"][0]["text"] += "\n" + FINAL
+    else:
+        final.append({"role": "user", "content": [{"text": FINAL}]})
+    response = _ask(system, final)
+    message = response.get("output", {}).get("message")
+    text = (_answer_text(response, message, max_sentences) if isinstance(message, dict) else "") \
+        or _spoken_from_tools(tool_results)
+    if not text:
+        raise AgentUnavailable("Nova used every turn without an answer")
+    return finish(text, "nova")
 
 
 def _execute_single_request(request, tool_specs, question, listener_id, tool_runner):
@@ -1024,7 +1057,7 @@ def _execute_single_request(request, tool_specs, question, listener_id, tool_run
     if name not in tool_specs:
         message = "That tool is not available in the current MCP catalog."
         result_content, is_error, result_record = message, True, {
-            "name": name, "spoken": message,
+            "name": name, "spoken": message, "is_error": True,
         }
     else:
         args = _fill_arguments(name, _without_invented_competition(
@@ -1032,16 +1065,19 @@ def _execute_single_request(request, tool_specs, question, listener_id, tool_run
         if name == "follow_match" and not _asked_to_follow(question):
             # A model that guesses must not move the listener to another match.
             message = "The listener did not ask to follow a match, so none was followed."
-            result_content, is_error, result_record = message, True, {"name": name, "spoken": message}
+            result_content, is_error, result_record = message, True, {"name": name, "spoken": message,
+                                                                       "is_error": True}
         else:
             result_content, is_error, result_record = _execute_tool(
                 name, args, listener_id, tool_runner, tool_specs)
     result_record["args"] = args if isinstance(args, dict) else {}
-    model_result = {
-        "tool": name,
-        "ok": not is_error,
-        "spoken": result_record.get("spoken") or result_content,
-    }
+    model_result = {"tool": name, "ok": not is_error}
+    if not is_error or result_record.get("declined"):
+        # a tool's own words: an answer, or its refusal written for the listener
+        model_result["spoken"] = result_record.get("spoken") or result_content
+    else:
+        model_result["error"] = result_record.get("error") or result_record.get("spoken") or result_content
+        model_result["note"] = "Not for the listener's ears: fix the call, or say briefly what you couldn't get."
     structured = result_record.get("structured") or result_record.get("detail")
     if structured:
         model_result["data"] = structured
@@ -1056,27 +1092,38 @@ def _execute_single_request(request, tool_specs, question, listener_id, tool_run
 
 
 def _execute_tool(name, args, listener_id, tool_runner, tool_specs=None):
+    """Validate and run one tool. Returns (content, is_error, record); never raises.
+
+    A record with is_error is never spoken: a tool's own refusal (declined) is for the model to relay, and bad
+    arguments or a failed transport only ever reach the model, as text it must not read out (AG-06, AG-14).
+    """
     if tool_specs is None:
         tool_specs = {item["name"]: item for item in public_tools()}
     spec = (tool_specs or {}).get(name)
     if not spec:
         message = "That tool is not available."
-        return message, True, {"name": name, "spoken": message}
+        return message, True, {"name": name, "spoken": "", "error": message, "is_error": True}
     if not isinstance(args, dict):
         message = "Tool arguments must be an object."
-        return message, True, {"name": name, "spoken": message}
+        return message, True, {"name": name, "spoken": "", "error": message, "is_error": True}
 
     try:
         validate(args, spec["inputSchema"])
         spoken, structured, ui = tool_runner(name, args, listener_id)
-    except (InvalidParams, ToolError) as exc:
-        message = exc.spoken if isinstance(exc, ToolError) else str(exc)
-        record = {"name": name, "spoken": message, "declined": isinstance(exc, ToolError)}
-        if isinstance(exc, ToolError) and exc.detail:
+    except ToolError as exc:
+        record = {"name": name, "spoken": exc.spoken, "declined": True, "is_error": True}
+        if exc.detail:
             # Kept so we can tell what the listener was just asked to choose
             # between (sideline/resolve.py), e.g. the ambiguous fixtures.
             record["detail"] = exc.detail
-        return message, True, record
+        return exc.spoken, True, record
+    except InvalidParams as exc:
+        message = str(exc)
+        return message, True, {"name": name, "spoken": "", "error": message, "is_error": True}
+    except Exception as exc:                               # noqa: BLE001  transport: timeouts, refused, bad JSON
+        LOG.warning("tool %s failed: %s", name, exc)
+        message = "The tool could not be reached (%s)." % type(exc).__name__
+        return message, True, {"name": name, "spoken": "", "error": message, "is_error": True}
 
     record = {"name": name, "spoken": spoken, "structured": structured, "ui": ui}
     encoded = json.dumps(record, ensure_ascii=False)

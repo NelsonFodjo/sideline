@@ -12,7 +12,7 @@ import threading
 from conftest import make_ctx
 
 from sideline.app import resolve_listener, tool_runner
-from sideline.language.agent import _bedrock_tools
+from sideline.language.agent import _bedrock_tools, _model_schema
 from sideline.mcp import server as mcp_server
 from sideline.mcp.client import McpClient
 from sideline.mcp.errors import InvalidParams, ToolError
@@ -32,7 +32,7 @@ def main():
         model_tools = _bedrock_tools(catalog["tools"])
         assert [item["toolSpec"]["name"] for item in model_tools] == [
             item["name"] for item in catalog["tools"]]
-        assert model_tools[0]["toolSpec"]["inputSchema"]["json"] == catalog["tools"][0]["inputSchema"]
+        assert model_tools[0]["toolSpec"]["inputSchema"]["json"] == _model_schema(catalog["tools"][0]["inputSchema"])
         print("ok  Nova's host fetches MCP initialize instructions and the current tools/list catalog")
 
         spoken, structured, ui = client.call("follow_match", {"team": "Arsenal"}, "ann")
