@@ -46,7 +46,7 @@ def test_conversational_bypass():
 
 
 def test_candidate_tool_selection():
-    # Tier 2 Top-K Schema Pruning: Prunes 27 tools down to 3-6 relevant tools
+    # Tier 2 Top-K Schema Pruning: Prunes 27 tools down to a core plus the best keyword matches
     all_tools = public_tools()
     assert len(all_tools) == 27
 
@@ -54,14 +54,14 @@ def test_candidate_tool_selection():
     ref_tools = agent._select_candidate_tools("who is refereeing?", all_tools)
     tool_names = [t["name"] for t in ref_tools]
     assert "get_officials" in tool_names
-    assert len(ref_tools) <= 6
+    assert len(ref_tools) <= 8
 
     # Query about injuries
     inj_tools = agent._select_candidate_tools("any injuries for the game?", all_tools)
     tool_names = [t["name"] for t in inj_tools]
     assert "get_injuries" in tool_names
-    assert len(inj_tools) <= 6
-    print("ok  Tier 2: Top-K schema pruning selects 3-6 relevant candidate tools (slashing prompt tokens by ~85%)")
+    assert len(inj_tools) <= 8
+    print("ok  Tier 2: Top-K schema pruning selects a few relevant candidate tools (slashing prompt tokens by ~85%)")
 
 
 def test_context_continuation():

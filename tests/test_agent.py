@@ -103,13 +103,13 @@ def main():
         assert [item["toolSpec"]["name"] for item in offered] == [
             item["name"] for item in catalog]
         assert offered[0]["toolSpec"]["name"] == "follow_match"
-        assert offered[0]["toolSpec"]["inputSchema"]["json"] == catalog[0]["inputSchema"]
+        assert offered[0]["toolSpec"]["inputSchema"]["json"] == agent._model_schema(catalog[0]["inputSchema"])
         system_prompt = model.calls[0]["system"][0]["text"]
         assert "Start following a match" in offered[0]["toolSpec"]["description"]
         assert "Not the score (get_match_state)" in offered[0]["toolSpec"]["description"]
         assert "All available tool descriptions and schemas are already provided" in system_prompt
         assert "Prefer what_did_i_miss for catch-up." in system_prompt
-        assert model.calls[0]["inferenceConfig"]["maxTokens"] <= 220
+        assert 200 <= model.calls[0]["inferenceConfig"]["maxTokens"] <= 400, "room for complete sentences, still voice-sized"
         assert "toolChoice" not in model.calls[0]["toolConfig"], "the model decides whether a tool is needed"
         assert any(item["toolUseId"] == "call-1" for item in _tool_results(model.calls[1]))
         print("ok  Nova receives the full MCP catalog and schemas before selecting tools")
