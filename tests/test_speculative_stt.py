@@ -24,7 +24,7 @@ def main():
     spec = body(src, "startSpec")
     assert "/voice/stt" in spec and "X-Run-Agent" not in spec, "the speculative request is transcription only"
     commit = body(src, "commitSpec")
-    assert "ask(" in commit and "endCapture()" in commit
+    assert "heard(" in commit and "endCapture()" in commit, "the transcript goes through the listening gate before it is asked"
     assert "ask(" not in body(src, "startSpec") and "ask(" not in body(src, "peekCapture")
     quiet = int(re.search(r"var SPEC_QUIET_MS=(\d+)", src).group(1))
     full = [int(n) for n in re.search(r"var silenceLimit=\(words>=4\)\?(\d+):\(words>=2\)\?(\d+):(\d+)", src).groups()]

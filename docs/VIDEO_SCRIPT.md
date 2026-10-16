@@ -1,63 +1,67 @@
 # Demo video: script and shot list
 
+The full guide, with screenshots, is [VIDEO_GUIDE.pdf](VIDEO_GUIDE.pdf) (source: [video/guide.html](video/guide.html)). The prompt
+that generates the explainer animation is [video/ANIMATION_PROMPT.md](video/ANIMATION_PROMPT.md). Screenshots are in
+[video/screenshots/](video/screenshots/). This page is the short version.
+
 Target **2:45**, never over 3:00 (the rule). English, public, **no music, no third-party trademarks** (no club crests,
 broadcast footage, league or feed logos: team names in text are fine). Add captions: the product is for listeners who
 cannot see a screen, so a video that cannot be followed without sound or without captions would undercut it.
 
-The middle of the video is **live**: real questions, asked aloud, with the real wait and the real answer. Nothing is
-scripted on the assistant's side. The answers below say what *kind* of sentence to expect, not its words, because the
-data is live. If an answer is not what you want, do not edit it in: record that question again (the take is the demo).
+## The problem, as the video tells it
 
-## Before recording (20 minutes, the day of)
-
-1. `make run`, then `make sim`. Confirm `make env` shows AWS keys set (model: Nova Pro, the default).
-2. Open `http://127.0.0.1:8765/` in a clean browser window (no bookmarks bar, no other tabs). Zoom to 125%.
-   Allow the microphone once. Press **Alt+D** once to confirm the Dev log opens, then close it.
-3. **Pick two matches** an hour before: `make next-matches` lists what is coming, and the page answers "what's on today?":
-   - **A live match** (for questions 1 to 3 and 6): anything in play on the day, any sport.
-   - **A finished match from the last day** (for questions 4 and 5): ideally football with a penalty, so "was there a
-     penalty" has something to say. Write down both team names and one player from the finished match.
-4. **Warm up, then rehearse.** The first question after the server starts is slower (we measured 9 s for "follow" on a cold start, 2 to 3 s afterwards). Ask any question once off camera right before recording. Then rehearse all seven questions once each. Note any that miss and re-word them; do not change the product to suit the take.
-5. Hide the `.env` file and any terminal that prints keys. Turn off notifications. Close anything with a logo.
-6. Record the screen at 1080p with your own voice as narrator, microphone close, no music bed.
-   Keep the browser's audio in the recording: the assistant's voice is part of the demo.
+Not only blind and low-vision fans. **Anyone who wants a match now, without opening an app, searching or typing**: a driver, a
+cook with wet hands, someone in a meeting, someone who arrived late and wants to know what they missed. For a blind fan,
+asking is not a shortcut, it is the only way in; that is who it is built for first. Open on the everyday moment, arrive at
+the people who need it most. Do not quote a statistic that is not in the repository.
 
 ## The shots
 
-| Time | On screen | Say (narration) |
+| Time | On screen | Say |
 |---|---|---|
-| **0:00 to 0:15** | The simulator idle: blue eye, nothing else. | "A television match is a picture. The score sits in a corner; line-ups and cards flash on graphics nobody reads out. If you can't see the screen, you miss the match. A friend beside you would just tell you. Sideline is that friend." |
-| **0:15 to 0:30** | Split: the terminal with the server log (`MCP endpoint: http://127.0.0.1:8765/mcp`), then back to the page. | "Sideline is an MCP server: thirty tools, live data, and a memory of what each listener has already heard. This page only simulates Alexa+, so you can talk to it. Everything you'll see is the MCP." |
-| **0:30 to 1:55** | The simulator, full screen. **Live, seven questions** (next section). Pause 2 seconds after each answer before the next. | Narrate only in the gaps, in one short sentence each (given below). Stay silent while the assistant is thinking: the wait is the evidence. |
-| **1:55 to 2:15** | Press **Alt+D**: the Dev log. Scroll the last two questions. | "Here is what happened behind each answer: which MCP tool ran, with what arguments, which model chose it, and how long each step took. The model is Amazon Nova Pro on Bedrock." |
-| **2:15 to 2:30** | Terminal: `python3 scripts/check_with_sdk.py` (a virtualenv with `mcp` installed, already prepared). Show the last two lines. | "And it isn't tied to our page: the official MCP Python SDK connects, lists all thirty tools and calls them." |
-| **2:30 to 2:45** | A plain text card (white on dark, no logos): the repository address, "52 offline test suites · 27-entry friction log · routing 77/79 on Nova Pro". | "Built on Amazon Bedrock, Polly and DynamoDB. The tests, the friction log and the limits are all in the repository. It isn't on real Alexa+ yet, because that tooling is partner-only; it is built to be hosted and connected when it is." |
+| **0:00 to 0:20** | Three quick cuts (hands in a kitchen, a car dashboard, a white cane), then the idle eye. | "You want the score. So you stop what you're doing, unlock your phone, open an app, search, scroll. Or you just ask. If you can't see a screen, asking isn't a shortcut, it's the only way in. Sideline is the friend who just tells you." |
+| **0:20 to 0:32** | Terminal: `MCP endpoint: http://127.0.0.1:8765/mcp`, then the page. | "Sideline is an MCP server: thirty tools, live data, and a memory of what each listener has heard. This page only simulates Alexa+ so you can talk to it. Everything you see is the MCP." |
+| **0:32 to 1:20** | **Football, live voice** (below). | One short sentence in each gap. Stay silent while she thinks. |
+| **1:20 to 1:48** | **"Any game" montage**: Knicks, Broncos, then hockey or baseball, then a basketball line-up. A small label types the sport; the clock changes its words (`Q4`, `Final`, `P2`). | "Same server. Different game. Basketball counts in quarters, hockey in periods, baseball in innings. We didn't build five apps: the tools and the screen follow the sport." |
+| **1:48 to 2:16** | The explainer animation. | Its own narration (in the prompt file). |
+| **2:16 to 2:30** | Alt+D: the Dev log, last answer. | "Every answer is traceable: which tool, which arguments, how long, how many feed requests." |
+| **2:30 to 2:48** | Plain card: the repository address, "61 offline test suites, 28-entry friction log, routing 77/79 on Nova Pro", then "Amazon Bedrock, Amazon Polly, Amazon DynamoDB". | "Built on Amazon Bedrock, Polly and DynamoDB. The tests, the friction log and the limits are in the repository. It isn't on real Alexa+ yet, because that tooling is partner-only; it is built to be hosted and connected when it is." |
 
-Leave at least 5 seconds of margin: if the live section runs long, cut the SDK shot, not a question.
+Leave 5 seconds of slack. If you run long, cut the Dev log or part of the montage, never a football question.
 
-## The live section (0:30 to 1:55): seven questions
+## Before recording (20 minutes, the day of)
 
-Ask each one out loud, hands off the keyboard. Say the team or player names you wrote down.
+1. `lsof -iTCP:8765 -sTCP:LISTEN` should print nothing. Then `make run`, then `make sim`. Confirm `make env` shows AWS keys set (model: Nova Pro).
+2. Open `http://127.0.0.1:8765/` in a clean browser window (no bookmarks bar, one tab). Zoom to 125%. Allow the microphone once.
+   Press **Alt+D** to confirm the Dev log opens, then close it. Settings stay at their defaults.
+3. **Pick the matches** an hour before: `make next-matches` lists what is coming; the page answers "what's on today?":
+   - **A football match** from the last day (safest), or one in play. Write down both team names and two players.
+   - **One match each** in basketball, American football and hockey or baseball (`make next-matches` shows them).
+4. **Warm up, then rehearse.** The first question after the server starts is slower. Ask one question off camera, then rehearse every
+   question once. Re-word any that miss; do not change the product to suit the take.
+5. Hide `.env` and any terminal that prints keys. Turn off notifications. Close anything with a logo.
+6. Record the screen at 1080p with your own voice as narrator, microphone close, no music. Keep the browser's audio.
 
-| # | Ask (about) | Expect (the kind of answer) | Gap line to narrate |
+## The live football section (0:32 to 1:20)
+
+Ask each question out loud, hands off the keyboard. The answers say what *kind* of sentence to expect, not its words: the data is live.
+If an answer is not what you want, do not edit it in: record that question again. (Names below: Lyon 3-2 Crystal Palace, Europa League, 15 October 2026.)
+
+| # | Say | Expect | Gap line |
 |---|---|---|---|
-| 1 | "Follow *[team in the live match]*." | One sentence: who is playing, the score, the minute. The score on screen bumps into place. | "I just name a team. It finds the match." |
-| 2 | "What did I miss?" (right away) | Either "nothing new" or a short catch-up of what happened since it last told me. | "It remembers what I've heard." |
-| 3 | "What's the score?" about 30 seconds later, then "What did I miss?" again | The score, then only what is *new* since question 2: it does not repeat itself. | "Ask again later and it only tells me what's new. That memory lives on the server." |
-| 4 | "Tell me more about *[player from the finished match]*." | Name, nationality, age, position and club, then an offer: "do you want his season or this match?" It does not invent titles. | "It says what it knows, and offers more." |
-| 5 | "Was there a penalty in the *[finished match]*, and what were the stats?" | Who took it, the result and the minute, then a short stats run (possession, shots, corners, fouls). | "Straight facts, in an order you can follow by ear." |
-| 6 | "My TV is about forty seconds behind." then "What's the score?" | It confirms the delay; the score it gives holds back anything your picture hasn't shown yet. | "It will not spoil a goal your TV hasn't shown yet." |
-| 7 | "How is *[a made-up team, e.g. Zorbax United]* doing?" | A plain sentence that it can't find that team, with what to try. If anything goes wrong: "Sorry, an error occurred. Please try rephrasing your question for a better search, or try again later." | "When it can't help, it says so. It never guesses." |
+| 1 | "Follow Lyon." | One sentence with the score. The strip appears at the top with the sport, the clock and the date; the eye stays clear. | "I just name a team." |
+| 2 | "Who scored?" | The goals in order, with assists. | "Straight facts." |
+| 3 | "Who assisted Pino's goal?" | One sentence naming the assist. | "It answers the question I asked." |
+| 4 | "Show me the line-ups." | The pitch: home left, away right, shapes, goalkeepers, benches, the ground and date above it. | "A whole screen from one sentence." |
+| 5 | "My TV is about forty seconds behind." then "What's the score?" | It confirms; the score holds back anything your picture has not shown. | "It won't spoil a goal your TV hasn't shown." |
+| 6 | (live only) say nothing for 12 s | Commentary starts by itself. Say "stop" to interrupt. | "It keeps me posted, and I can interrupt." |
 
 Notes for the take:
-- A model answer takes roughly **2 to 4 seconds** once warm (a plain score can be under a second, because those skip the model); after 6 seconds the page shows "Still working on it…". Do not cut it:
-  show the deep-blue "thinking" eye and say nothing. If it exceeds 8 seconds, stop, check the terminal, and retake.
-- Question 3 needs about 30 seconds of real match time between 2 and 3. Use the wait to narrate "the match is moving".
-- If the live match ends mid-recording, swap in the other match; do not fake a clock.
-- Question 6 also proves the guard: a total such as the stats table is held back for a delayed listener ("up to the
-  second, so it could get ahead of your picture"). If you hear that sentence, it is working.
-- Do not say, or put on a card, anything you have not seen: no number of users, no claim of testing with blind users
-  beyond what the team will state first-hand, no claim of running on real Alexa+.
+- A model answer takes about **2 to 4 seconds** once warm (a plain score is under a second); after 6 seconds the page shows "Still working on it…". Do not cut it.
+- If the match is not live, skip question 6 and say "and when a match is in play, it keeps me posted". Never fake a clock.
+- If a "Sorry, an error occurred" appears, the model account was throttled: wait 20 seconds and ask again.
+- Question 5 also proves the guard: a total such as the stats table is held back for a delayed listener.
+- Do not say, or put on a card, anything you have not seen: no number of users, no claim of testing with blind users beyond what the team will state first-hand, no claim of running on real Alexa+, no claim that it is hosted on AWS.
 
 ## After recording
 
@@ -69,6 +73,5 @@ Notes for the take:
 
 ## If a live answer goes wrong on camera
 
-Say so and retake; a faked take is worse than a second one. If the feed is down, record question 1 to 3 on a different
-sport, or use `python3 scripts/ask.py` for the finished match. Never speed up or splice an answer so it looks faster
-than it was: the latency numbers in the docs are measured, and the video should match them.
+Say so and retake; a faked take is worse than a second one. If the feed is down, use a finished match, or `python3 scripts/ask.py`.
+Never speed up or splice an answer so it looks faster than it was: the latency numbers in the docs are measured, and the video should match them.

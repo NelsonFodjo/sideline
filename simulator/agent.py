@@ -45,8 +45,14 @@ SYSTEM = (
     "If a tool fails, say briefly that you couldn't get it just now; never read out errors, ids, field names "
     "or code. "
     "Reply only with the words to be spoken: 1 to 3 short, complete sentences unless asked for more; no lists, "
-    "markdown, emojis or reasoning. Questions about you or what you cover, answer directly."
+    "markdown, emojis or reasoning. Questions about you or what you cover, answer directly. "
+    "Rules and word meanings (offside, VAR, formations) you may explain briefly. What the tools lack (honours, "
+    "stadium size, weather, past winners): say you don't have it, never answer with a list of matches."
 )
+
+# For a rule or a meaning, a model with no tools and no match to talk about: short, plain, spoken.
+_GENERAL_SYSTEM = ("You answer a sports fan's question about the rules of a game or what a word means, in one or two plain "
+                   "spoken sentences, with no lists or markdown. You have no tools and no live data; do not mention either.")
 
 # The tools whose call changes what the listener has been told or what they follow. A shortcut must never run
 # one of them: if its result is then not spoken, the change has still happened (AG-01).
@@ -55,16 +61,51 @@ STATEFUL_TOOLS = frozenset(("what_did_i_miss", "get_lineups", "get_event_detail"
 
 _SOCIAL = re.compile(r"^\W*(hi|hello|hey|thanks|thank you|cheers|ok|okay|great|nice|cool|bye|goodbye|good night|"
                     r"yes|yeah|yep|no|nope|never mind|nevermind|stop|cancel)\W*$", re.I)
-_FACT_OPENER = re.compile(r"\b(who|whom|whose|when|where|which|how (many|much|old|long|far|tall)|"
+_FACT_OPENER = re.compile(r"\b(who|whom|whose|when|where|which|how (many|much|old|long|far|tall|big)|"
                           r"what time|what('s| is| was| were) (the|their|his|her|its)|tell me (more )?about|"
-                          r"more about|did (they|he|she|we)|has (he|she|they)|have (they|we)|what did i miss|catch me up|"
+                          r"more about|did (they|he|she|we)|has (he|she|they)|have (they|we)|(was|were|is|are) there (a|an|any|another)|what did i miss|catch me up|"
                           r"what('s| has| have)? ?happened|anything (new|else)|any(thing)? update|the score|"
-                          r"how('s| is) the (game|match) going)\b", re.I)
+                          r"how('s| is) the (game|match) going|what('s| is| else is| else's) on)\b", re.I)
 
 
 _CONVERSATIONAL = re.compile(
     r"\b(how (?:are you|are you doing|are things|is it going|r u|do you do)|how does (?:it|this) work|"
     r"what can you do|who are you|who made you|how do you work)\b", re.I)
+
+
+# The rules of the game and what words mean: stable knowledge, answered without a tool (the feed has none of it).
+_GENERAL_KNOWLEDGE = re.compile(
+    r"\b(offside rule|the rules?\b|what does (?:var|xg|btts|ft|ht) (?:stand for|mean)|what is (?:a|an|the) "
+    r"(?:offside|var|formation|false nine|clean sheet|hat.?trick|nutmeg|assist|corner|penalty shoot.?out)|"
+    r"what(?:'s| is) a [\d-]+ formation|how many (?:substitutions?|subs|players|minutes) (?:are|is|can)|"
+    r"how long is a (?:football|soccer|basketball|hockey|baseball)? ?(?:match|game)|explain (?:the )?(?:offside|var)|"
+    r"what does (?:era|rbi|obp|ops|whip|mvp|qb|td|nba|nfl|nhl|mlb|mls|ppg|xa|pk|ot|erm) (?:mean|stand for)\b|"
+    r"what(?:'s| is) the difference between (?:football|soccer) and (?:american football|football|soccer))", re.I)
+
+
+# Things a fan wonders about that the feed does not carry. Said plainly and at once, with what she can do instead: sending
+# them to a tool only ever produced a list of matches, and answering from memory would be a guess.
+_OUT_OF_SCOPE = [
+    (re.compile(r"\b(trophies|trophy|honou?rs|titles? (?:has|have|did)|how many (?:league |cup |champions league |world cup )?(?:titles|cups)|"
+                r"how many times (?:has|have|did) .* won)\b", re.I),
+     "I don't have honours or trophies: my feed doesn't carry them. I can tell you where a team stands this season."),
+    (re.compile(r"\b(stadium|ground|arena)\b.*\b(capacity|seats|how big|how many (?:people|fans))\b|\b(capacity|how big)\b.*\b(stadium|ground|arena)\b|"
+                r"\bhow big (?:is|was) .{0,30}(?:stadium|ground|arena)\b", re.I),
+     "I don't have stadium sizes. I can tell you which ground a match is at, and where."),
+    (re.compile(r"\b(best|greatest) (?:player|footballer|team|manager|coach)s?\b.*\b(world|ever|all time|history)\b|\bgoat\b", re.I),
+     "That's a matter of opinion and I don't rank players across the world. I can tell you who stood out in a match."),
+    (re.compile(r"\bwho won\b.*\b(last year|last season|in (?:19|20)\d\d|back in)\b|\b(?:last year's|last season's) (?:winners?|champions?)\b", re.I),
+     "I don't have past seasons: my feed covers this season's tables, results and fixtures."),
+]
+
+
+def _out_of_scope(question):
+    """The plain answer to a question the feed cannot carry, or None."""
+    q = question or ""
+    for pattern, said in _OUT_OF_SCOPE:
+        if pattern.search(q):
+            return said
+    return None
 
 
 def _asks_for_a_fact(question):
@@ -73,7 +114,7 @@ def _asks_for_a_fact(question):
     Only these are held to a tool when the model first answers without one; "are you still around?" is left to the model.
     """
     q = (question or "").strip()
-    if not q or _SOCIAL.match(q):
+    if not q or _SOCIAL.match(q) or _GENERAL_KNOWLEDGE.search(q):
         return False
     if _CONVERSATIONAL.search(q):
         if not re.search(r"\b(score|scores|match|matches|game|games|fixture|fixtures|table|standings|lineup|lineups|goal|goals|who scored|who won)\b", q, re.I):
@@ -966,6 +1007,27 @@ def _text_only(messages):
 _TRACE = threading.local()
 
 
+def note(**fields):
+    """Something worth showing in the Dev log about how this turn was handled (the shortlist, a retry, a shortcut)."""
+    if not hasattr(_TRACE, "notes"):
+        _TRACE.notes = {}
+    _TRACE.notes.update(fields)
+
+
+def note_tool_meta(meta):
+    _TRACE.tool_meta = meta or {}
+
+
+def _trim_json(obj, cap=1800):
+    if not obj:
+        return ""
+    try:
+        text = json.dumps(obj, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        text = str(obj)
+    return text if len(text) <= cap else text[:cap - 1] + "\u2026"
+
+
 def _trace_calls():
     """The model calls made so far for this question: each one's time, tokens and stop reason. For the developer log."""
     if not hasattr(_TRACE, "calls"):
@@ -1017,15 +1079,20 @@ def run(ctx, question, listener_id, tool_runner, interrupted=None,
     Every failure leaves as AgentUnavailable, so /agent/chat answers 503 and never a 500 (AG-14).
     """
     _trace_calls()[:] = []
+    _TRACE.notes = {}
     started = time.time()
     try:
         result = _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_instructions)
         if isinstance(result, dict):
             from sideline.language import bedrock
             result["debug"] = {"ms": round((time.time() - started) * 1000), "model": getattr(bedrock, "MODEL_ID", ""),
-                               "model_calls": list(_trace_calls()),
+                               "model_calls": list(_trace_calls()), "notes": dict(getattr(_TRACE, "notes", {})),
                                "tools": [{"name": r.get("name"), "args": r.get("args"), "ms": r.get("ms"),
-                                          "ok": not r.get("is_error"), "declined": bool(r.get("declined"))}
+                                          "ok": not r.get("is_error"), "declined": bool(r.get("declined")),
+                                          "spoken": (r.get("spoken") or "")[:700],
+                                          "data": _trim_json(r.get("structured") or r.get("detail")),
+                                          "reason": (r.get("detail") or {}).get("reason"),
+                                          "meta": r.get("meta") or {}}
                                          for r in result.get("tool_results") or []]}
         return result
     except AgentUnavailable:
@@ -1062,16 +1129,34 @@ def _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_in
     if scope:
         return _forget(ctx, scope, listener_id, tool_runner, tool_specs)
 
-    if not scripted and not interrupted and not pending:
-        conv_answer = _match_conversational(question)
+    if not scripted and not interrupted:
+        conv_answer = _match_conversational(question)           # "what sports do you cover" is never an answer to an offer
         if conv_answer:
             CONVERSATIONS.remember(listener_id, question, conv_answer)
             return {"text": conv_answer, "generated_by": "conversational", "tool_results": []}
+    if not scripted and not interrupted and not pending:
         fast_result = _try_fast_path(question, listener_id, tool_runner, tool_specs, ctx=ctx)
         if fast_result is not None:
             return fast_result
 
+    if not scripted:
+        said_scope = _out_of_scope(question)
+        if said_scope:
+            note(out_of_scope=True)
+            CONVERSATIONS.remember(listener_id, question, said_scope)
+            return {"text": said_scope, "generated_by": "scope", "tool_results": []}
+    if not scripted and _GENERAL_KNOWLEDGE.search(question):
+        # A rule or what a word means: answered on its own, with no tools and no match history to pull it off course
+        # (a model that is shown get_fixtures will sometimes answer "what does VAR stand for" with the day's matches).
+        general = _ask(_GENERAL_SYSTEM, [{"role": "user", "content": [{"text": asked}]}])
+        said = _answer_text(general, general.get("output", {}).get("message") or {}, 3)
+        if not said or re.search(r"\bAction:|\bget_\w+\(|\{\"", said):          # a model that tries to call a tool it was not given
+            said = "I don't have that to hand. I can give you scores, fixtures, line-ups, tables and player facts."
+        note(general_knowledge=True)
+        CONVERSATIONS.remember(listener_id, question, said)
+        return {"text": said, "generated_by": "nova", "model": getattr(bedrock, "MODEL_ID", ""), "tool_results": []}
     active_tools = mcp_tools if scripted else _select_candidate_tools(asked, mcp_tools)
+    note(tools_offered=len(active_tools), tools_total=len(mcp_tools), session_turns=len(messages) // 2)
     tool_config = {"tools": _bedrock_tools(active_tools)}
     messages.append({"role": "user", "content": [{"text": asked}]})
 
@@ -1108,18 +1193,23 @@ def _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_in
                     if isinstance(block, dict) and isinstance(block.get("toolUse"), dict)]
         if not requests:
             text = _answer_text(response, message, max_sentences) or _spoken_from_tools(tool_results)
+            if not text and not tool_results and tool_forced:
+                # Held to a tool that fits nothing (trophies, say) and nothing came of it: say so, plainly.
+                text = "I don't have that. I can give you scores, fixtures, line-ups, tables and player facts."
             if not text:
                 raise AgentUnavailable("Bedrock returned no answer text")
             if not tool_results and not tool_forced and _asks_for_a_fact(question):
                 # A fact about a match, team or player must come from a tool, never from what the model remembers
                 # ("tell me more about Nuno Mendes" was once answered from memory, with no tool called).
                 tool_forced = True
+                note(forced_tool_retry=True)
                 messages.append({"role": "user", "content": [{"text": (
                     "[Do not answer from memory. Call the tool that fits what the listener asked, and say only what it "
                     "returns.]")}]})
                 continue
             if _denies_live(text) and not tool_results and not live_retried:
                 live_retried = True
+                note(retried="the model said it had no live data")
                 messages.append({"role": "user", "content": [{"text": (
                     "[You do have live and completed match data: your tools (like get_fixtures) read it. Call the right tool for what "
                     "the listener asked, and answer directly from its result. Never deny having access.]")}]})
@@ -1232,9 +1322,11 @@ def _execute_single_request(request, tool_specs, question, listener_id, tool_run
 def _execute_tool(name, args, listener_id, tool_runner, tool_specs=None):
     """_run_tool, with the arguments and the time it took noted on the record (for the developer log)."""
     started = time.time()
+    _TRACE.tool_meta = {}
     content, is_error, record = _run_tool(name, args, listener_id, tool_runner, tool_specs)
     record["args"] = args if isinstance(args, dict) else None
     record["ms"] = round((time.time() - started) * 1000)
+    record["meta"] = dict(getattr(_TRACE, "tool_meta", None) or {})
     return content, is_error, record
 
 

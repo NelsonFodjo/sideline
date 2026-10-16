@@ -51,6 +51,7 @@ from .errors import (ERROR_SPOKEN, InvalidParams, InvalidRequest, MethodNotFound
                      RpcError, ToolError)
 from .registry import by_name, public_tools
 from .schema import validate
+from . import trace
 
 LOG = logging.getLogger("sideline.mcp")
 
@@ -232,8 +233,31 @@ class Dispatcher:
             }
 
         started = time.time()
+        via = "agent" if getattr(_REQUEST, "agent", False) else "client"
+        trace.take()                                     # nothing left over from another call on this thread
+
+        def meta_of(rec, took_ms):
+            m = {"tool": name, "took_ms": round(took_ms), "via": via}
+            if rec:
+                m["feed"] = {"requests": rec.get("feed_requests", 0), "cache_hits": rec.get("cache_hits", 0)}
+                if rec.get("state_changes"):
+                    m["state_changes"] = rec["state_changes"]
+            return m
+
+        def failed(outcome, reason, spoken, structured, problem=None):
+            took_ms = (time.time() - started) * 1000
+            rec = trace.take()
+            _log_call(name, args, listener_id, via, outcome, took_ms, spoken, structured, rec)
+            fields = dict(tool=name, args=args, ok=False, reason=reason, spoken=spoken, ms=round(took_ms),
+                          listener=listener_id, via=via, feed=rec.get("feed_requests"), cache_hits=rec.get("cache_hits"))
+            if problem:
+                fields["problem"] = problem[:200]
+            audit.record("tool", **fields)
+            return {"content": [{"type": "text", "text": spoken}], "structuredContent": structured, "isError": True,
+                    "_meta": {"sideline": meta_of(rec, took_ms)}}
+
         try:
-            if getattr(_REQUEST, "agent", False):
+            if via == "agent":
                 result = self.run_tool(name, args, listener_id, agent=True)
             else:
                 result = self.run_tool(name, args, listener_id)
@@ -241,52 +265,33 @@ class Dispatcher:
             # The data feed refused or is down (bad key, quota, plan, network).
             # A listener cannot act on a protocol error; they can on this.
             LOG.warning("tool %s: data feed unavailable: %s", name, e)
-            audit.record("tool", tool=name, args=args, ok=False, reason="provider_unavailable", problem=str(e),
-                         ms=round((time.time() - started) * 1000), listener=listener_id,
-                         via="agent" if getattr(_REQUEST, "agent", False) else "client")
-            return {
-                "content": [{"type": "text", "text": ERROR_SPOKEN}],
-                "structuredContent": {"reason": "provider_unavailable",
-                                      "problem": str(e)},
-                "isError": True,
-            }
+            return failed("feed down", "provider_unavailable", ERROR_SPOKEN,
+                          {"reason": "provider_unavailable", "problem": str(e)}, problem=str(e))
         except ToolError as e:
             # Not a protocol failure. Hand the model something it can say.
-            LOG.info("tool %s declined: %s", name, e.spoken)
-            audit.record("tool", tool=name, args=args, ok=False, reason=(e.detail or {}).get("reason"),
-                         spoken=e.spoken, ms=round((time.time() - started) * 1000), listener=listener_id,
-                         via="agent" if getattr(_REQUEST, "agent", False) else "client")
-            return {
-                "content": [{"type": "text", "text": e.spoken}],
-                "structuredContent": e.detail,
-                "isError": True,
-            }
+            return failed("declined", (e.detail or {}).get("reason"), e.spoken, e.detail)
         except RpcError:
             raise
         except Exception as e:                           # noqa: BLE001 - a crash in a tool is the tool's, not the protocol's
             LOG.exception("tool %s failed: %s", name, e)
-            audit.record("tool", tool=name, args=args, ok=False, reason="tool_error", problem=str(e)[:200],
-                         ms=round((time.time() - started) * 1000), listener=listener_id,
-                         via="agent" if getattr(_REQUEST, "agent", False) else "client")
-            return {
-                "content": [{"type": "text", "text": ERROR_SPOKEN}],
-                "structuredContent": {"reason": "tool_error", "problem": type(e).__name__},
-                "isError": True,
-            }
+            return failed("error", "tool_error", ERROR_SPOKEN,
+                          {"reason": "tool_error", "problem": type(e).__name__}, problem=str(e))
         took = (time.time() - started) * 1000
-        LOG.info("tool %s ok in %.0fms", name, took)
-        audit.record("tool", tool=name, args=args, ok=True, ms=round(took), listener=listener_id,
-                     spoken=result[0], via="agent" if getattr(_REQUEST, "agent", False) else "client")
+        rec = trace.take()
 
         # Every tool returns (spoken_text, structured, ui_payload).
         spoken, structured, ui = result
+        _log_call(name, args, listener_id, via, "ok", took, spoken, structured, rec)
+        audit.record("tool", tool=name, args=args, ok=True, ms=round(took), listener=listener_id, spoken=spoken, via=via,
+                     feed=rec.get("feed_requests"), cache_hits=rec.get("cache_hits"),
+                     state_changes=rec.get("state_changes") or None)
         out = {
             "content": [{"type": "text", "text": spoken}],
             "structuredContent": structured,
         }
-        # Our own namespace: the card data the simulator can draw. It is not an MCP Apps
+        # Our own namespace: the card data the simulator can draw, and what the call cost. It is not an MCP Apps
         # resource (none is served), so it does not use that extension's `ui` key.
-        meta = {"tool": name, "took_ms": round(took)}
+        meta = meta_of(rec, took)
         if ui:
             meta["ui"] = ui
         out["_meta"] = {"sideline": meta}
@@ -338,6 +343,60 @@ def interrupted(value):
         return None
     text = " ".join(unquote(value).split())[:MAX_INTERRUPTED_CHARS].strip()
     return text or None
+
+
+def _short(text, n):
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= n else text[:n - 1] + "\u2026"
+
+
+def _log_call(name, args, listener_id, via, outcome, took_ms, spoken, structured, rec):
+    """One readable block per tool call: what was asked, what came back, what it cost and what it changed.
+    INFO shows the call and its words; DEBUG adds the full structured result."""
+    try:
+        args_text = json.dumps(args, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        args_text = str(args)
+    lines = ["tool %s  [%s, %.0f ms]  listener=%s via=%s" % (name, outcome, took_ms, listener_id, via),
+             "    args    %s" % _short(args_text, 300),
+             "    said    %s" % _short(spoken, 300)]
+    if rec:
+        lines.append("    feed    %d request%s, %d answered from what was kept"
+                     % (rec.get("feed_requests", 0), "" if rec.get("feed_requests", 0) == 1 else "s", rec.get("cache_hits", 0)))
+        changes = rec.get("state_changes") or {}
+        if changes:
+            lines.append("    state   " + "; ".join("%s %s -> %s" % (k, v[0], v[1]) for k, v in changes.items()))
+    if LOG.isEnabledFor(logging.DEBUG) and structured:
+        try:
+            lines.append("    data    %s" % _short(json.dumps(structured, ensure_ascii=False, default=str), 4000))
+        except (TypeError, ValueError):
+            pass
+    (LOG.warning if outcome in ("error", "feed down") else LOG.info)("\n".join(lines))
+
+
+def _log_turn(question, result, took_ms, listener_id):
+    """One readable block per agent turn: how it was handled, the model calls with their tokens, the tools, the answer."""
+    d = (result or {}).get("debug") or {}
+    lines = ["turn  \u201c%s\u201d  [%.1f s]  listener=%s  route=%s" % (_short(question, 120), took_ms / 1000.0, listener_id,
+                                                                    (result or {}).get("generated_by"))]
+    calls = d.get("model_calls") or []
+    if calls:
+        lines.append("    model   %s: %s" % (d.get("model") or "?", " + ".join(
+            ("%s ms (%s, %s in / %s out)" % (c.get("ms"), c.get("stop"), c.get("input_tokens"), c.get("output_tokens")))
+            if not c.get("error") else "failed (%s)" % c["error"] for c in calls)))
+    else:
+        lines.append("    model   not called (answered by a shortcut)")
+    for t in d.get("tools") or []:
+        feed = (t.get("meta") or {}).get("feed") or {}
+        lines.append("    tool    %s %s  %s ms  %s%s" % (
+            t.get("name"), _short(json.dumps(t.get("args") or {}, ensure_ascii=False, default=str), 120), t.get("ms"),
+            "ok" if t.get("ok") else ("declined" if t.get("declined") else "error"),
+            ("  feed %s req" % feed.get("requests")) if feed else ""))
+    notes = d.get("notes") or {}
+    if notes:
+        lines.append("    notes   " + ", ".join("%s=%s" % (k, v) for k, v in notes.items()))
+    lines.append("    answer  %s" % _short((result or {}).get("text"), 300))
+    LOG.info("\n".join(lines))
 
 
 def _optional(name):
@@ -729,6 +788,7 @@ class Handler(BaseHTTPRequestHandler):
                 return None, (503, "Nova agent unavailable")
             LOG.exception("Nova agent request failed")
             return None, (500, "Nova agent request failed")
+        _log_turn(question, result, (time.time() - asked_at) * 1000, listener_id)
         audit.record("agent", question=question, ok=True, answer=result.get("text"),
                      tools=[t.get("name") for t in result.get("tool_results") or []],
                      generated_by=result.get("generated_by"), understood=result.get("understood"),

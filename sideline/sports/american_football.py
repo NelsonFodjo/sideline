@@ -13,6 +13,8 @@ class AmericanFootball(SportProfile):
     game = "game"
     domain = "football game"
     regulation_minutes = 4 * QUARTER
+    period_minutes = QUARTER
+    period_word = "quarter"
     all_kinds = ("touchdown", "field_goal", "safety", "turnover", "interception",
                  "fumble", "timeout", "review", "score")
 

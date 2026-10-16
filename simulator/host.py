@@ -34,7 +34,11 @@ def attach(srv, ctx, token=""):
         def run_agent_tool(name, args, tool_listener_id):
             # Nova's tool calls go through our own /mcp endpoint, as an external
             # client's would: the simulator really is an MCP client.
-            return bridge.call(name, args, tool_listener_id, agent=True)
+            try:
+                return bridge.call(name, args, tool_listener_id, agent=True)
+            finally:
+                from .agent import note_tool_meta
+                note_tool_meta(bridge.last_meta())             # for the Dev log: the feed requests and state changes
 
         # What did they mean? A short answer to a choice we just offered is
         # snapped to the closest option, and a misheard name from this match is

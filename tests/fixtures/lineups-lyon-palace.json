@@ -1,0 +1,363 @@
+{
+ "fixture_id": "401915566",
+ "lineups": {
+  "Lyon": {
+   "formation": "4-1-2-1-2",
+   "xi": [
+    "Dominik Greif",
+    "Ruben Kluivert",
+    "Felix Bacher",
+    "Tyler Morton",
+    "Abner",
+    "Zachary Athekame",
+    "Khalis Merah",
+    "Corentin Tolisso",
+    "Noah Nartey",
+    "Keito Nakamura",
+    "Ernest Nuamah"
+   ],
+   "bench": [
+    "Julien Duranville",
+    "Justin Bengui Joao",
+    "R\u00e9my Descamps",
+    "Moussa Niakhat\u00e9",
+    "Steeve Kango",
+    "Kail Boudache",
+    "R\u00e9mi Himbert",
+    "Pavel Sulc",
+    "Mads Bidstrup",
+    "Noham Kamara",
+    "Tanner Tessmann",
+    "Clinton Mata"
+   ],
+   "numbers": {
+    "Dominik Greif": "1",
+    "Ruben Kluivert": "21",
+    "Felix Bacher": "20",
+    "Tyler Morton": "23",
+    "Abner": "16",
+    "Zachary Athekame": "13",
+    "Khalis Merah": "18",
+    "Corentin Tolisso": "8",
+    "Noah Nartey": "99",
+    "Keito Nakamura": "11",
+    "Ernest Nuamah": "7",
+    "Julien Duranville": "24",
+    "Justin Bengui Joao": "25",
+    "R\u00e9my Descamps": "40",
+    "Moussa Niakhat\u00e9": "19",
+    "Steeve Kango": "37",
+    "Kail Boudache": "26",
+    "R\u00e9mi Himbert": "45",
+    "Pavel Sulc": "10",
+    "Mads Bidstrup": "2",
+    "Noham Kamara": "85",
+    "Tanner Tessmann": "6",
+    "Clinton Mata": "22"
+   },
+   "positions": {
+    "Dominik Greif": "goalkeeper",
+    "Ruben Kluivert": "center left defender",
+    "Felix Bacher": "center right defender",
+    "Tyler Morton": "defensive midfielder",
+    "Abner": "left back",
+    "Zachary Athekame": "right back",
+    "Khalis Merah": "attacking midfielder",
+    "Corentin Tolisso": "left midfielder",
+    "Noah Nartey": "right midfielder",
+    "Keito Nakamura": "center left forward",
+    "Ernest Nuamah": "center right forward",
+    "Julien Duranville": "substitute",
+    "Justin Bengui Joao": "substitute",
+    "R\u00e9my Descamps": "substitute",
+    "Moussa Niakhat\u00e9": "substitute",
+    "Steeve Kango": "substitute",
+    "Kail Boudache": "substitute",
+    "R\u00e9mi Himbert": "substitute",
+    "Pavel Sulc": "substitute",
+    "Mads Bidstrup": "substitute",
+    "Noham Kamara": "substitute",
+    "Tanner Tessmann": "substitute",
+    "Clinton Mata": "substitute"
+   },
+   "match_stats": {
+    "Dominik Greif": {
+     "appearances": 1,
+     "goalsConceded": 2,
+     "saves": 2
+    },
+    "Ruben Kluivert": {
+     "appearances": 1,
+     "foulsCommitted": 2,
+     "goalsConceded": 2
+    },
+    "Felix Bacher": {
+     "appearances": 1,
+     "goalsConceded": 2
+    },
+    "Tyler Morton": {
+     "appearances": 1,
+     "foulsSuffered": 2,
+     "goalsConceded": 2
+    },
+    "Abner": {
+     "appearances": 1,
+     "goalsConceded": 2,
+     "shotsOnTarget": 1,
+     "totalShots": 1
+    },
+    "Zachary Athekame": {
+     "appearances": 1,
+     "foulsSuffered": 1,
+     "goalsConceded": 2,
+     "totalShots": 1
+    },
+    "Khalis Merah": {
+     "appearances": 1,
+     "goalsConceded": 1
+    },
+    "Corentin Tolisso": {
+     "appearances": 1,
+     "foulsSuffered": 1,
+     "goalsConceded": 2,
+     "shotsOnTarget": 1,
+     "totalGoals": 1,
+     "totalShots": 2
+    },
+    "Noah Nartey": {
+     "appearances": 1,
+     "foulsSuffered": 1,
+     "goalsConceded": 1
+    },
+    "Keito Nakamura": {
+     "appearances": 1,
+     "foulsCommitted": 1,
+     "foulsSuffered": 1,
+     "yellowCards": 1,
+     "goalsConceded": 2,
+     "goalAssists": 2,
+     "totalShots": 2
+    },
+    "Ernest Nuamah": {
+     "appearances": 1,
+     "foulsCommitted": 1,
+     "foulsSuffered": 1,
+     "goalsConceded": 1,
+     "shotsOnTarget": 1,
+     "totalGoals": 1,
+     "totalShots": 3
+    },
+    "Julien Duranville": {},
+    "Justin Bengui Joao": {},
+    "R\u00e9my Descamps": {},
+    "Moussa Niakhat\u00e9": {},
+    "Steeve Kango": {},
+    "Kail Boudache": {
+     "appearances": 1,
+     "subIns": 1,
+     "goalsConceded": 1,
+     "totalShots": 1
+    },
+    "R\u00e9mi Himbert": {},
+    "Pavel Sulc": {
+     "appearances": 1,
+     "subIns": 1,
+     "goalsConceded": 1,
+     "shotsOnTarget": 1,
+     "totalGoals": 1,
+     "totalShots": 1
+    },
+    "Mads Bidstrup": {
+     "appearances": 1,
+     "subIns": 1
+    },
+    "Noham Kamara": {},
+    "Tanner Tessmann": {
+     "appearances": 1,
+     "subIns": 1,
+     "goalsConceded": 1
+    },
+    "Clinton Mata": {}
+   },
+   "coach": null
+  },
+  "Crystal Palace": {
+   "formation": "3-4-2-1",
+   "xi": [
+    "Walter Ben\u00edtez",
+    "Axel Disasi",
+    "Jaydee Canvot",
+    "Chris Richards",
+    "Quinten Timber",
+    "Adam Wharton",
+    "Tyrick Mitchell",
+    "\u00d3scar Mingueza",
+    "J\u00f8rgen Strand Larsen",
+    "Y\u00e9remy Pino",
+    "Isma\u00efla Sarr"
+   ],
+   "bench": [
+    "Anan Khalaili",
+    "Dar\u00edo Osorio",
+    "Eddie Nketiah",
+    "Will Hughes",
+    "Dean Benamar",
+    "Dwight McNeil",
+    "Honest Ahanor",
+    "Daichi Kamada",
+    "Remi Matthews",
+    "Lucca Benetton"
+   ],
+   "numbers": {
+    "Walter Ben\u00edtez": "44",
+    "Axel Disasi": "5",
+    "Jaydee Canvot": "6",
+    "Chris Richards": "26",
+    "Quinten Timber": "23",
+    "Adam Wharton": "20",
+    "Tyrick Mitchell": "3",
+    "\u00d3scar Mingueza": "30",
+    "J\u00f8rgen Strand Larsen": "22",
+    "Y\u00e9remy Pino": "10",
+    "Isma\u00efla Sarr": "7",
+    "Anan Khalaili": "25",
+    "Dar\u00edo Osorio": "24",
+    "Eddie Nketiah": "9",
+    "Will Hughes": "19",
+    "Dean Benamar": "54",
+    "Dwight McNeil": "11",
+    "Honest Ahanor": "21",
+    "Daichi Kamada": "18",
+    "Remi Matthews": "31",
+    "Lucca Benetton": "81"
+   },
+   "positions": {
+    "Walter Ben\u00edtez": "goalkeeper",
+    "Axel Disasi": "center defender",
+    "Jaydee Canvot": "center left defender",
+    "Chris Richards": "center right defender",
+    "Quinten Timber": "center left midfielder",
+    "Adam Wharton": "center right midfielder",
+    "Tyrick Mitchell": "left midfielder",
+    "\u00d3scar Mingueza": "right midfielder",
+    "J\u00f8rgen Strand Larsen": "forward",
+    "Y\u00e9remy Pino": "center left forward",
+    "Isma\u00efla Sarr": "center right forward",
+    "Anan Khalaili": "substitute",
+    "Dar\u00edo Osorio": "substitute",
+    "Eddie Nketiah": "substitute",
+    "Will Hughes": "substitute",
+    "Dean Benamar": "substitute",
+    "Dwight McNeil": "substitute",
+    "Honest Ahanor": "substitute",
+    "Daichi Kamada": "substitute",
+    "Remi Matthews": "substitute",
+    "Lucca Benetton": "substitute"
+   },
+   "match_stats": {
+    "Walter Ben\u00edtez": {
+     "appearances": 1,
+     "goalsConceded": 3,
+     "saves": 1
+    },
+    "Axel Disasi": {
+     "appearances": 1,
+     "foulsCommitted": 1,
+     "goalsConceded": 3
+    },
+    "Jaydee Canvot": {
+     "appearances": 1,
+     "goalsConceded": 3
+    },
+    "Chris Richards": {
+     "appearances": 1,
+     "foulsCommitted": 1,
+     "yellowCards": 1,
+     "goalsConceded": 3,
+     "shotsOnTarget": 1,
+     "totalShots": 1
+    },
+    "Quinten Timber": {
+     "appearances": 1,
+     "goalsConceded": 3
+    },
+    "Adam Wharton": {
+     "appearances": 1,
+     "goalsConceded": 3,
+     "goalAssists": 1
+    },
+    "Tyrick Mitchell": {
+     "appearances": 1,
+     "foulsCommitted": 3,
+     "foulsSuffered": 1,
+     "goalsConceded": 3,
+     "totalShots": 1
+    },
+    "\u00d3scar Mingueza": {
+     "appearances": 1,
+     "foulsSuffered": 1,
+     "goalsConceded": 2
+    },
+    "J\u00f8rgen Strand Larsen": {
+     "appearances": 1,
+     "foulsCommitted": 1,
+     "goalsConceded": 2,
+     "totalShots": 4
+    },
+    "Y\u00e9remy Pino": {
+     "appearances": 1,
+     "foulsCommitted": 1,
+     "yellowCards": 1,
+     "goalsConceded": 2,
+     "shotsOnTarget": 1,
+     "totalGoals": 1,
+     "totalShots": 1
+    },
+    "Isma\u00efla Sarr": {
+     "appearances": 1,
+     "foulsCommitted": 1,
+     "foulsSuffered": 2,
+     "yellowCards": 1,
+     "goalsConceded": 2,
+     "offsides": 1,
+     "totalShots": 1
+    },
+    "Anan Khalaili": {
+     "appearances": 1,
+     "subIns": 1,
+     "goalsConceded": 1
+    },
+    "Dar\u00edo Osorio": {
+     "appearances": 1,
+     "subIns": 1,
+     "goalsConceded": 1,
+     "totalShots": 1
+    },
+    "Eddie Nketiah": {
+     "appearances": 1,
+     "subIns": 1,
+     "goalsConceded": 1
+    },
+    "Will Hughes": {},
+    "Dean Benamar": {},
+    "Dwight McNeil": {
+     "appearances": 1,
+     "subIns": 1
+    },
+    "Honest Ahanor": {},
+    "Daichi Kamada": {
+     "appearances": 1,
+     "subIns": 1,
+     "goalsConceded": 1,
+     "shotsOnTarget": 2,
+     "totalGoals": 1,
+     "totalShots": 3
+    },
+    "Remi Matthews": {},
+    "Lucca Benetton": {}
+   },
+   "coach": null
+  }
+ },
+ "generated_by": "template"
+}

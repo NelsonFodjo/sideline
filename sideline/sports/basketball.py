@@ -30,6 +30,8 @@ class Basketball(SportProfile):
     game = "game"
     domain = "basketball game"
     regulation_minutes = 4 * QUARTER
+    period_minutes = QUARTER
+    period_word = "quarter"
     all_kinds = ("basket", "foul", "timeout", "ejection", "review",
                  "substitution", "period")
 

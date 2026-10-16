@@ -34,11 +34,11 @@ Where each criterion is answered, for a judge reading only the text:
 
 | Criterion | Where to look |
 |---|---|
-| **Tech Implementation** | [README, "What makes it a server"](../README.md#what-makes-it-a-server-and-not-a-lookup) and "What has been verified"; [ARCHITECTURE.md](ARCHITECTURE.md); the 52 offline suites, the official-SDK check, the routing check ([BEDROCK.md](BEDROCK.md)) |
+| **Tech Implementation** | [README, "What makes it a server"](../README.md#what-makes-it-a-server-and-not-a-lookup) and "What has been verified"; [ARCHITECTURE.md](ARCHITECTURE.md); the 61 offline suites, the official-SDK check, the routing check ([BEDROCK.md](BEDROCK.md)) |
 | **Design** | [ACCESSIBILITY.md](ACCESSIBILITY.md) (rules for a listener who cannot see a screen); [TOOLS.md](TOOLS.md) (what each answer sounds like); the simulator's screen and Dev log |
 | **Potential Impact** | [README, "Where this goes"](../README.md#where-this-goes); section 6 of the submission text below |
 | **Quality of the Idea** | per-listener state and the clock-exact spoiler guard ([README](../README.md#what-makes-it-a-server-and-not-a-lookup)); truth over fluency ([README, "What it sounds like"](../README.md#what-it-sounds-like)) |
-| **Friction log** | [FRICTION_LOG.md](FRICTION_LOG.md): 27 entries, each with a workaround and a suggestion |
+| **Friction log** | [FRICTION_LOG.md](FRICTION_LOG.md): 28 entries, each with a workaround and a suggestion |
 
 The rules call a *single-turn Q&A bot* or a *basic MCP wrapper around an existing API* the obvious Alexa+ entry,
 and a *context-aware add-on that maintains state across sessions* the creative one. Sideline's answer to "basic
@@ -217,7 +217,7 @@ tried by voice. Four AWS services do real work together:
 ---
 
 ### 4. Challenges We Ran Into & The Friction Log
-We kept a [friction log of 27 entries](FRICTION_LOG.md), each with the task, steps, what we expected, what happened, how
+We kept a [friction log of 28 entries](FRICTION_LOG.md), each with the task, steps, what we expected, what happened, how
 bad it was, our workaround and a suggestion. The ones we would most want Amazon's teams to read:
 * **The add-on tooling is partner-only** while the hackathon invites everyone (FL-01): we built a faithful simulated client.
 * **`max_attempts: 1` is two attempts** in the Bedrock SDK, which doubled every timeout we had budgeted (FL-21).
@@ -226,6 +226,8 @@ bad it was, our workaround and a suggestion. The ones we would most want Amazon'
 * **A hand-written MCP server had eight spec deviations** that only a spec-versus-code review found, all fixed (FL-24).
 * **Choosing a model to route among 30 tools** looked like a model problem and was mostly ours: a clock, a time zone and
   a repair that heard "support" as "Porto" (FL-25).
+* **A wrong score** because we trusted a goal list over the feed's own score: fixed, and the answer now says when it cannot
+  be sure (FL-28).
 * **Our simulated assistant was slower than we had said,** because its wait to be sure the listener had stopped depended
   on a browser setting that was off by default, so it ran at its slowest and not the documented speed (FL-27).
 
@@ -236,7 +238,7 @@ bad it was, our workaround and a suggestion. The ones we would most want Amazon'
   worth a server, and both are covered by tests.
 * **Truth over fluency.** It declines to guess (a referee the feed does not name, expected goals, a player's honours), and
   every fact traces to a tool result.
-* **Evidence.** 52 offline test suites that need no network or credentials; three live conversation batches (70 questions)
+* **Evidence.** 61 offline test suites that need no network or credentials; three live conversation batches (70 questions)
   against real matches; a routing check across four Bedrock models; the official SDK client run against the server.
 * **Candour.** The README lists what is not done: no real Alexa+, no OAuth, one listener per server, an unofficial data source.
 * **Tried with a blind listener (reported by the team):** one blind person used it informally in a first session, with a

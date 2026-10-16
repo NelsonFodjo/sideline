@@ -129,7 +129,7 @@ def main():
     assert "I\\u2019m a simulated Alexa+" in intro and "I read real matches" in intro \
         and "I remember what you last heard" in intro and "I stay behind your TV" in intro \
         and "what did I miss" in intro \
-        and "spoil a goal" in intro and "talk over me" in intro, intro
+        and "spoil a goal" in intro and "Say stop" in intro, intro
     assert 'name:"alexa-plus-simulator"' in page
     # Noise labels from a recogniser ("[SOUND]") never reach the screen or the agent.
     assert "function justWords" in page and page.count("justWords(") >= 6, "applied to every path that shows or sends text"
@@ -168,10 +168,11 @@ def main():
     # The space bar pauses (and resumes); an in-flight answer is kept.
     assert 'e.code==="Space"' in page
     # The zone and "I cut in here" ride along with a question; noise stays off the caption.
-    assert 'id="hint"' in page and "to pause" in page, "the footer says how to pause"
-    assert "function hideMatch" in page and "else hideMatch()" in page and "var aboutMatch" in page, "no match data, no match header"
-    assert "fadeSaid(false); hideMatch();" in page, "the teams leave with the text after a minute"
-    assert "IDLE_MS=30000" in page, "the text leaves 30s after the last word"
+    assert 'id="hint"' in page and "to interrupt" in page, "the footer says that only her voice interrupts"
+    assert "document.addEventListener(\"click\", function(e){\n  if(speaking" not in page, "a click never stops her"
+    assert "function hideMatch" in page and "else hideMatch();" in page and "var aboutMatch" in page, "no match data, no match header (unless a match is followed: then its card stays)"
+    assert "setQuiet(\"\"); fadeSaid(false);" in page and "if(!FOLLOW){ hideMatch();" in page, "the words go after 40 s, and a match that is not followed goes with them"
+    assert "IDLE_MS=40000" in page, "the text leaves 40s after the last word"
     # A noise is not a word: a barge-in needs about 360 ms of speech, the voice ducks at the first
     # sign and comes back if it was noise, the start of the word is kept, and only the eye remains
     # after a minute of quiet.

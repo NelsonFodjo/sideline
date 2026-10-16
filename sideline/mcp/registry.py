@@ -88,15 +88,17 @@ tool(
 tool(
     "get_match_state",
     "Score and clock",
-    "The score and the clock, right now. Say: 'what's the score', 'how long left', 'who's winning', 'has it finished'. Not what happened (what_did_i_miss); not 'I'm watching X' or 'follow X' (follow_match).",
-    _obj({"fixture_id": _fixture}),
+    "The score and the clock, right now. Say: 'what's the score', 'how long left', 'who's winning', 'has it finished', 'what was the score of the Knicks game last night' (pass `team`, and `when` last for a game already played). Only the score and clock: not a player, a formation, the stats or the cards. If the listener doubts it ('are you sure', 'check again', 'that's wrong'), call again with refresh true. Not what happened (what_did_i_miss); not 'I'm watching X' or 'follow X' (follow_match).",
+    _obj({"fixture_id": _fixture,
+          "refresh": {"type": "boolean",
+                      "description": "True to forget anything kept and read the feed now. Only when the listener doubts the score."}}),
     output_hint="score, minute, period, whether the match has finished",
 )
 
 tool(
     "get_fixtures",
     "What matches are on",
-    "Which matches are on, with times, or which have finished with scores. Say: 'which teams are playing', 'what's on today', 'what's live', 'what matches have finished', 'which matches already completed', 'results from today', 'scores from earlier', 'any Premier League matches tonight', 'any basketball today'. Everything on, not one named team (get_schedule); matches, not players (get_lineups).",
+    "Which matches are on, with times, or which have finished with scores. Say: 'which teams are playing', 'what's on today', 'what's live', 'what matches have finished', 'which matches already completed', 'results from today', 'scores from earlier', 'any Premier League matches tonight', 'any basketball today'. Everything on, not one named team's game (get_match_state for its score, get_schedule for when it plays); matches, not players (get_lineups). Never for a ground, the weather, a rule, trophies or a question about one player.",
     _obj({"when": {"type": "string", "enum": ["yesterday", "today", "tomorrow"],
                    "description": "Which day. Omit for today."},
           "date": {"type": "string", "maxLength": 10,
@@ -116,11 +118,15 @@ tool(
 tool(
     "get_match_report",
     "What happened in a match",
-    "What happened in a match that was played or is on (not one to come: get_match_preview): result, goals, assists, cards, substitutions, VAR. Say: 'what happened in the Celtic game', 'who scored', 'who got booked', 'anyone sent off', 'who came on'. Set `part` when they ask for one thing. Not who played (get_lineups); not what you missed (what_did_i_miss).",
+    "What happened in a match that was played or is on (not one to come: get_match_preview): result, goals, assists, cards, substitutions, VAR. Say: 'what happened in the Celtic game', 'who scored', 'who got booked', 'anyone sent off', 'who came on', 'was there a penalty', 'what's the commentary'. Set `part` when they ask for one thing. Not who played (get_lineups); not what you missed (what_did_i_miss); not a player's season goals (get_player_stats).",
     _obj({"fixture_id": _fixture,
-          "part": {"type": "string", "enum": ["all", "goals", "cards", "substitutions", "var", "penalties"],
-                   "description": "goals for 'who scored', cards for 'any cards' or 'sent off', substitutions for 'who came on', var for VAR. Omit only for the whole story."}}),
-    output_hint="the result and goals, or one part in full: goals, cards, substitutions or VAR decisions",
+          "part": {"type": "string", "enum": ["all", "goals", "cards", "substitutions", "var", "penalties", "commentary"],
+                   "description": "goals for 'who scored', cards for 'any cards' or 'sent off', substitutions for 'who came on', var for VAR, commentary for 'what's the commentary', 'play by play', 'what are they saying'. Omit only for the whole story."},
+          "since_line": {"type": "integer", "minimum": -1,
+                         "description": "Only with part=commentary, for a client that reads the match out as it goes: the `cursor` the last call returned. Only lines after it come back. -1 means from now (no lines, just a cursor). Not for a person's question."},
+          "key_only": {"type": "boolean",
+                       "description": "Only with since_line: leave out routine lines and keep goals, penalties, cards, substitutions, VAR, shots saved or off the woodwork, and the start and end of each half."}}),
+    output_hint="the result and goals, or one part in full: goals, cards, substitutions, VAR decisions or the latest commentary",
 )
 
 tool(
@@ -139,7 +145,7 @@ tool(
 tool(
     "get_lineups",
     "Line-ups and formation",
-    "The players in a match, played or not: starting eleven, formation, bench. Say: 'who's playing', 'who played in the Celtic Rangers game', 'what's the line-up', 'who's on the bench', 'what formation'. Not which matches are on (get_fixtures); not a whole squad (get_squad).",
+    "The players in a match, played or not: starting eleven, formation, bench. Say: 'who's playing', 'who played in the Celtic Rangers game', 'what's the line-up', 'who's on the bench', 'who started for the Knicks', 'what formation', 'what formation did they play'. Not which matches are on (get_fixtures); not a whole squad (get_squad).",
     _obj({"fixture_id": _fixture,
           "team": {"type": "string", "maxLength": 60,
                    "description": "Limit to one side. Omit for both."}}),
@@ -187,10 +193,12 @@ tool(
 tool(
     "get_event_detail",
     "Detail of one moment",
-    "Replay one moment: a goal, card, substitution or VAR decision. Say: 'tell me about that goal', 'who assisted', 'what was the card for', 'say that again', 'repeat that'. Not what you missed (what_did_i_miss).",
+    "Replay one moment: a goal, card, substitution or VAR decision. Say: 'tell me about that goal', 'who assisted', 'who assisted Pino's goal' (pass `player`), 'what was the card for', 'say that again', 'repeat that'. Not what you missed (what_did_i_miss).",
     _obj({"fixture_id": _fixture,
           "event_id": {"type": "string", "maxLength": 40,
                        "description": "Id from a previous answer, if known."},
+          "player": {"type": "string", "maxLength": 60,
+                     "description": "A player they name for the moment: 'Pino's goal', 'when did Saka get booked'. Gives that player's latest moment of the kind."},
           "minute": {"type": "integer", "minimum": 0, "maximum": 130,
                      "description": "Minute the listener referred to."},
           "kind": {"type": "string",
@@ -225,7 +233,7 @@ tool(
 tool(
     "get_player_profile",
     "Who a player is",
-    "Who a player is, wherever he plays and whether or not a match is on: name, age, nationality, position, club. Say: 'tell me more about Nuno Mendes', 'who is Haaland', 'how old is Saka', 'where is he from'. Ask it first for any open question about a person. Not this season's goals (get_player_stats); not what he did in a match (get_player_context); not 'who is he' about the player just seen (get_player_context).",
+    "Who a player is, wherever he plays and whether or not a match is on: name, age, nationality, position, club. Say: 'tell me more about Nuno Mendes', 'who is Haaland', 'how old is Saka', 'where is Haaland from', 'what position does Saka play', 'what shirt number does Haaland wear', 'which club is he at'. Ask it first for any open question about a person. Not this season's goals (get_player_stats); not what he did in a match (get_player_context); not 'who is he' about the player just seen (get_player_context).",
     _obj({"player": {"type": "string", "minLength": 2, "maxLength": 60,
                      "description": "Full or partial name as the listener said it. Never a pronoun: use the name from the conversation."},
           "team": {"type": "string", "maxLength": 60,
@@ -248,7 +256,7 @@ tool(
 tool(
     "get_standouts",
     "Who stood out in a match",
-    "The players who did the most in a match, by what is counted: goals, assists, shots, saves. Say: 'who was the best player', 'who was the most dangerous', 'who played well', 'man of the match', 'who stood out'. It says plainly that there are no ratings. Not one named player (get_player_context); not the goals only (get_match_report).",
+    "The players who did the most in a match, by what is counted: goals, assists, shots, saves. Say: 'who was the best player', 'who was the most dangerous', 'who played well', 'man of the match', 'who stood out'. It says plainly that there are no ratings. Only inside one match: not 'the best in the world', not a league. Not team numbers like shots or corners (get_match_stats); not one named player (get_player_context); not the goals only (get_match_report).",
     _obj({"fixture_id": _fixture, "team": _team,
           "opponent": {"type": "string", "maxLength": 60, "description": "The other team, if they named it."},
           "when": {"type": "string", "enum": ["last", "next", "yesterday", "today", "tomorrow"],
@@ -294,7 +302,7 @@ tool(
 tool(
     "get_standings",
     "The league table",
-    "The league table, or one team's place in it. Say: 'what's the table', 'who's top of the league', 'where is Celtic in the league', 'how many points do Hearts have'. Pass `team` whenever one is named. Not who scores most (get_top_scorers).",
+    "The league table, or one team's place in it. Say: 'what's the table', 'who's top of the league', 'who is top of the Europa League', 'where is Celtic in the league', 'how many points do Hearts have'. Pass `team` whenever one is named. Not who scores most (get_top_scorers).",
     _obj({"competition": _competition,
           "team": {"type": "string", "maxLength": 60,
                    "description": "The team the listener named, e.g. 'Celtic'. Always set it when they name one."}}),
@@ -313,7 +321,7 @@ tool(
 tool(
     "get_schedule",
     "When a team plays, and how it did",
-    "A team's next matches, or its last results, no match needed. Say: 'when does Arsenal play', 'what time is Arsenal playing', 'when do Arsenal play Lille', 'is Spurs on today', 'next fixtures' (which next); 'last results', 'recent games', 'did they win' (which last). Always pass `team`. Not the whole day (get_fixtures).",
+    "A team's next matches, or its last results, no match needed. Say: 'when does Arsenal play', 'what time is Arsenal playing', 'when do Arsenal play Lille', 'is Spurs on today', 'next fixtures' (which next); 'last results', 'recent games', 'did they win' (which last). Always pass `team`. Not the whole day (get_fixtures); not the weather or ground of a match (get_match_preview).",
     _obj({"team": _team,
           "which": {"type": "string", "enum": ["next", "last"],
                     "description": "next (the default): the coming matches. last: the latest results with scores."},
@@ -325,7 +333,7 @@ tool(
 tool(
     "get_squad",
     "A team's players",
-    "A team's players, with no match needed. Say: 'who is in the Celtic squad', 'who's their goalkeeper', 'who's the manager or coach', 'who's the captain', 'list their defenders'. Always pass `team`; add `position` for names. Not who starts this match (get_lineups); not one player (get_player_stats).",
+    "A team's players, with no match needed. Say: 'who is in the Celtic squad', 'who's their goalkeeper', 'who plays in goal for Celtic', 'who's the manager or coach', 'who's the captain', 'list their defenders'. Always pass `team`; add `position` for names. Not who starts this match (get_lineups); not one player (get_player_stats).",
     _obj({"team": _team,
           "position": {"type": "string", "enum": ["goalkeeper", "defender", "midfielder", "attacker"],
                        "description": "Only if they asked for one position, to hear the names."}}, ["team"]),
@@ -343,8 +351,10 @@ tool(
 tool(
     "get_match_stats",
     "Match statistics",
-    "The match numbers. Say: 'who has more possession', 'how many shots', 'corners', 'who's dominating'. Not the score (get_match_state).",
-    _obj({"fixture_id": _fixture,
+    "The match numbers. Say: 'who has more possession', 'how many shots', 'how many corners did they have', 'who had the most shots', 'who's dominating'. Pass `stat` only when they ask for one number; for 'the stats' or 'how did they do' call once with no `stat`. Not the score (get_match_state); not players (get_standouts).",
+    _obj({"stat": {"type": "string", "enum": ["possession", "shots", "passes", "corners", "offsides", "saves", "fouls", "cards"],
+                   "description": "Only when they ask for one number: 'how many corners' is corners. Omit for the whole picture."},
+          "fixture_id": _fixture,
           "team": {"type": "string", "maxLength": 60,
                    "description": "A team whose match the listener means, if not the followed one."}}),
     output_hint="possession, shots, shots on target, corners, fouls and cards for each side",
@@ -363,7 +373,7 @@ tool(
 tool(
     "get_injuries",
     "Who is injured or suspended",
-    "Who is ruled out of the match, and why. Say: 'who's injured', 'any injuries', 'who is suspended', 'is he fit'. Not who is starting (get_lineups).",
+    "Who is ruled out of the match, and why. Say: 'who's injured', 'who is injured at Arsenal', 'any injuries', 'who is suspended', 'is he fit'. Not who is starting (get_lineups).",
     _obj({"fixture_id": _fixture,
           "team": {"type": "string", "maxLength": 60, "description": "Limit to one side."}}),
     output_hint="each absent player with the reason",

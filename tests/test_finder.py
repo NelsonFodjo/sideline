@@ -176,7 +176,7 @@ def main():
         spoken, _, _ = ask(ctx, "get_team_stats", {"team": "Harbour FC"})
         assert spoken.startswith("Harbour FC this season: 8 games, won 5, drew 2, lost 1. 14 goals scored and 6 conceded. 3 clean sheets. About 58 percent") , spoken
         spoken, _, _ = ask(ctx, "get_squad", {"team": "Harbour FC"})
-        assert "4 players: 1 goalkeeper, 2 defenders and 1 attacker" in spoken and "manager is R. Hale" in spoken and "captain is A. Vale" in spoken, spoken
+        assert "4 players: 1 goalkeeper, 2 defenders and 1 attacker" in spoken and "R. Hale as manager" in spoken and "captain is A. Vale" in spoken, spoken
         spoken, _, _ = ask(ctx, "get_squad", {"team": "Harbour FC", "position": "defender"})
         assert spoken == "Harbour FC's defenders: G. Pike, number 4, H. Shaw, number 5.", spoken
         assert declined(ctx, "get_squad", {"position": "defender"}).spoken == "Which team's squad?"

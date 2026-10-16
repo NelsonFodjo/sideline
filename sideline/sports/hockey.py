@@ -13,6 +13,8 @@ class Hockey(SportProfile):
     game = "game"
     domain = "hockey game"
     regulation_minutes = 3 * PERIOD
+    period_minutes = PERIOD
+    period_word = "period"
     all_kinds = ("goal", "penalty", "power_play", "shootout", "review", "score")
 
     score_kinds = ("goal", "score")

@@ -11,7 +11,7 @@ should start from here.
 
 
 def run(ctx, args, listener_id):
-    from . import resolve_fixture
+    from . import match_info, resolve_fixture
     fx = resolve_fixture(ctx, args, listener_id)
     lineups = ctx.provider.lineups(fx["fixture_id"])
     team = args.get("team")
@@ -19,7 +19,8 @@ def run(ctx, args, listener_id):
     spoken = ctx.lang.templates.say_lineups(lineups, team, fx)
     ctx.store.mark_told(listener_id, fx.get("minute") or 0)
 
-    structured = {"fixture_id": fx["fixture_id"], "lineups": lineups,
+    structured = {"fixture_id": fx["fixture_id"], "lineups": lineups, "teams": {"home": fx.get("home"), "away": fx.get("away")},
+                  "match": match_info(fx),
                   "generated_by": "template"}
     ui = {"lineups": lineups}
     return spoken, structured, ui

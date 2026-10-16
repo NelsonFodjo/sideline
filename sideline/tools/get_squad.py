@@ -44,7 +44,7 @@ def run(ctx, args, listener_id):
     spoken = "%s have %d players: %s." % (s["team"], len(players), ", ".join(counts[:-1]) + " and " + counts[-1]
                                           if len(counts) > 1 else counts[0] if counts else "no positions listed")
     if s.get("coach"):
-        spoken += " The manager is %s." % s["coach"]
+        spoken += " The feed lists %s as manager, and it can be out of date." % s["coach"]
     if s.get("captain"):
         spoken += " The captain is %s." % s["captain"]
     elif not args.get("position"):

@@ -10,6 +10,8 @@ class Baseball(SportProfile):
     game = "game"
     domain = "baseball game"
     regulation_minutes = 9  # 9 innings mapped as elapsed progress
+    period_minutes = 1
+    period_word = "inning"
     all_kinds = ("run", "home_run", "hit", "strikeout", "walk", "error", "pitching_change")
 
     score_kinds = ("run", "home_run")

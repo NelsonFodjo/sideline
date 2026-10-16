@@ -402,13 +402,25 @@ class EspnProvider(Provider):
     def fixtures_today(self):
         return self.fixtures_on(0)
 
+    LIVE_FIXTURE_SECONDS = 3.0          # a match in play changes by the second: just long enough for one turn's tools to share a read
+    WAITING_FIXTURE_SECONDS = 30.0      # not started: the kick-off can come any time, so not for long either
+
+    def _fixture_ttl(self, fx):
+        return self.WAITING_FIXTURE_SECONDS if fx.get("status") in ("NS", "TBD") else self.LIVE_FIXTURE_SECONDS
+
+    def invalidate(self, fixture_id):
+        """Forget everything kept about one match, so the next read goes to the feed (a listener doubts the score)."""
+        fid = str(fixture_id)
+        self._fixture_by_id.pop(fid, None)
+        self.cache.drop_matching("event=%s" % fid)
+
     def fixture(self, fixture_id):
         fid = str(fixture_id)
         # Check in-memory fast fixture cache
         cached_fx = getattr(self, "_fixture_by_id", {}).get(fid)
         if cached_fx:
             ts, fx = cached_fx
-            if time.time() - ts < 60.0 or fx.get("status") in ("FT", "AET", "PEN", "PST", "CANC", "ABD"):
+            if time.time() - ts < self._fixture_ttl(fx) or fx.get("status") in ("FT", "AET", "PEN", "PST", "CANC", "ABD"):
                 return fx
 
         # Check cached event meta
@@ -631,6 +643,32 @@ class EspnProvider(Provider):
         m = re.search(r"(\d+)(?:\+(\d+))?", (display or "").replace("'", ""))
         return (int(m.group(1)), int(m.group(2) or 0)) if m else (0, 0)
 
+    @classmethod
+    def _commentary_lines(cls, summary):
+        """The match's running commentary, oldest first: [{"minute", "stoppage", "text"}]. Empty lines are dropped."""
+        out = []
+        for c in (summary or {}).get("commentary") or []:
+            text = " ".join((c.get("text") or "").split())
+            if not text:
+                continue
+            clock_ = c.get("time") or {}
+            minute, stoppage = cls._clock_minute(clock_.get("displayValue"))
+            out.append({"minute": minute, "stoppage": stoppage, "text": text, "_at": clock_.get("value") or 0})
+        out.sort(key=lambda l: (l["_at"], l["minute"], l["stoppage"]))
+        for line in out:
+            line.pop("_at", None)
+        return out
+
+    def commentary(self, fixture_id):
+        """The running commentary of a match, as the feed has it right now (a match in play is read live)."""
+        fid = str(fixture_id)
+        if fid not in self._event_meta:
+            self.fixture(fid)                                   # learns which league the match is in
+        meta = self._event_meta.get(fid)
+        if not meta:
+            return []
+        return self._commentary_lines(self._fetch_summary(meta[0], meta[2], fid))
+
     def _penalty_events(self, fid, summary, since_minute):
         """Penalties awarded, from the commentary: who was fouled, who gave it away, who it was awarded to. The
         taking of it (scored, saved, missed) is a key event and is read in _soccer_events."""
@@ -735,6 +773,12 @@ class EspnProvider(Provider):
     def _basketball_events(self, fid, summary, since_minute):
         out = []
         plays = summary.get("plays") or []
+        # A play names its team by id only. Without the name a catch-up could credit a basket to the wrong side.
+        by_id = {}
+        for c in ((summary.get("header") or {}).get("competitions") or [{}])[0].get("competitors") or []:
+            t = c.get("team") or {}
+            if t.get("id") and t.get("displayName"):
+                by_id[str(t["id"])] = t["displayName"]
         for p in plays:
             period = p.get("period", {}).get("number", 1)
             q = max(0, min(period, 4))
@@ -748,7 +792,8 @@ class EspnProvider(Provider):
                 continue
 
             text = p.get("text") or ""
-            team = p.get("team", {}).get("displayName") or ""
+            tm = p.get("team") or {}
+            team = tm.get("displayName") or by_id.get(str(tm.get("id"))) or ""
             pts = int(p.get("scoreValue") or 0)
 
             if p.get("scoringPlay"):

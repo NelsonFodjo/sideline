@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sideline demo video: the complete guide</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm; }
+  :root { --ink:#0d1b2a; --soft:#4a5d73; --line:#d5dde6; --cyan:#0a84d8; --amber:#b86a00; --bg:#f4f8fb; }
+  * { box-sizing: border-box; }
+  body { font: 10.5pt/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); margin: 0; }
+  h1 { font-size: 24pt; margin: 0 0 4pt; letter-spacing: -.01em; }
+  h2 { font-size: 15pt; margin: 20pt 0 6pt; padding-top: 6pt; border-top: 2px solid var(--ink); break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 12pt 0 3pt; color: var(--cyan); break-after: avoid; }
+  p { margin: 4pt 0 6pt; }
+  .sub { color: var(--soft); font-size: 11pt; margin-bottom: 10pt; }
+  .box { background: var(--bg); border-left: 4px solid var(--cyan); padding: 7pt 10pt; margin: 8pt 0; break-inside: avoid; }
+  .warn { border-left-color: var(--amber); }
+  table { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt; font-size: 9.5pt; break-inside: auto; }
+  th, td { border: 1px solid var(--line); padding: 4pt 6pt; vertical-align: top; text-align: left; }
+  th { background: var(--bg); }
+  tr { break-inside: avoid; }
+  code { font: 9pt ui-monospace, Menlo, monospace; background: #eef3f8; padding: 0 2pt; border-radius: 2pt; }
+  ul, ol { margin: 4pt 0 8pt 16pt; padding: 0; }
+  li { margin: 2pt 0; }
+  .say { font-style: italic; }
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 8pt; margin: 8pt 0; }
+  .shots figure { margin: 0; break-inside: avoid; }
+  .shots img { width: 100%; border: 1px solid var(--line); border-radius: 4pt; display: block; }
+  .shots figcaption { font-size: 8.5pt; color: var(--soft); margin-top: 2pt; }
+  .pb { break-before: page; }
+  .tag { display: inline-block; font-size: 8pt; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 0 5pt; border-radius: 3pt; background: var(--ink); color: #fff; }
+</style>
+</head>
+<body>
+
+<h1>Sideline: the demo video, from idea to upload</h1>
+<div class="sub">What to say, what to show, how to record it, and what never to claim. Target 2:45, hard limit 3:00. Submission closes
+<b>Friday 23 October 2026, 12:00 pm Pacific (23:00 in Mauritius)</b>.</div>
+
+<div class="box">
+<b>The video in one sentence.</b> Anyone who wants a match <i>now</i>, without opening an app, searching or typing, just asks, and a server that
+remembers what they have heard answers in a few seconds: football, basketball, American football, hockey or baseball.
+</div>
+
+<h2>1. The problem, said so that everyone sees themselves in it</h2>
+<p>The first twenty seconds decide whether the judge cares. Do <b>not</b> open with "blind people". Open with a moment everybody knows, then
+arrive at the people who need it most. The product is built first for blind and low-vision fans; the problem is wider than that.</p>
+<table>
+<tr><th>Who</th><th>The moment</th><th>What they do today</th></tr>
+<tr><td>A driver, a cook, someone with their hands full</td><td>"Did we score?"</td><td>Stop, unlock a phone, open an app, wait for it to load, scroll.</td></tr>
+<tr><td>A person in a meeting or on a train, eyes elsewhere</td><td>"What's the score?"</td><td>Search, tap, squint, close.</td></tr>
+<tr><td>Someone who just arrived late at the match</td><td>"What did I miss?"</td><td>Scroll a text feed back to the start.</td></tr>
+<tr><td>A blind or low-vision fan</td><td>All of it: score in a corner, line-ups on a graphic nobody reads out</td><td>Rely on someone beside them, or miss the match.</td></tr>
+</table>
+<div class="box"><b>Narration, 0:00 to 0:20.</b> <span class="say">"You want the score. So you stop what you're doing, unlock your phone, open an app, search for the match,
+scroll. Or you just ask. If you can't see a screen at all, asking isn't a shortcut, it's the only way in. Sideline is the friend who just tells you."</span></div>
+<p><b>Do not say or show:</b> a number of users, a claim of testing with blind users beyond what the team will state first-hand, a statistic about
+blindness or about phone use that is not in the repository, a claim that it runs on real Alexa+.</p>
+
+<h2>2. The story, second by second</h2>
+<table>
+<tr><th style="width:15%">Time</th><th style="width:34%">On screen</th><th>Narration</th></tr>
+<tr><td>0:00 to 0:20</td><td>Three quick cuts of faces (or silhouettes): hands in a kitchen, a car dashboard, a person with a white cane. Then the simulator's idle eye.</td><td>The problem, as above.</td></tr>
+<tr><td>0:20 to 0:32</td><td>Terminal showing <code>MCP endpoint: http://127.0.0.1:8765/mcp</code>, then the page (<code>01-go-live</code>).</td><td><span class="say">"Sideline is an MCP server: thirty tools, live data, and a memory of what each listener has heard. This page only simulates Alexa+ so you can talk to it. Everything you see is the MCP."</span></td></tr>
+<tr><td>0:32 to 1:20</td><td>Football, live voice. See section 3, questions 1 to 6.</td><td>One short sentence in each gap. Silent while she thinks.</td></tr>
+<tr><td>1:20 to 1:48</td><td><b>"Any game"</b> montage. See section 4.</td><td><span class="say">"Same server. Different game."</span></td></tr>
+<tr><td>1:48 to 2:16</td><td>The explainer animation (<code>ANIMATION_PROMPT.md</code>), 28 s of it.</td><td>The animation narration.</td></tr>
+<tr><td>2:16 to 2:30</td><td>Press Alt+D: the Dev log. Scroll the last answer: tool, arguments, feed requests, timings.</td><td><span class="say">"Every answer is traceable: which tool, which arguments, how long, how many feed requests."</span></td></tr>
+<tr><td>2:30 to 2:48</td><td>Plain card, white on dark, no logos: the repository address; "61 offline test suites, 28-entry friction log, routing 77/79 on Nova Pro". Then the three service names as text.</td><td><span class="say">"Built on Amazon Bedrock, Polly and DynamoDB. The tests, the friction log and the limits are in the repository. It isn't on real Alexa+ yet, because that tooling is partner-only. It is built to be hosted and connected when it is."</span></td></tr>
+</table>
+<p>Leave 5 seconds of slack. If you run long, cut the Dev log shot or part of the montage, never a football question.</p>
+
+<h2 class="pb">3. The live football section (0:32 to 1:20)</h2>
+<p>Everything here is spoken aloud with hands off the keyboard. Use the real match you chose on the day (<code>make next-matches</code>; a finished match from
+yesterday is fine and safest). The wording of the answers is whatever the data says that day: if one is not what you want, record that question again.
+The names below are from the verified run (Lyon 3-2 Crystal Palace, Europa League, 15 October 2026); swap in the day's match.</p>
+<table>
+<tr><th>#</th><th>Say</th><th>You should see and hear</th><th>Gap line</th></tr>
+<tr><td>1</td><td>"Follow Lyon."</td><td>One sentence with the score. The strip appears at the top with the date, the sport and the clock. The eye stays clear.</td><td>"I just name a team."</td></tr>
+<tr><td>2</td><td>"Who scored?"</td><td>The goals, in order, with the assists.</td><td>"Straight facts."</td></tr>
+<tr><td>3</td><td>"Who assisted Pino's goal?"</td><td>A single sentence naming the assist (this used to answer about the wrong goal; it is fixed and tested).</td><td>"It answers the question I asked."</td></tr>
+<tr><td>4</td><td>"Show me the line-ups."</td><td>The pitch (<code>10-lineups</code>): home left, away right, shapes, goalkeepers, benches, the ground and the date above.</td><td>"A whole screen from one sentence."</td></tr>
+<tr><td>5</td><td>"My TV is about forty seconds behind." then "What's the score?"</td><td>It confirms the delay; the score holds back anything your picture hasn't shown. The timeline shows the live edge.</td><td>"It won't spoil a goal your TV hasn't shown."</td></tr>
+<tr><td>6</td><td>(live match only) say nothing for 12 seconds</td><td>Commentary starts by itself, a line or two at a time. Interrupt it with "stop".</td><td>"It keeps me posted, and I can interrupt."</td></tr>
+</table>
+<div class="shots">
+<figure><img src="screenshots/02-following-a-match.png"><figcaption>02: following a match. A bare strip, the eye clear.</figcaption></figure>
+<figure><img src="screenshots/10-lineups.png"><figcaption>10: the line-ups, from one spoken sentence.</figcaption></figure>
+</div>
+<div class="box warn"><b>If the match is not live</b> (the usual case at a recording hour), skip question 6, or record question 6 in a separate take
+on any live game that day, and say so in the narration: "and when a match is in play, it keeps me posted". Never fake a clock.</div>
+
+<h2 class="pb">4. "Any game": the multi-sport montage (1:20 to 1:48)</h2>
+<p>The creative idea: <b>one voice, three games, three seconds each, and the screen changes its own words.</b> A split screen with a small label
+at the top left that types the sport ("Basketball", "American football", "Ice hockey"). The same eye, the same strip, the same question shape.
+What changes is the clock: <code>Q4</code>, <code>Final</code>, <code>P2</code>, not <code>90&prime;</code>.</p>
+<table>
+<tr><th>Beat</th><th>Say</th><th>Shows</th></tr>
+<tr><td>0:00 (of the montage)</td><td>"Alexa, what happened in the Knicks game last night?"</td><td><code>11-basketball-following</code>: 122-120 Final, quarters on the bar, the leading scorers spoken.</td></tr>
+<tr><td>0:09</td><td>"Who won the Broncos game?"</td><td><code>13-american-football-following</code>: 17-14 Final.</td></tr>
+<tr><td>0:18</td><td>"What's the score in the Vegas game?" (if live) or "Who won the Dodgers game?"</td><td>Hockey or baseball, whichever is real that day.</td></tr>
+<tr><td>0:27</td><td>"Show me the Knicks line-up."</td><td><code>12-basketball-lineups</code>: starters in big numbers, the bench under each side.</td></tr>
+</table>
+<div class="shots">
+<figure><img src="screenshots/11-basketball-following.png"><figcaption>11: basketball, Knicks 122-120 Raptors, Final.</figcaption></figure>
+<figure><img src="screenshots/13-american-football-following.png"><figcaption>13: American football, Broncos 17-14 Seahawks, Final.</figcaption></figure>
+<figure><img src="screenshots/12-basketball-lineups.png"><figcaption>12: a sport without a formation shows starters and bench.</figcaption></figure>
+<figure><img src="screenshots/14-american-football-timeline.png"><figcaption>14: the timeline, in quarters.</figcaption></figure>
+</div>
+<div class="box"><b>Narration over the montage.</b> <span class="say">"Same server. Different game. Basketball counts in quarters, hockey in periods, baseball in innings. We didn't build five apps: the tools and the screen follow the sport."</span></div>
+<p><b>Honest limits to keep in mind (do not oversell):</b> the screenshots use the real results above; sports other than football were tested with a smaller set of
+questions (see <code>docs/CURIOSITY_QA.md</code>); NFL line-ups are often not published until close to the game; basketball has no commentary feed, so for those the commentary falls back to reading out events.</p>
+
+<h2 class="pb">5. Under the hood: the explainer animation (1:48 to 2:16)</h2>
+<p>This is the part that shows the judges how it was built, in plain language. Generate it with <code>docs/video/ANIMATION_PROMPT.md</code>
+(paste the prompt into Claude, attach the screenshots listed there, get one HTML file, screen-record it at 1080p).</p>
+<ol>
+<li><b>Someone asks</b> by voice.</li>
+<li><b>The host (Alexa+)</b> reads the thirty tool descriptions and picks one. <i>The quality of a description is product surface.</i></li>
+<li><b>A standard MCP call</b> (JSON-RPC over Streamable HTTP, spec 2025-11-25) reaches our server.</li>
+<li><b>Inside the server:</b> listener memory (DynamoDB), the live feed (cached only seconds), the spoiler guard (a clock, not a guess).</li>
+<li><b>The answer returns twice:</b> <code>content</code> (words for the ear) and <code>structuredContent</code> (data for any screen).</li>
+<li><b>The same pipe</b> serves every sport.</li>
+</ol>
+<div class="box"><b>How the pieces map, if a judge thinks in layers (an analogy, not our architecture diagram):</b> the <i>view</i> is whatever the person talks
+to (Alexa+, or our page); the <i>controller</i> is the set of MCP tools that decide what to do; the <i>model</i> is the state and the live feeds.
+Because the view only ever speaks MCP, the same server works with any client.</div>
+<h3>The AWS part, honestly and proudly</h3>
+<table>
+<tr><th>Service</th><th>What it does in Sideline</th><th>Evidence</th></tr>
+<tr><td><b>Amazon Bedrock</b></td><td>Amazon Nova Pro chooses tools and writes the catch-up (in the simulator); Mistral Voxtral and Amazon Nova Sonic turn speech into text.</td><td>Routing 77 of 79 phrasings on Nova Pro; <code>docs/BEDROCK.md</code>, <code>docs/SPEECH.md</code></td></tr>
+<tr><td><b>Amazon Polly</b></td><td>The voice, with word timings so the screen can follow along.</td><td><code>docs/SPEECH.md</code></td></tr>
+<tr><td><b>Amazon DynamoDB</b></td><td>What each listener has been told, their TV delay, what they follow, and the event log. A write-through cache keeps it fast (about 340 ms per round trip from Mauritius).</td><td><code>docs/ARCHITECTURE.md</code>, <code>tests/test_dynamo_cache.py</code></td></tr>
+</table>
+<p><b>What is not on AWS yet:</b> the server runs on a laptop today. The README's hosting steps are written but not yet tested on a hosted machine. Say "built to be hosted", never "hosted on AWS".</p>
+
+<h2 class="pb">6. Recording, step by step</h2>
+<h3>The day before</h3>
+<ol>
+<li><code>make test</code> (should say "all suites passed"), <code>python3 scripts/check_with_sdk.py</code> in a virtualenv with <code>mcp</code> installed.</li>
+<li>Pick the match: <code>make next-matches</code>. A finished match from the last 24 hours is safest. Write down both team names and two players.</li>
+<li>Free the port: <code>lsof -iTCP:8765 -sTCP:LISTEN</code> should print nothing, then <code>make run</code> and <code>make sim</code>.</li>
+<li>Rehearse the football questions and the montage once each, off camera. Re-word any that miss; do not change the product to suit the take.</li>
+<li>Generate the animation, play it through once, check every word against <code>ANIMATION_PROMPT.md</code>.</li>
+</ol>
+<h3>Recording day</h3>
+<ol>
+<li>Clean browser window, no bookmarks bar, one tab, zoom 125%. Allow the microphone once. Turn off notifications, close anything with a logo.</li>
+<li>Hide <code>.env</code> and any terminal that prints keys. Settings: leave defaults (the wake word is off, so she answers whatever she hears; commentary on).</li>
+<li>Record the screen at 1080p, your own voice as narrator, microphone close, <b>no music</b>. Keep the browser's audio: her voice is part of the demo.</li>
+<li>Ask each question aloud, hands off the keyboard, and pause 2 seconds after each answer. Stay silent while she thinks: the wait is the evidence (2 to 4 seconds for a model answer, under 1 for a plain score).</li>
+<li>If an answer is wrong or throttled, say nothing, stop, and retake the question. A faked take is worse than a second one. Never speed up or splice an answer.</li>
+</ol>
+<h3>After recording</h3>
+<ol>
+<li>Trim to under 2:55. Add captions (auto-generate, then correct names and "Amazon Nova Pro").</li>
+<li>Check every frame for keys, e-mails, account ids, club crests, league logos. Scrub or crop.</li>
+<li>Upload public (YouTube or Vimeo). Title: <i>Sideline: a friend for the match, in your ear</i>.</li>
+<li>Put the link in the Devpost form and in <code>docs/HACKATHON.md</code> ("Demo video"). Submit before the deadline: nothing can change after.</li>
+</ol>
+
+<h2>7. Never say, never show</h2>
+<ul>
+<li>That it runs on real Alexa+, that it is hosted on AWS, or any number of users.</li>
+<li>That it was tested with blind users, unless the team says so first-hand.</li>
+<li>Club crests, league logos, broadcast footage, third-party music. Team names in text are fine.</li>
+<li>Honours, trophies, stadium capacity or past winners as if the feed had them: it does not, and she says so.</li>
+<li>Any API key, account id or e-mail address on screen.</li>
+</ul>
+
+<h2>8. If something goes wrong on camera</h2>
+<table>
+<tr><th>It happens</th><th>Do this</th></tr>
+<tr><td>"Sorry, an error occurred" (the model throttled)</td><td>Wait 20 seconds, ask again. Keep the take; it shows the honest failure message.</td></tr>
+<tr><td>She does not respond</td><td>Say it again once. If nothing, check the microphone permission and the Dev log (Alt+D) for "ignored (...)".</td></tr>
+<tr><td>No live match</td><td>Use a finished match; skip commentary; say "when a match is in play, it keeps me posted".</td></tr>
+<tr><td>The server will not start: "already running"</td><td><code>lsof -iTCP:8765 -sTCP:LISTEN</code>, <code>kill &lt;PID&gt;</code>, start again, or <code>SIDELINE_PORT=8766 make run</code>.</td></tr>
+</table>
+
+<h2>9. Screenshots you can drop into the video or the Devpost gallery</h2>
+<div class="shots">
+<figure><img src="screenshots/03-timeline-open.png"><figcaption>03: the timeline open, with the ground and the date.</figcaption></figure>
+<figure><img src="screenshots/04-goal-flash.png"><figcaption>04: a goal flash in the strip.</figcaption></figure>
+<figure><img src="screenshots/06-high-contrast.png"><figcaption>06: large type and high contrast.</figcaption></figure>
+<figure><img src="screenshots/07-typing-mode.png"><figcaption>07: typing mode. The microphone is off; she still reads the answer.</figcaption></figure>
+<figure><img src="screenshots/08-settings.png"><figcaption>08: settings.</figcaption></figure>
+<figure><img src="screenshots/09-dev-log.png"><figcaption>09: the Dev log.</figcaption></figure>
+</div>
+<p style="color:#4a5d73;font-size:9pt">These screenshots were built from real results of 15 October 2026 in a preview copy of the page, not from the shipped page, and not on a real microphone.</p>
+
+</body>
+</html>

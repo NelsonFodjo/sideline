@@ -18,7 +18,7 @@ product and a screen-only fact is a bug, not a feature.
 import datetime
 import time
 
-from .. import clock, names
+from .. import clock, names, resolve
 from ..state.store import backdate
 from ..status import FINISHED, has_started, is_live
 # The tool modules import the helpers below, so they are imported last (see the end of this file).
@@ -379,10 +379,61 @@ def resolve_fixture(ctx, args, listener_id, prefers=None, followed_first=False):
         fx["real_minute"] = real
         fx["minute"] = max(0, minute)
         fx["broadcast_offset"] = offset
-        from .. import sports
-        if shown or floor is not None:       # events are logged: the score is what their screen has shown, not the feed's
-            fx["score"] = sports.for_fixture(fx).score_from(shown, fx.get("home"), real)
+        if floor is not None or shown:       # events are logged: what their screen has shown, not the feed's latest
+            fx["score"], fx["score_unconfirmed"] = _shown_score(ctx, fx, shown)
     return fx
+
+
+def match_info(fx):
+    """What, where and when a match is: the sport, the competition, the ground and its city, and the kick-off (UTC, ISO). For a screen to show."""
+    from .. import sports
+    return {"sport": sports.for_fixture(fx).key, "competition": fx.get("competition"), "venue": fx.get("venue"),
+            "city": fx.get("city"), "kickoff": fx.get("kickoff")}
+
+
+def _side(team, fx):
+    """"home", "away", or None for a team name in an event."""
+    if not team:
+        return None
+    for side in ("home", "away"):
+        if team == fx.get(side):
+            return side
+    want = resolve.words(team)
+    for side in ("home", "away"):
+        have = resolve.words(fx.get(side))
+        if want and have and (names.whole_words(want, have) or names.whole_words(have, want)):
+            return side
+    return None
+
+
+def _shown_score(ctx, fx, shown):
+    """The score the listener's screen has reached: the feed's own score, less the goals still held back.
+
+    It was once rebuilt by counting goal events, and the event list is the least reliable part of the feed: a lower
+    league can list few of its goals, and a team name can fail to match. A goal credited to the wrong side told a listener
+    that the team that was behind had scored. The feed's score is the authority; only the few held-back goals are
+    taken off it, and if one of those cannot be placed on a side, or the result would be below nothing, the feed's score
+    stands and is flagged as unconfirmed rather than guessed.
+    """
+    from .. import sports
+    sport = sports.for_fixture(fx)
+    feed = dict(fx.get("score") or {"home": 0, "away": 0})
+    shown_ids = {e["id"] for e in shown}
+    held = {"home": 0, "away": 0}
+    for e in ctx.store.events(fx["fixture_id"]):
+        if e["id"] in shown_ids:
+            continue
+        delta = sport.score_delta(e)
+        if not delta:
+            continue
+        side = _side(e.get("team"), fx)
+        if side is None:
+            return feed, True
+        held[side] += delta
+    out = {"home": (feed.get("home") or 0) - held["home"], "away": (feed.get("away") or 0) - held["away"]}
+    if out["home"] < 0 or out["away"] < 0:
+        return feed, True
+    return out, False
 
 
 from . import (follow_match, get_capabilities, get_competitions, get_event_detail, get_fixtures,

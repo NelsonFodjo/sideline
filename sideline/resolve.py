@@ -70,6 +70,12 @@ POPULAR_COMPETITIONS = [
 ]
 
 _COMMON_WORDS = {
+    # everyday words a fan uses around the game: "last year" was once heard as "Bayer"
+    "year", "years", "month", "months", "week", "weeks", "decade", "ever", "world", "history", "record", "records",
+    "mean", "means", "stand", "size", "capacity", "trophies", "trophy", "honours", "honors", "rule", "rules", "weather",
+    "greatest", "stadium", "ground", "pitch", "formation", "tactics", "explain",
+    "started", "start", "starts", "starting", "starters", "starter", "scored", "scoring", "points", "passer", "passing", "quarterback",
+    "goalie", "rebounds", "touchdowns", "innings", "inning", "sports", "cover", "difference",
     # numbers, and the words people use about time and delay ("my TV is about forty seconds behind" was heard as "Forest")
     "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "twenty", "thirty", "forty",
     "fifty", "sixty", "ninety", "hundred", "second", "seconds", "minutes", "hour", "hours", "about", "around",
@@ -503,13 +509,14 @@ def snap(listener_id, text, names=(), now=None):
                 if len(cand) <= 3:
                     continue
                 sub_sims = [similarity([tok], [cw]) for cw in cand_toks if len(cw) >= 4]
-                sim = max(similarity([tok], cand_toks), max(sub_sims) if sub_sims else 0.0)
+                # one word against a whole multi-word name is a coarse match ("raptors" ~ "real potosi"): compare it with each word
+                sim = max(sub_sims) if (len(cand_toks) > 1 and sub_sims) else similarity([tok], cand_toks)
                 if sim > best_typo_score:
                     best_typo_score = sim
                     best_typo_cand = cand
                     best_typo_tok = tok
 
-    if best_typo_cand and 0.72 <= best_typo_score < NAME_MIN:
+    if best_typo_cand and 0.80 <= best_typo_score < NAME_MIN:
         repaired = heard
         if best_typo_tok:
             repaired = re.sub(r"\b" + re.escape(best_typo_tok) + r"\b", best_typo_cand, heard, flags=re.IGNORECASE)
@@ -531,7 +538,7 @@ def snap(listener_id, text, names=(), now=None):
 
 
 # ------------------------------------------------- the two calls the app makes
-def match_names(ctx, listener_id, limit=80):
+def match_names(ctx, listener_id, limit=600):
     """Teams and players of the match this listener follows, then the teams on today (the cached day list)."""
     names = []
     try:

@@ -90,7 +90,11 @@ def _cards(t):
     return " and ".join(bits) or "no cards"
 
 
-def _football_spoken(home, away, rows, a, b):
+_ONLY = {"possession": ("Possession",), "shots": ("Shots",), "passes": ("Pass accuracy",), "corners": ("Corners",),
+         "offsides": ("Offsides",), "saves": ("Saves",), "fouls": ("Fouls",), "cards": ("Cards",)}
+
+
+def _football_spoken(home, away, rows, a, b, only=None):
     """The table as a person would say it: a number per side, what the feed lacks left out or admitted."""
     by = {r["metric"]: r for r in rows}
     parts = []
@@ -110,6 +114,12 @@ def _football_spoken(home, away, rows, a, b):
     if ca and cb:
         parts.append("Cards: %s %s, %s %s" % (home, ca, away, cb))
     parts = [p for p in parts if p]
+    if only:                                    # one number asked for: say that one, not the whole table
+        start = _ONLY.get(only, ())
+        parts = [p for p in parts if p.startswith(start)]
+        if not parts:
+            return "The feed has no %s for this match." % only.replace("_", " ")
+        return ". ".join(parts) + "."
     if by["Expected goals (xG)"]["home"] == NOT_PROVIDED:
         parts.append("The feed gives no expected goals for this match")
     return ". ".join(parts) + "."
@@ -126,7 +136,7 @@ def run(ctx, args, listener_id):
     if fx.get("sport") in (None, "football") and (a or b):
         rows = table_rows(a, b)
         warn = "These are live numbers, a moment ahead of your picture. " if fx.get("broadcast_offset") else ""
-        return (warn + _football_spoken(home, away, rows, a, b),
+        return (warn + _football_spoken(home, away, rows, a, b, args.get("stat")),
                 {"home": home, "away": away, "stats": stats, "table": rows, "generated_by": "template"},
                 {"table": rows, "home": home, "away": away})
     labels = _BB_LABELS if fx.get("sport") == "basketball" else _LABELS

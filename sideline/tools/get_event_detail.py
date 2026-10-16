@@ -29,7 +29,22 @@ def run(ctx, args, listener_id):
               or (want_kind == "score" and sp.is_score(e)))
 
     chosen = None
-    if args.get("event_id"):
+    who = args.get("player")
+    if who and not args.get("event_id") and args.get("minute") is None:
+        # "who assisted Pino's goal": the moment is the one this player scored (or, failing that, was involved in)
+        from .. import resolve
+        want = resolve.words(who)
+
+        def involves(e, field):
+            have = resolve.words(e.get(field))
+            return bool(want and have and (set(want) <= set(have) or set(have) <= set(want)))
+        mine = [e for e in events if wanted(e) and involves(e, "player")] or \
+               [e for e in events if wanted(e) and (involves(e, "assist"))]
+        if mine:
+            chosen = mine[-1]
+        else:
+            raise ToolError("I can't find a moment involving %s in this match." % who, {"reason": "not_found"})
+    if not chosen and args.get("event_id"):
         chosen = next((e for e in events if e["id"] == args["event_id"]), None)
     if not chosen and args.get("minute") is not None:
         m = args["minute"]

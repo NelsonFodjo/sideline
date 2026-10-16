@@ -38,6 +38,10 @@ class SportProfile(object):
     # Used in prompts: "You turn a list of <domain> events into ..."
     domain = "sports match"
     regulation_minutes = 90
+    # How the clock is cut up, for a screen drawing the game as a timeline: the length of a half, quarter or period
+    # in minutes, and what it is called. (Baseball counts innings, one per "minute".)
+    period_minutes = 45
+    period_word = "half"
     # Every event kind this sport can emit (used for tool schemas).
     all_kinds = ()
 

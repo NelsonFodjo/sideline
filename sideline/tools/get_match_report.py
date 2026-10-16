@@ -6,6 +6,8 @@ parts that are comfortable to hear: the result and the goals first, then the res
 substitutions read in one breath is not something a listener can use.
 """
 
+import re
+
 from .. import clock, sports
 from ..mcp.errors import ToolError
 from ..status import FINISHED, has_started
@@ -28,6 +30,60 @@ def _said(sp, e):
     return out[:1].upper() + out[1:]
 
 
+LATEST_COMMENTARY = 5
+
+
+MOST_NEW_LINES = 3
+
+# What a listener wants read out in the middle of a match. Routine lines (throw-ins, goal kicks, a pass that went astray)
+# are the bulk of a feed's running commentary and make a voice sound like a ticker; a client can ask for these only.
+_KEY_LINE = re.compile(r"\b(goal(?![\s-]*kick)|scores?|penalty|penalt|yellow card|red card|booked|sent off|dismissed|substitution|replaces|"
+                       r"var\b|disallowed|offside goal|hits the (?:post|bar|woodwork|crossbar)|saved|saves|"
+                       r"kick.?off|half.?time|full.?time|second half|first half|extra time|shoot.?out|injur)", re.I)
+
+
+def is_key_line(line):
+    return bool(_KEY_LINE.search(line.get("text") or ""))
+
+
+def _commentary(ctx, fx, sp, since=None, key_only=False):
+    """The latest lines of the match's running commentary, up to where the listener's screen has reached.
+
+    With `since` (the `cursor` an earlier call returned) only the lines after it come back, so a client that polls
+    can read the match out as it goes without repeating itself; -1 means "from now": nothing, only the cursor. The
+    cursor counts lines the listener's picture has reached, so a delayed listener's cursor never runs ahead of it.
+    If more than MOST_NEW_LINES arrived, only the newest are given and `skipped` says how many were left out."""
+    try:
+        lines = ctx.provider.commentary(fx["fixture_id"])
+    except (NotImplementedError, AttributeError):
+        lines = None
+    if not lines:
+        raise ToolError("I don't have the commentary for %s against %s." % (fx["home"], fx["away"]),
+                        {"reason": "no_commentary", "fixture_id": fx["fixture_id"]})
+    reached = fx.get("minute")
+    if reached is not None and fx.get("broadcast_offset"):          # a delayed listener: nothing their picture has not shown
+        lines = [l for l in lines if l["minute"] <= reached]
+    cursor = len(lines)
+    if since is not None:
+        new = [] if since < 0 else lines[since:]
+        if key_only:
+            new = [l for l in new if is_key_line(l)]
+        skipped = max(0, len(new) - MOST_NEW_LINES)
+        new = new[-MOST_NEW_LINES:]
+        said = " ".join("On %s, %s" % (("%d plus %d" % (l["minute"], l["stoppage"])) if l["stoppage"] else l["minute"],
+                                    l["text"] if l["text"].endswith((".", "!", "?")) else l["text"] + ".") for l in new)
+        return (said or "Nothing new in the commentary."), {
+            "fixture_id": fx["fixture_id"], "commentary": new, "cursor": cursor, "skipped": skipped,
+            "generated_by": "template", "verbatim": True}, None
+    latest = lines[-LATEST_COMMENTARY:]
+    if not latest:
+        raise ToolError("Nothing has been said in the commentary yet.", {"reason": "no_commentary", "fixture_id": fx["fixture_id"]})
+    said = " ".join("On %s, %s" % (("%d plus %d" % (l["minute"], l["stoppage"])) if l["stoppage"] else l["minute"],
+                                   l["text"] if l["text"].endswith((".", "!", "?")) else l["text"] + ".") for l in latest)
+    spoken = "The latest from the commentary in %s against %s. %s" % (fx["home"], fx["away"], said)
+    return spoken, {"fixture_id": fx["fixture_id"], "commentary": latest, "cursor": cursor, "generated_by": "template", "verbatim": True}, None
+
+
 def run(ctx, args, listener_id):
     fx = resolve_fixture(ctx, args, listener_id, prefers="played")
     tz = fx.get("tz_offset_minutes")
@@ -38,8 +94,12 @@ def run(ctx, args, listener_id):
         raise ToolError("%s against %s has not started yet. %s" % (
             fx["home"], fx["away"], clock.say_kickoff(fx, sp.start_word, tz_minutes=tz)),
             {"reason": "not_started", "fixture_id": fx["fixture_id"], "kickoff": ko.isoformat() if ko else None})
-    events = [e for e in events_for(ctx, fx) if e.get("kind") != "period"]
     part = args.get("part") or "all"
+    if part == "commentary":
+        since = args.get("since_line")
+        return _commentary(ctx, fx, sp, since if isinstance(since, int) and not isinstance(since, bool) else None,
+                           key_only=args.get("key_only") is True)
+    events = [e for e in events_for(ctx, fx) if e.get("kind") != "period"]
 
     when = clock.kickoff(fx)
     day = clock.say_day(when, tz_minutes=tz) if when and fx.get("status") in FINISHED else ""

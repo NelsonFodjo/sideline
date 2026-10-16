@@ -97,6 +97,12 @@ class ResponseCache(object):
         self.set(key, value, ttl_for(value))
         return value
 
+    def drop_matching(self, part):
+        """Forget every kept page whose key contains `part`."""
+        with self._lock:
+            for key in [k for k in self._entries if isinstance(k, str) and part in k]:
+                del self._entries[key]
+
     def stats(self):
         with self._lock:
             asked = self.hits + self.misses + self.coalesced

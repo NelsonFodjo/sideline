@@ -42,6 +42,7 @@ Severity: **critical** blocks shipping · **important** costs real time ·
 | FL-25 | Choose a Bedrock model to act as the host over a 30-tool MCP server | With the whole tool list offered, models answered with no tool, or the wrong one, on up to two thirds of 79 phrasings; the same runs were also throttled | important | Measured routing per model, a prompt that treats statements as requests, a shortlist, waiting and retrying on throttling | Guidance on tool-list size for a model host (FR-07), and published on-demand rate limits for Converse (FR-08) |
 | FL-26 | Keep a listener's state in DynamoDB and ask a first question from a region far from the table | One cold first question took 11 s, almost all of it 26 sequential table calls at about 340 ms each | important | Do independent calls at once, keep the server's own records while it is the only writer, ask for only what is needed | Document per-call latency from distant regions and a batch-get pattern for single-table designs |
 | FL-27 | Judge how fast a voice assistant feels, using our own simulated Alexa+ page | The page's end-of-speech wait depended on a browser feature that was off by default, so it ran at its slowest setting and was longer than the 0.70 s our docs stated; the simulator did not represent what we thought we were measuring | important | Start transcription during the quiet, send early on a finished sentence, make the default and the docs agree | A reference latency budget for a voice add-on, and a way to measure one end to end |
+| FL-28 | Tell a listener the score of a match in play, behind their stream's delay | A listener was told a team had scored that had not: the delayed score was rebuilt by counting the feed's goal events, which are incomplete and name teams inconsistently | critical | Use the feed's own score and take off only the goals still held back; refresh on doubt; keep live pages for seconds | A field on the feed that says whether its event list is complete, and goal events keyed to the same team ids as the score |
 
 ---
 
@@ -550,6 +551,24 @@ test provider use memory state only, whatever `SIDELINE_STATE` says, with a test
 **Workaround** The page now starts transcribing after 320 ms of quiet while it keeps listening, drops the result if the listener carries on, and asks at once when the transcript is a finished sentence and the quiet has held. The agent is never started on a guess, because its tools change what the listener has been told. The captions setting now defaults to off in both the code and the settings table, and the adaptive wait no longer depends on it. A test (`tests/test_speculative_stt.py`) pins the shape of the logic; the effect on a real microphone has not been timed.
 
 **Suggestion** Publish a latency budget for a voice add-on (end of speech, recognition, tool calls, first audio) and a way to measure a turn end to end, so a team can tell whether a stand-in is faithful. Without one, "fast enough" is whatever our own page happens to do.
+
+### FL-28 — The score was wrong because we believed the event list over the score
+
+**Evidence** Reported by a team member after watching a live match on 2026-10-15: one team had 1 and the other 0, and Sideline kept saying the other team had 1. We could not retrieve that match afterwards, so the cause below is the one the code and a check across the day's matches support, not a replay of that match. The check: 135 football matches from yesterday and today, the feed's score against the score counted from its goal events: they disagreed in 70, mostly lower-league and college matches that list few or no goal events (for example a feed score of 2 to 1 with a goal list that gives 2 to 0).
+
+**Task** Tell a listener, whose stream runs behind real time, the score their screen has reached.
+
+**Steps** Read the code from the question to the spoken score, and compared what the feed says in its two places: the match's score, and its list of events.
+
+**Expected** The event list to add up to the score, so either could be used.
+
+**Actual** They do not always. For a listener with a delay, the score was rebuilt by counting goal events up to the point their screen had reached, with every event not credited to the home team counted for the away team. A feed that lists a goal under a team name that differs from the match's, or omits a goal, therefore gave one team a goal it had not scored or took one away. Separately, a match in play was kept in a 60-second cache by its id, so a recheck could repeat a minute-old score.
+
+**Severity** critical: a wrong score said confidently is the one failure this product cannot afford, and a blind listener cannot see that it is wrong.
+
+**Workaround** The feed's own score is the authority. For a delayed listener only the goals still held back are taken off it, each placed on a side by a tolerant team-name match; if one cannot be placed, or the result would be below nothing, the feed's score stands and the answer says it cannot be sure it matches their screen. A match in play is kept for 3 seconds, not 60; saying "are you sure" makes the model call the score tool with `refresh`, which forgets what is kept and asks the feed again. Tests pin each case (`tests/test_score_truth.py`).
+
+**Suggestion** Say in the feed's documentation which of the two places is authoritative, and add a marker on a match when its event list is known to be incomplete, so a client can tell a quiet match from a poorly covered one.
 
 ## Candidates: add an entry only if you actually hit it
 

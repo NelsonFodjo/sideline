@@ -24,8 +24,8 @@ back anything their delayed stream has not shown yet, and speaks through Amazon 
 | **Speed** | A question after the first takes 0 to 3 s; the first takes about 6 s with the model (measured from Mauritius against a table in us-east-1; the follow tool alone is 4.5 s) |
 | **Memory you control** | The conversation lives in the session only; "forget that" ends it; "forget everything about me" erases what the server keeps |
 | **Built on** | Amazon Bedrock (Nova Pro as the host, Voxtral and Nova Sonic for speech in), Polly, DynamoDB |
-| **Evidence** | 52 offline test suites; 70 live questions on real matches; routing **77 of 79** on a 79-phrasing check; the official MCP Python SDK client run against it |
-| **Honesty** | 27-entry [friction log](docs/FRICTION_LOG.md), 9 [feature requests](docs/FEATURE_REQUESTS.md), and a [known-limitations list](#known-limitations) that includes what is not done |
+| **Evidence** | 61 offline test suites; 70 live questions on real matches; routing **77 of 79** on a 79-phrasing check; the official MCP Python SDK client run against it |
+| **Honesty** | 28-entry [friction log](docs/FRICTION_LOG.md), 9 [feature requests](docs/FEATURE_REQUESTS.md), and a [known-limitations list](#known-limitations) that includes what is not done |
 
 ---
 
@@ -146,9 +146,24 @@ make run                    # starts the server on http://127.0.0.1:8765/  (or: 
 make test                   # the offline suite: no network, no credentials
 ```
 
-Open the page, allow the microphone once, and talk. A **Dev log** button (bottom-left, or Alt+D) shows, for every question,
-which tools ran with what arguments, which model ran, how long each model call, tool call and speech step took, and the
-output. It is kept in local storage and cleared when you refresh.
+Open the page, allow the microphone once, and talk. The page plays Alexa+: a conversation you can scroll back through (the
+**Conversation** button, or H), a match card, and a light bar along the bottom that shows whether it is listening, thinking
+or speaking.
+
+**A followed match stays on screen.** Follow a match and its card (score, minute, a "following, live" label) stays until you
+follow another match, which replaces it, or say "stop following" (or press the × on the card). While the match is in play the
+card refreshes every 30 seconds, the same beat the server polls it on, and after every answer; it stops refreshing at full
+time and says so. The refresh is held to your stream delay, so it never shows a goal ahead of your picture. The server
+remembers what you follow, so a page refresh brings the card back.
+
+**Watching what happens behind it.** The **Dev log** (Alt+D) shows, for every question: what was heard and what was acted on;
+how the turn was handled (how many of the 30 tools the model was offered, how many earlier turns it remembered, whether a first
+answer with no tool was sent back); each model call with its time and tokens; and, for every MCP tool call, the arguments it was
+given, the words it returned, the feed requests it made and how many were answered from what was kept, the time inside the
+server, what it changed about the listener (the match followed, the marker, the delay), the full structured result, and a
+"copy as MCP call" button; then a timeline of speech in, agent and speech out. It is kept in local storage and cleared when you
+refresh. The server's console prints the same, one readable block per tool call and per agent turn (`SIDELINE_LOG=DEBUG` adds
+the full result), and `logs/` keeps them as JSON lines.
 
 Without AWS the server still starts and every tool answers in templated wording through any MCP client; the simulator's
 agent needs Bedrock. How to connect another client, and how to host it, is in the next section.
@@ -329,7 +344,7 @@ is a new provider, not a new product, and a new sport is a new profile ([docs/SP
 not: the server holds a marker per listener, so the request can be as short as "what did I miss"; tools say what they do not
 know instead of guessing; a failure is a sentence a person can act on; and tool descriptions are treated as the product's
 interface, with a measured check on whether a model picks the right one. The 9 [feature requests](docs/FEATURE_REQUESTS.md)
-and 27 [friction entries](docs/FRICTION_LOG.md) are what we would want Amazon's teams to know from building it.
+and 28 [friction entries](docs/FRICTION_LOG.md) are what we would want Amazon's teams to know from building it.
 
 **For the pattern.** "What has changed since I last asked" is the question behind a delivery, a flight, a market, a
 match. A per-listener marker plus a held-back view of events is a reusable answer to it, and sport, where the listener
@@ -346,7 +361,7 @@ Dated 2026-10-15. "Verified" means it was run and the result observed; each row 
 
 | | Status |
 |---|---|
-| The server, tools, spoiler guard, state | **Verified**: `make test`, 52 offline suites, no network or credentials |
+| The server, tools, spoiler guard, state | **Verified**: `make test`, 61 offline suites, no network or credentials |
 | Live ESPN data across five sports | **Verified**: three live conversation batches, 70 questions on real matches (finished, upcoming and one in play), in `tests/conversations/`. 50 questions took about 35 s; they found 12 problems, all fixed and tested |
 | One question's cost | **Measured**: the first question about a match is 3 ESPN requests and about 3 s (it was 116 and 18 s); a repeat is free |
 | A model choosing among the tools | **Measured**: `scripts/route_check.py`, 79 phrasings, four Bedrock models: Amazon Nova Pro called the intended tool on **77 of 79** (97%); Claude Sonnet 4.5 and Haiku 4.5 were last measured, earlier and with fewer fixes, at 56 and 53 (Nova Pro was 59 at that stage). Table and caveats in [docs/BEDROCK.md](docs/BEDROCK.md) |
@@ -383,7 +398,7 @@ Alexa+. **Mini challenge:** AWS Builder (Bedrock, Polly, DynamoDB, Voxtral, Nova
 |---|---|
 | The submission text | [docs/HACKATHON.md](docs/HACKATHON.md) |
 | The demo video script and shot list | [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md) |
-| **Friction log** (27 entries: task, steps, expected vs actual, severity, workaround, suggestion) | [docs/FRICTION_LOG.md](docs/FRICTION_LOG.md) |
+| **Friction log** (28 entries: task, steps, expected vs actual, severity, workaround, suggestion) | [docs/FRICTION_LOG.md](docs/FRICTION_LOG.md) |
 | Product feedback, per tool, API and SDK | [docs/PRODUCT_FEEDBACK.md](docs/PRODUCT_FEEDBACK.md) |
 | Feature requests, with priority | [docs/FEATURE_REQUESTS.md](docs/FEATURE_REQUESTS.md) |
 

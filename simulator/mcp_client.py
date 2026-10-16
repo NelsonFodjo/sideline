@@ -27,6 +27,7 @@ class McpClient(object):
         self._id = 0
         self._lock = threading.Lock()          # guards the id counter, the session id and the catalog, nothing else
         self._init_lock = threading.Lock()     # one initialize at a time; never held during a tools/call
+        self._tl = threading.local()           # the last call's `_meta.sideline` (what it cost, what it changed), per thread
         self.instructions = ""
         self._cached_catalog = None
 
@@ -114,6 +115,10 @@ class McpClient(object):
             self._cached_catalog = catalog
         return catalog
 
+    def last_meta(self):
+        """What the most recent call on this thread cost and changed, as the server reported it."""
+        return dict(getattr(self._tl, "meta", None) or {})
+
     def call(self, name, args, listener_id, agent=False):
         """tools/call. Returns (spoken, structured, ui); raises ToolError when
         the tool declined, InvalidParams when the arguments were refused,
@@ -139,6 +144,7 @@ class McpClient(object):
         result = doc.get("result")
         if not isinstance(result, dict):
             raise RuntimeError("MCP tools/call returned no result")
+        self._tl.meta = (result.get("_meta") or {}).get("sideline") or {}
         spoken = ((result.get("content") or [{}])[0] or {}).get("text", "")
         structured = result.get("structuredContent") or {}
         if result.get("isError"):

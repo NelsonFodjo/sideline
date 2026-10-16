@@ -409,15 +409,15 @@ def test_js_stop_words():                                                 # VO-1
       shouldBargeIn("stop"),
       shouldBargeIn("wait, which one?"),
       shouldBargeIn("hold on"),
-      shouldBargeIn("who is the referee"),
-      shouldBargeIn("the referee said wait"), // stop word not at the start, but a real question: 2+ words
+      shouldBargeIn("who is the referee"),    // not addressed to her: a TV or a room, not an interruption
+      shouldBargeIn("the referee said wait"), // a stop word not at the start does not count
       leadsWithStopWord("so are we okay"),
       leadsWithStopWord("Stop.")
     ]));
     """
     res = node(script)
-    assert res == [False, False, True, True, True, True, True, False, True], res
-    print("ok  VO-17 stop words count only at the start; Sideline's own 'Okay, ...' never cuts it off")
+    assert res == [False, False, True, True, True, False, False, False, True], res
+    print("ok  VO-17 only a stop word at the start (or her name) interrupts; her own 'Okay, ...' and other talk never cut her off")
 
 
 def test_js_stt_fallback():                                               # VO-04
@@ -429,7 +429,7 @@ def test_js_stt_fallback():                                               # VO-0
     var BASE='', paused=false, armed=true, speaking=false, pendingAnswer=null, pendingQuestion=null;
     var caps={stt:'voxtral',tts:'polly'}, SR=function(){}, useBrowserSTT=false, said=[], asked=[];
     var el={innerHTML:''}; function $(){ return el; }
-    function say(t){ said.push(t); } function setQuiet(){} function showSaid(){} function ask(t){ asked.push(t); }
+    function say(t){ said.push(t); } function setQuiet(){} function showSaid(){} function ask(t){ asked.push(t); } function heard(t){ showSaid(t); ask(t); }
     var capsStt='voxtral';
     global.fetch=function(){ return Promise.resolve({ok:true,json:function(){ return Promise.resolve({stt:capsStt}); }}); };
     console.warn=function(){};

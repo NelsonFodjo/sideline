@@ -382,11 +382,206 @@ body.voice-only .stage .inner{
 @media (max-width:600px){
   #devpanel{width:100vw;top:auto;bottom:48px;max-height:55vh;border-left:none;border-top:1px solid rgba(124,196,255,.25)}
 }
+
+/* =====================================================================
+   Alexa+ skin. The page plays the part of Alexa+ talking to the Sideline MCP
+   server, so it borrows how that assistant presents itself: a deep blue stage,
+   cyan as the voice colour, a light bar along the bottom edge that tells you
+   what it is doing, a card for the match, and a conversation you can scroll back
+   through. Inspired by it, not a copy: no logo, no proprietary typeface.
+   ===================================================================== */
+:root{
+  --void:#040916; --line:#14284a; --cyan:#00caff; --cyan-deep:#2a6bff;
+  --white:#f2f7ff; --dim:#8aa4c8; --faint:#3a5278; --warm:#a8ecff;
+  --card:rgba(16,32,66,.62); --card-line:rgba(120,170,255,.22);
+}
+body{
+  font-family:"Inter","Helvetica Neue",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  background:radial-gradient(1300px 780px at 50% 118%,#0a2a68 0%,#071634 42%,#040916 100%);
+}
+.bg{opacity:.55}
+
+.brand{position:fixed;top:16px;left:20px;z-index:6;display:flex;align-items:baseline;gap:12px;pointer-events:none}
+.brand b{font-size:21px;font-weight:800;letter-spacing:.01em;color:var(--white)}
+.brand b i{font-style:normal;color:var(--cyan);margin-left:1px}
+.brand span{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);
+  border:1px solid var(--card-line);border-radius:99px;padding:3px 10px;background:rgba(10,24,52,.5)}
+
+/* the light bar: what the assistant is doing, along the bottom edge */
+#lightbar{position:fixed;left:0;right:0;bottom:0;height:7px;z-index:7;pointer-events:none;opacity:0;
+  background:linear-gradient(90deg,transparent 0%,var(--cyan-deep) 22%,var(--cyan) 50%,var(--cyan-deep) 78%,transparent 100%);
+  box-shadow:0 -6px 30px 2px rgba(0,202,255,.35);transition:opacity .35s var(--ease)}
+body[data-mode="listening"] #lightbar{opacity:1;animation:lb-listen 1.6s ease-in-out infinite}
+body[data-mode="thinking"]  #lightbar{opacity:1;background-size:40% 100%;background-repeat:no-repeat;
+  background-image:linear-gradient(90deg,transparent,var(--cyan),#7a5cff,transparent);animation:lb-think 1.1s linear infinite}
+body[data-mode="speaking"]  #lightbar{opacity:.9;animation:lb-speak 1.2s ease-in-out infinite}
+@keyframes lb-listen{0%,100%{transform:scaleX(.55);opacity:.75}50%{transform:scaleX(1);opacity:1}}
+@keyframes lb-think{0%{background-position:-45% 0}100%{background-position:145% 0}}
+@keyframes lb-speak{0%,100%{transform:scaleX(.9);filter:brightness(.9)}50%{transform:scaleX(1);filter:brightness(1.35)}}
+
+/* the match, as a card */
+.hud .team{font-weight:600;letter-spacing:.01em}
+.hud .sb b{font-weight:800}
+
+/* the words: one gentle highlight in the voice colour */
+.answer .now{color:var(--cyan)}
+.said{color:var(--dim)}
+
+/* the status strip along the foot */
+.wire{background:rgba(6,14,32,.72);border-top:1px solid var(--card-line);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+
+/* the gate */
+.gate{background:radial-gradient(900px 600px at 50% 40%,#0b2a66 0%,#050c1f 70%)}
+.gate h1{font-weight:800;letter-spacing:.01em}
+#begin{background:linear-gradient(135deg,var(--cyan),var(--cyan-deep));color:#02101f;font-weight:700;border:0;
+  box-shadow:0 10px 40px rgba(0,202,255,.35)}
+
+/* conversation history */
+#histbtn{position:fixed;top:14px;right:92px;z-index:8;font:600 12px inherit;font-family:inherit;color:var(--white);
+  background:var(--card);border:1px solid var(--card-line);border-radius:99px;padding:7px 14px;cursor:pointer}
+#histbtn:hover,#histbtn[aria-expanded="true"]{border-color:var(--cyan);color:var(--cyan)}
+#hist{position:fixed;top:56px;right:14px;bottom:62px;width:min(380px,92vw);z-index:8;overflow:auto;
+  background:rgba(8,18,40,.86);border:1px solid var(--card-line);border-radius:20px;padding:14px;
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 18px 60px rgba(0,0,0,.5)}
+#hist[hidden]{display:none}
+#histlist{display:flex;flex-direction:column;gap:10px}
+.msg{max-width:88%;padding:10px 13px;border-radius:16px;font-size:14px;line-height:1.4}
+.msg.user{align-self:flex-end;background:linear-gradient(135deg,var(--cyan-deep),#1d4fd8);color:#fff;border-bottom-right-radius:5px}
+.msg.assistant{align-self:flex-start;background:rgba(40,70,130,.5);border:1px solid var(--card-line);border-bottom-left-radius:5px}
+.msg .skill{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.msg .skill i{font-style:normal;font-size:10.5px;letter-spacing:.04em;color:var(--cyan);border:1px solid rgba(0,202,255,.35);
+  border-radius:99px;padding:2px 8px;background:rgba(0,202,255,.08)}
+.msg .skill i.ms{color:var(--dim);border-color:var(--card-line);background:transparent}
+@media (max-width:640px){.brand span{display:none}#histbtn{right:14px;top:50px}}
+.devtool{margin:6px 0;padding:6px 9px;border-left:2px solid var(--cyan);background:rgba(0,202,255,.05);border-radius:0 8px 8px 0}
+.devtool.devbad{border-left-color:#ff6b4a;background:rgba(255,107,74,.05)}
+.devtoolhead{font-weight:700;margin-bottom:3px}
+.devdata summary{cursor:pointer;color:var(--cyan)}
+.devdata pre{white-space:pre-wrap;word-break:break-word;margin:4px 0 0;font-size:11px;max-height:220px;overflow:auto;color:var(--dim)}
+.devcopy1{margin-top:5px;font:inherit;font-size:11px;color:var(--dim);background:none;border:1px solid var(--card-line);border-radius:99px;padding:2px 9px;cursor:pointer}
+.devcopy1:hover{color:var(--cyan);border-color:var(--cyan)}
+
+/* the followed match: a bare strip across the full width of the top, no box and no background, so the eye stays clear.
+   One line always (teams, score, clock, a live dot); click it to open the full-width timeline and the event chips. */
+.hud.on{display:grid !important;grid-template-columns:1fr auto 1fr;align-items:center;gap:0 clamp(12px,2.6vw,40px);
+  position:fixed;top:0;left:0;right:0;width:auto;max-width:none;transform:none;z-index:4;opacity:1;
+  padding:clamp(10px,1.8vh,18px) clamp(16px,3.2vw,40px) 0;cursor:pointer;pointer-events:auto;
+  background:none;border:0;border-radius:0;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+.hud .scoreline{display:contents}
+.hud .team{font-size:clamp(11px,1.2vw,14px);font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1}
+.hud .team.home{grid-column:1;grid-row:1;text-align:right}
+.hud .team.away{grid-column:3;grid-row:1;text-align:left}
+.hud .sb{grid-column:2;grid-row:1;display:flex;align-items:center;gap:10px;line-height:1;margin:0;font-size:inherit}
+.hud .sb i{opacity:.4;font-style:normal}
+.hud .sb b{font-size:clamp(22px,3vw,34px);font-weight:300;min-width:.55em;text-align:center}
+.hud .fol{display:none !important;grid-column:1;grid-row:2;justify-self:end;position:static;font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim);display:flex;align-items:center;gap:6px;margin-top:6px}
+.hud .fol::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--faint)}
+.hud .fol.live{color:#ff8a70}.hud .fol.live::before{background:#ff5a3c;box-shadow:0 0 10px #ff5a3c;animation:folpulse 1.4s ease-in-out infinite}
+.hud .fol.done::before{background:var(--ok)}
+@keyframes folpulse{0%,100%{opacity:.45}50%{opacity:1}}
+.hud .clockrow{grid-column:1 / -1;grid-row:2;justify-self:center;margin:6px 0 0;font-size:12px;color:var(--dim)}
+.hud .bar{display:block;grid-column:1 / -1;grid-row:3;margin:6px 0 0;width:100%;max-width:none;height:22px}
+.hud .bar .seg{position:absolute;top:6px;width:1px;height:10px;background:var(--dim);opacity:.45}
+.hud .bar .edge{position:absolute;top:3px;width:0;height:16px;border-left:2px dotted var(--hot);opacity:0;transition:opacity .6s var(--ease),left 1s var(--ease)}
+.hud .bar .edge.on{opacity:.9}
+.hud .flash{grid-column:1 / -1;grid-row:2;justify-self:center;align-self:center;font-size:clamp(13px,1.5vw,18px);font-weight:700;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--warm);padding:0 14px;
+  visibility:hidden;pointer-events:none}
+.hud .flash.on{visibility:visible}
+.hud.flashing .fol,.hud.flashing .clockrow{visibility:hidden}
+.hud .legend{display:none;grid-column:1 / -1;grid-row:5;justify-content:center;gap:18px;flex-wrap:wrap;margin-top:2px;font-size:11px;color:var(--dim)}
+.hud.expanded .legend{display:flex}
+.hud .info{display:none;grid-column:1 / -1;grid-row:6;justify-self:center;margin-top:4px;font-size:12px;letter-spacing:.08em;color:var(--dim)}
+.hud.expanded .info{display:block}
+.hud .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.hud .legend .l-now{background:var(--cyan)}.hud .legend .l-told{background:var(--cyan-deep);border-radius:1px;width:3px;height:11px}
+.hud .legend .l-edge{background:none;border-left:2px dotted var(--hot);border-radius:0;width:0;height:11px}
+.hud .legend .l-goal{background:var(--warm);border-radius:1px;width:3px;height:11px}
+/* the line-ups: a pitch across the middle, home on the left, away on the right, in place of the eye */
+#lineup{position:fixed;left:50%;transform:translateX(-50%);width:min(1100px,94vw);z-index:3;display:none;flex-direction:column;gap:10px;pointer-events:auto}
+#lineup.on{display:flex}
+body.lineup-open #core{opacity:.1;transition:opacity .4s var(--ease)}
+.lu-head{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;font-size:clamp(12px,1.4vw,16px);color:var(--white)}
+.lu-head .h{text-align:left;color:var(--cyan)}.lu-head .a{text-align:right;color:#ffb454}
+.lu-head .x{width:24px;height:24px;line-height:22px;text-align:center;border:1px solid var(--card-line);border-radius:50%;color:var(--dim);cursor:pointer;font-size:15px}
+.lu-head .x:hover{color:var(--white);border-color:var(--cyan)}
+.lu-info{text-align:center;font-size:12px;letter-spacing:.08em;color:var(--dim);margin-top:-4px}
+.lu-pitch{position:relative;flex:1;min-height:200px;border:1px solid var(--card-line);border-radius:14px;
+  background:repeating-linear-gradient(90deg,rgba(47,208,138,.05) 0 8.33%,rgba(47,208,138,.02) 8.33% 16.66%)}
+.lu-pitch i{position:absolute;border:1px solid rgba(234,244,251,.18);pointer-events:none}
+.lu-mid{left:50%;top:0;bottom:0;border-width:0 0 0 1px !important}
+.lu-circle{left:50%;top:50%;width:18%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%}
+.lu-box{top:22%;bottom:22%;width:12%}.lu-box.l{left:0;border-left:0 !important}.lu-box.r{right:0;border-right:0 !important}
+.lu-six{top:38%;bottom:38%;width:5%}.lu-six.l{left:0;border-left:0 !important}.lu-six.r{right:0;border-right:0 !important}
+.lu-p{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:2px;width:100px;text-align:center}
+.lu-p b{width:clamp(28px,3.4vw,40px);aspect-ratio:1;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:clamp(12px,1.4vw,16px);
+  border:2px solid var(--cyan);color:var(--white);background:rgba(4,9,22,.7)}
+.lu-p.away b{border-color:#ffb454}
+.lu-p.gk b{background:var(--cyan);color:var(--void)}.lu-p.away.gk b{background:#ffb454;color:var(--void)}
+.lu-p .n{font-size:clamp(10px,1.1vw,13px);font-weight:600;color:var(--white);max-width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lu-p .a{font-size:9px;letter-spacing:.1em;color:var(--dim)}
+.lu-lists{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:28px;align-content:center;padding:6px 8px}
+.lu-col h4{margin:0 0 8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
+.lu-col.away h4{color:#ffb454;text-align:right}
+.lu-starters{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.lu-starters li{display:flex;align-items:center;gap:14px;font-size:clamp(15px,1.8vw,22px);font-weight:600;color:var(--white)}
+.lu-starters li b{min-width:2.2em;height:2.2em;border-radius:50%;border:2px solid var(--cyan);display:grid;place-items:center;font-size:.75em}
+.lu-col.away .lu-starters li{flex-direction:row-reverse;text-align:right}
+.lu-col.away .lu-starters li b{border-color:#ffb454}
+.lu-starters li i{font-style:normal;font-size:11px;letter-spacing:.1em;color:var(--dim)}
+.lu-benches{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.lu-bench h4{margin:0 0 2px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan)}
+.lu-bench.away h4{color:#ffb454;text-align:right}
+.lu-subs{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:3px}
+.lu-bench.away .lu-subs{text-align:right}
+.lu-bench ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:2px 14px;font-size:12px;color:var(--white)}
+.lu-bench.away ul{justify-content:flex-end}
+body.contrast .lu-pitch{border-color:#fff}
+body.large .lu-p .n{font-size:15px}body.large .lu-bench ul{font-size:15px}
+/* the settings popover: the toggles live here so the footer stays one quiet line */
+#settings{position:fixed;right:16px;bottom:54px;z-index:30;display:flex;flex-direction:column;align-items:stretch;gap:8px;
+  padding:12px;border:1px solid var(--card-line);border-radius:16px;background:rgba(6,14,32,.96);box-shadow:0 14px 40px rgba(0,0,0,.5)}
+#settings[hidden]{display:none}
+#settings .sub-toggle-btn{margin:0;justify-content:flex-start;text-align:left;white-space:nowrap}
+body.contrast #settings{background:#000;border-color:#fff}
+/* typing instead of talking: the microphone is off and a field sits under the words */
+#typebar{position:fixed;left:50%;bottom:62px;transform:translateX(-50%);width:min(680px,92vw);z-index:6;display:none;gap:8px}
+body.typing #typebar{display:flex}
+body.typing .shell{padding-bottom:calc(env(safe-area-inset-bottom) + 64px)}
+#typein{flex:1;min-width:0;font:inherit;font-size:16px;color:var(--white);background:transparent;border:1px solid var(--card-line);
+  border-radius:99px;padding:11px 18px;outline:none}
+#typein:focus{border-color:var(--cyan)}
+#typein::placeholder{color:var(--dim)}
+#typesend{font:inherit;font-size:14px;color:var(--cyan);background:transparent;border:1px solid var(--cyan);border-radius:99px;padding:0 20px;cursor:pointer}
+#typesend:hover{background:var(--cyan);color:var(--void)}
+/* large type: the strip and the small print get big; "high contrast" is white and yellow on black */
+body.large .hud .team{font-size:clamp(16px,2.4vw,30px)}
+body.large .hud .sb b{font-size:clamp(46px,7vw,92px);font-weight:700}
+body.large .hud .fol,body.large .hud .clockrow{font-size:clamp(14px,1.8vw,22px)}
+body.large .hud .clockrow{color:var(--white)}
+body.large .wire{font-size:15px}
+body.contrast{--void:#000;--line:#fff;--cyan:#ffe600;--cyan-deep:#ffe600;--white:#fff;--dim:#fff;--faint:#bbb;--warm:#ffe600;--hot:#ff8a00;--ok:#7dff7d;--card-line:#fff}
+body.contrast,body.contrast .bg{background:#000 !important}
+body.contrast .bg{opacity:1}
+body.contrast .answer{color:#fff}
+
+.hud .pills{display:none;grid-column:1 / -1;grid-row:4;justify-content:center;gap:6px;flex-wrap:wrap;margin-top:4px}
+.hud.expanded .pills{display:flex}
+@media (max-width:760px){.hud .team{letter-spacing:.06em}}
+.answer.leaving{opacity:0 !important;transition:opacity .25s var(--ease)}
+#wakeToggle{margin-left:8px}
 </style>
 </head>
 <body data-mode="idle">
 
 <div class="bg" aria-hidden="true"></div>
+
+<div class="brand" aria-hidden="true"><b>alexa<i>+</i></b><span title="This page simulates Alexa+ talking to the Sideline MCP server">simulated</span></div>
+<div id="lightbar" aria-hidden="true"></div>
+<button id="histbtn" type="button" aria-expanded="false" aria-controls="hist" title="Conversation (H)">Conversation</button>
+<aside id="hist" aria-label="Conversation so far" hidden><div id="histlist"></div></aside>
 
 <div class="gate" id="gate">
   <div class="halo" aria-hidden="true"></div>
@@ -400,19 +595,25 @@ body.voice-only .stage .inner{
 
 <div class="shell">
   <header class="hud" id="match" aria-hidden="true">
+    <div class="fol" id="fol"></div>
     <div class="scoreline">
       <span class="team home" id="teamh"></span>
       <span class="sb" id="sb"><b id="sh">0</b><i>&ndash;</i><b id="sa">0</b></span>
       <span class="team away" id="teama"></span>
     </div>
+    <div class="flash" id="flash" role="status"></div>
     <div class="clockrow"><span class="clock" id="clock"></span></div>
     <div class="bar" id="bar">
       <div class="rail"></div><div class="played" id="played"></div>
       <div class="gap" id="gap"></div><div class="told" id="toldmark"></div>
-      <div class="now" id="nowdot"></div>
+      <div class="now" id="nowdot"></div><div class="edge" id="edge"></div>
     </div>
     <div class="pills" id="pills"></div>
+    <div class="info" id="matchinfo"></div>
+    <div class="legend" id="legend"><span><i class="l-now"></i>your picture</span><span><i class="l-told"></i>told up to here</span><span id="legedge"><i class="l-edge"></i>live</span><span><i class="l-goal"></i><span id="legword">goal</span></span></div>
   </header>
+
+  <section id="lineup" aria-hidden="true"></section>
 
   <main class="stage">
     <div class="inner">
@@ -426,13 +627,35 @@ body.voice-only .stage .inner{
     <span class="tool" id="tool">connecting</span>
     <span class="ms" id="ms"></span>
     <span class="via" id="via"></span>
-    <span class="hint" id="hint"><kbd>space</kbd> to pause</span>
-    <button id="subToggle" type="button" class="sub-toggle-btn" aria-label="Toggle transcription subtitles" title="Toggle between kinetic subtitles and pure voice-only visualizer">
+    <span class="hint" id="hint">say &ldquo;stop&rdquo; to interrupt</span>
+    <div id="settings" role="group" aria-label="Settings" hidden>
+      <button id="subToggle" type="button" class="sub-toggle-btn" aria-label="Toggle transcription subtitles" title="Toggle between kinetic subtitles and pure voice-only visualizer">
       <span class="sub-icon">📝</span>
       <span id="subLabel">Subtitles: ON</span>
     </button>
+      <button id="wakeToggle" type="button" class="sub-toggle-btn" aria-pressed="false" title="Wake word: when on, outside a conversation she answers only when addressed (&ldquo;Alexa, ...&rdquo;), so a TV or a room full of people cannot ask her things">
+      <span id="wakeLabel">Wake word: OFF</span>
+    </button>
+      <button id="largeToggle" type="button" class="sub-toggle-btn" aria-pressed="false" title="Large type and high contrast, for low vision">
+      <span id="largeLabel">Large type: OFF</span>
+    </button>
+      <button id="commToggle" type="button" class="sub-toggle-btn" aria-pressed="true" title="Live commentary: while you follow a match she reads the play out as it happens. Say &ldquo;stop commentary&rdquo; or &ldquo;start commentary&rdquo;.">
+      <span id="commLabel">Commentary: ON</span>
+    </button>
+      <button id="commDetail" type="button" class="sub-toggle-btn" aria-pressed="true" title="Which commentary she reads out: key moments (goals, cards, substitutions, VAR, big saves) or every line the feed has."><span id="commDetailLabel">Commentary lines: KEY MOMENTS</span></button>
+    </div>
+    <button id="settingsBtn" type="button" class="sub-toggle-btn" aria-expanded="false" aria-controls="settings" title="Settings">
+      <span>Settings</span>
+    </button>
+    <button id="typeToggle" type="button" class="sub-toggle-btn" aria-pressed="false" title="Switch between talking and typing (Alt+T). Typing turns the microphone off; she still reads her answers aloud.">
+      <span id="typeLabel">Mode: Voice</span>
+    </button>
     <span class="stack" id="stack"></span>
   </footer>
+  <form id="typebar" autocomplete="off">
+    <input id="typein" type="text" placeholder="Type to Alexa and press Enter" aria-label="Type your question" enterkeyhint="send">
+    <button id="typesend" type="submit">Send</button>
+  </form>
 </div>
 
 <!-- Everything said, once, for screen readers. The animated copy above is
@@ -473,7 +696,7 @@ function devFromAnswer(result, t0){
   var e={kind:"answer", input:devInput, route:result.generated_by||"?", model:d.model||result.model||"",
     total_ms:t0?Math.round(performance.now()-t0):null, server_ms:d.ms, model_calls:d.model_calls||[],
     tools:d.tools||(result.tool_results||[]).map(function(r){return {name:r.name,args:r.args,ms:r.ms,ok:!r.is_error};}),
-    output:result.text||"", stt:devStt};
+    output:result.text||"", stt:devStt, notes:d.notes||{}, understood:result.understood||"", heard:result.heard||""};
   devStt=null; return e;
 }
 function devEl(tag, cls, text){ var n=document.createElement(tag); if(cls) n.className=cls; if(text!=null) n.textContent=text; return n; }
@@ -500,12 +723,43 @@ function devRender(){
         box.appendChild(devLine("  call "+(i+1), c.error?("failed: "+c.error):(c.ms+" ms \u00b7 "+c.input_tokens+" in / "+c.output_tokens+" out tokens \u00b7 "+c.stop), c.error?"devbad":null));
       });
     }
+    var n=e.notes||{}, how=[];
+    if(n.tools_offered!=null) how.push("offered "+n.tools_offered+" of "+n.tools_total+" tools");
+    if(n.session_turns!=null) how.push(n.session_turns+" earlier turn"+(n.session_turns===1?"":"s")+" in this session");
+    if(n.forced_tool_retry) how.push("first answer had no tool: sent back to use one");
+    if(n.retried) how.push("retried: "+n.retried);
+    if(how.length) box.appendChild(devLine("handling", how.join(" \u00b7 ")));
+    if(e.understood) box.appendChild(devLine("understood", "heard \u201c"+(e.heard||"")+"\u201d, acted on \u201c"+e.understood+"\u201d"));
     (e.tools||[]).forEach(function(t){
       var args=""; try{ args=JSON.stringify(t.args||{}); }catch(x){}
-      box.appendChild(devLine("MCP tool", t.name+" "+args+" \u00b7 "+(t.ms!=null?t.ms+" ms":"?")+" \u00b7 "+(t.ok?"ok":(t.declined?"declined":"error")), t.ok?"devok":"devbad"));
+      var tb=devEl("div","devtool "+(t.ok?"devok":"devbad"));
+      tb.appendChild(devEl("div","devtoolhead","MCP tool  "+t.name+"  \u00b7  "+(t.ms!=null?t.ms+" ms":"?")+"  \u00b7  "+(t.ok?"ok":(t.declined?"declined"+(t.reason?" ("+t.reason+")":""):"error"))));
+      tb.appendChild(devLine("args", args));
+      if(t.spoken) tb.appendChild(devLine("response", t.spoken));
+      var m=t.meta||{};
+      if(m.feed) tb.appendChild(devLine("feed", m.feed.requests+" request"+(m.feed.requests===1?"":"s")+" to the feed, "+m.feed.cache_hits+" answered from what was kept"));
+      if(m.took_ms!=null) tb.appendChild(devLine("server time", m.took_ms+" ms inside the MCP server"));
+      if(m.state_changes){ Object.keys(m.state_changes).forEach(function(k){
+        tb.appendChild(devLine("changed", k+": "+JSON.stringify(m.state_changes[k][0])+" \u2192 "+JSON.stringify(m.state_changes[k][1]))); }); }
+      if(t.data){
+        var dt=devEl("details","devdata"); dt.appendChild(devEl("summary",null,"structured result"));
+        dt.appendChild(devEl("pre",null,t.data)); tb.appendChild(dt);
+      }
+      var cp=devEl("button","devcopy1","copy as MCP call"); cp.type="button";
+      cp.onclick=function(){ try{ navigator.clipboard.writeText(JSON.stringify({jsonrpc:"2.0",method:"tools/call",params:{name:t.name,arguments:t.args||{}}})); cp.textContent="copied"; }catch(x){} };
+      tb.appendChild(cp);
+      box.appendChild(tb);
     });
     if(!(e.tools||[]).length) box.appendChild(devLine("MCP tool","none"));
     if(e.server_ms!=null) box.appendChild(devLine("server", e.server_ms+" ms in the agent"));
+    var seg=[]; if(e.stt) seg.push("speech in "+e.stt.ms+" ms");
+    if(e.model_calls.length||(e.tools||[]).length){
+      var parts=[]; (e.model_calls||[]).forEach(function(c){ if(c.ms!=null) parts.push("model "+c.ms); });
+      (e.tools||[]).forEach(function(t){ if(t.ms!=null) parts.push(t.name+" "+t.ms); });
+      seg.push("agent "+(e.server_ms!=null?e.server_ms:"?")+" ms ("+parts.join(" + ")+")");
+    }
+    (e.tts||[]).forEach(function(t){ seg.push("speech out "+t.ms+" ms"); });
+    if(seg.length>1) box.appendChild(devLine("timeline", seg.join("  \u2192  ")));
     box.appendChild(devLine("output", e.output));
     (e.tts||[]).forEach(function(t){ box.appendChild(devLine("speech out", t.provider+" \u00b7 "+t.ms+" ms \u00b7 "+t.chars+" chars")); });
     list.appendChild(box);
@@ -637,16 +891,17 @@ function sizeCore(){
   cv.style.width=W+"px"; cv.style.height=H+"px";
   cx.setTransform(DPR,0,0,DPR,0,0);
 }
-window.addEventListener("resize",function(){ sizeCore(); placeText(); fit(); });
+window.addEventListener("resize",function(){ sizeCore(); measureStrip(); placeText(); fit(); });
 sizeCore();
 
 var PALETTE={
-  idle:      [48,104,142],
-  listening: [132,212,244],
-  thinking:  [36,148,226],
-  speaking:  [246,198,92]
+  idle:      [34,78,150],
+  listening: [0,202,255],
+  thinking:  [96,92,255],
+  speaking:  [150,230,255],
+  live:      [214,104,72]       // idle while a match is on: the eye itself says "live", no words needed
 };
-var rgbNow=[48,104,142];
+var rgbNow=[34,78,150];
 function ease(a,b,t){ return a+(b-a)*t; }
 
 /* ambient motes */
@@ -668,7 +923,13 @@ var RS=.86;                       // tighter rings, so the words get room below
 
 /* Where the eye sits: always the centre of the screen. The score and major
    updates are above it, the words below it. */
-var answering=false, geoK=0, devShift=0;
+var answering=false, geoK=0, devShift=0, stripNow=0, stripGoal=0;
+/* Where the strip ends (0 when it is not shown). The eye eases to it, so opening the timeline moves the eye down
+   instead of letting the two overlap. */
+function measureStrip(){
+  var m=document.getElementById("match");
+  stripGoal=(m&&m.classList.contains("on"))?Math.ceil(m.getBoundingClientRect().bottom):0;
+}
 function geometry(k){
   var isDev=typeof document!=="undefined" && document.body && document.body.classList.contains("dev-open");
   var targetShift=(isDev && W>600)?Math.min(440, W*.92):0;
@@ -676,6 +937,8 @@ function geometry(k){
   var m=Math.min(availW,H), narrow=availW<700;
   var cyHero=H*(narrow?.30:.405);
   var rHero=m*(narrow?.150:.118);
+  // The followed-match strip owns the top of the screen: the eye sits below it, never under it.
+  cyHero=Math.max(cyHero, stripNow+10+rHero*3.0*RS);
   return {cx:availW/2, cy:cyHero, R:rHero, m:m};
 }
 
@@ -689,6 +952,7 @@ function placeText(){
   var inner=st.firstElementChild, g=geometry(0);
   var stTop=st.getBoundingClientRect().top;
   inner.style.marginTop=Math.max(0, eyeEdge(g)+EYE_GAP-stTop)+"px";
+  try{ placeLineups(); }catch(e){}
 }
 
 function drawCore(now){
@@ -703,6 +967,8 @@ function drawCore(now){
   devShift=ease(devShift, targetShift, 1-Math.pow(.86,k60));
 
   geoK=ease(geoK, answering?1:0, 1-Math.pow(.92,k60));
+  if(Math.abs(stripGoal-stripNow)>.5){ stripNow=ease(stripNow, stripGoal, 1-Math.pow(.88,k60)); placeText(); }
+  else if(stripNow!==stripGoal){ stripNow=stripGoal; placeText(); }
   var geo=geometry(geoK), cxp=geo.cx, cyp=geo.cy, R=geo.R, m=geo.m;
   var back=geoK;                                   // 0 hero ... 1 behind the words
   var ringA=ease(1,.42,back);                      // rings fade behind text
@@ -728,6 +994,7 @@ function drawCore(now){
   if(MODE==="thinking") live=Math.max(live,.03+.02*Math.sin(pulse*3));
 
   var target=PALETTE[MODE]||PALETTE.idle;
+  if(MODE==="idle" && typeof FOLLOW!=="undefined" && FOLLOW && !FOLLOW.over && !FOLLOW.waiting) target=PALETTE.live;
   for(var c=0;c<3;c++) rgbNow[c]=ease(rgbNow[c],target[c],1-Math.pow(.95,k60));
   var col=function(a){ return "rgba("+(rgbNow[0]|0)+","+(rgbNow[1]|0)+","+(rgbNow[2]|0)+","+a+")"; };
   var col2=function(a){ return "rgba("+((rgbNow[0]*.55)|0)+","+((rgbNow[1]*.82+22)|0)+","+Math.min(255,(rgbNow[2]*1.05+10)|0)+","+a+")"; };
@@ -1040,7 +1307,7 @@ function commitSpec(s){                   // the speculative transcript becomes 
   }
   setMode("thinking"); setQuiet("");
   if(paused){ pendingQuestion=s.text; return; }
-  showSaid(s.text); ask(s.text);
+  heard(s.text);
 }
 
 function endCapture(){
@@ -1107,13 +1374,13 @@ function stopLiveCaption(){
 }
 
 function listen(){
-  if(!armed||speaking||!mic||paused)return;
+  if(!armed||speaking||!mic||paused||TYPING)return;
   if(useBrowserSTT){ startBrowserRecognition(); return; }
   setMode("listening");      // the state label already says so; the last
                              // answer stays on screen until you speak again
   sawVoice=false; startedAt=performance.now(); lastVoice=0; capText="";
   vad=vadNew();              // re-calibrate room noise floor
-  var spec=null;
+  var spec=null, voicedTicks=0;
   startCapture();
   startLiveCaption();
 
@@ -1126,10 +1393,10 @@ function listen(){
     if(v.sustained || (sawVoice && (v.active || a > (vad.noise || 0.005) * 1.5))){
       if(!sawVoice){
         clearTimeout(idleT); wake();
-        answer.classList.add("stale");               // you are speaking: dim the last answer
+        retireAnswer();                              // you are speaking: the last answer makes way
         if(capText) liveSaid(capText,true);          // words heard so far, now known to be speech
       }
-      sawVoice=true; lastVoice=now;
+      sawVoice=true; lastVoice=now; voicedTicks++; userActive();
     }
     var elapsed=now-startedAt, quietFor=now-(lastVoice||startedAt);
     var candidate=justWords(capText);
@@ -1137,7 +1404,7 @@ function listen(){
     var silenceLimit=(words>=4)?750:(words>=2)?850:950;
     if(sawVoice && elapsed>MIN_MS && caps.stt){
       if(spec && quietFor<SPEC_QUIET_MS){ try{spec.ctl.abort()}catch(e){} spec=null; }          // they carried on
-      else if(!spec && quietFor>=SPEC_QUIET_MS && elapsed<MAX_MS) spec=startSpec(peekCapture());
+      else if(!spec && quietFor>=SPEC_QUIET_MS && elapsed<MAX_MS && voicedTicks>=MIN_VOICED_TICKS) spec=startSpec(peekCapture());
       if(spec && spec.text!==null && !spec.failed && quietFor>=SPEC_QUIET_MS && /[?.!]$/.test(spec.text)){
         clearInterval(watch); watch=null; var done=spec; spec=null; commitSpec(done); return;   // a finished sentence, still quiet
       }
@@ -1156,8 +1423,8 @@ function listen(){
       var snapCap=candidate;
       stopLiveCaption();
       var pcm=endCapture();
-      if(sawVoice && (pcm.byteLength>4800 || (snapCap && pcm.byteLength>2400))) handleClip(pcm, snapCap);
-      else if(armed) listen();
+      if(sawVoice && voicedTicks>=MIN_VOICED_TICKS && (pcm.byteLength>4800 || (snapCap && pcm.byteLength>2400))) handleClip(pcm, snapCap);
+      else { if(sawVoice) ignoredNote("too brief to be speech",""); if(armed) listen(); }
     }
   },60);
 }
@@ -1187,7 +1454,7 @@ function setPaused(on){
     setQuiet("Paused. Press the space bar to carry on.");
     $("hint").innerHTML="paused &middot; <kbd>space</kbd> to resume";
   }else{
-    $("hint").innerHTML="<kbd>space</kbd> to pause";
+    $("hint").innerHTML="say &ldquo;stop&rdquo; to interrupt";
     setQuiet("");
     // What arrived while paused is delivered first: the answer, or the question heard just before the pause.
     if(pendingAnswer){ var t=pendingAnswer; pendingAnswer=null; pendingQuestion=null; say(t); }
@@ -1204,19 +1471,13 @@ function setPaused(on){
     });
   }
 }
+/* Only the listener's voice stops her ("stop", "wait", "Alexa, ..."). A key, a click or a tap never does: a bump of the keyboard
+   or a stray touch must not cut an answer off. The one key that does anything is Space while the microphone is off for want of
+   permission, to try again. */
 document.addEventListener("keydown",function(e){
-  if(e.repeat) return;
-  if(!armed) return;                       // before "Go live", Space keeps its usual job
-  // On a focused button or field, Space presses it (the subtitles toggle) rather than pausing.
-  if(e.code==="Space" && e.target && e.target.closest && e.target.closest("button,input,textarea,select,[contenteditable]")) return;
-  if(e.code==="Space"||e.code==="Pause"||e.code==="Escape"){
-    e.preventDefault(); setPaused(!paused);
-  }
-});
-document.addEventListener("click", function(e){
-  if(speaking && armed && !e.target.closest("button") && !e.target.closest("input")){
-    stopSpeaking();
-    listen();
+  if(e.repeat||!armed) return;
+  if(e.code==="Space" && paused && !(e.target && e.target.closest && e.target.closest("button,input,textarea,select,[contenteditable]"))){
+    e.preventDefault(); setPaused(false);
   }
 });
 
@@ -1233,7 +1494,7 @@ function justWords(t){
 
 /* Barge-in. Background noise (breathing, fan, keyboard) must NEVER stop playback.
    Only genuine recognized spoken words trigger interruption. */
-var bargeTimer=null, bargeSR=null, cut=null;
+var bargeTimer=null, bargeSR=null, cut=null, bargeHotAt=0;
 
 /* What had been said when the listener cut in, so their next words are read as a
    follow-up to it ("and him?", "wait, which one?") and not as a new subject. */
@@ -1253,7 +1514,62 @@ function stopRolling(){ if(rolling){ rolling=false; if(capturing) endCapture(); 
 
 var currentSpokenText="";
 var lastSpokenText="", lastSpokenAt=0;
-var STOP_WORDS=new Set(["stop","wait","pause","quiet","cancel","hold on","shut up","hush","nevermind","silence","enough","alright","okay","ok","cut"]);
+var STOP_WORDS=new Set(["stop","wait","pause","quiet","cancel","hold on","shut up","hush","nevermind","silence","enough"]);
+
+
+/* LISTENING GATE: what is allowed to become a question, and what is allowed to interrupt her.
+   Her own voice through the speakers, a commentator on the TV and a room full of people all produce words; none of them
+   is a question for her. So:
+   - while she speaks, only a stop word ("stop", "wait") or being addressed ("Alexa, ...") interrupts; any other words
+     are ignored until she has finished;
+   - the clip must hold enough real speech (voiced time), not a click or a cough;
+   - the well-known recogniser inventions on near silence ("thanks for watching") are dropped;
+   - outside the follow-up window after an answer, a question must be addressed to her ("Alexa, what's the score").
+     The window is the conversational part: right after an answer you just keep talking. */
+var WAKE_RE=/^\W*(?:(?:hey|ok|okay)\s+)?(?:alexa|alexia|alexsa|aleksa|sideline)\b[\s,.:;!?-]*/i;
+var HALLU_RE=/^\W*(?:thanks for watching|thank you for watching|thank you|thanks|you|bye|bye bye|subtitles by.*|the end)\W*$/i;
+var FILLER_RE=/^\W*(?:okay|ok|yeah|uh|um|hmm|mm|huh|oh|so|and|well)\W*$/i;
+var WAKE_KEY="sideline_wake", WAKE_ON=false, FOLLOWUP_MS=12000, MIN_VOICED_TICKS=5, followUntil=0;
+try{ WAKE_ON=localStorage.getItem(WAKE_KEY)==="on"; }catch(e){}
+function openFollowUp(ms){ followUntil=Date.now()+(ms||FOLLOWUP_MS); }
+function ignoredNote(why,text){
+  try{ devRecord({kind:"ignored", note:"ignored ("+why+"): \u201c"+text+"\u201d"}); }catch(e){}
+  // Never ignore you in silence: if she heard words and let them go for a reason you can fix, the screen says so.
+  try{
+    if(/say \u201cAlexa\u201d first/.test(why)){
+      var sd=$("said"); sd.textContent="\u201c"+text+"\u201d \u2014 say \u201cAlexa\u201d first, or turn the wake word off in Settings";
+      sd.classList.add("on"); sd.classList.remove("live","interim"); clearTimeout(ignoredT);
+      ignoredT=setTimeout(function(){ if(!sawVoice) fadeSaid(false); },4500);
+    }
+  }catch(e){}
+}
+var ignoredT=null;
+function isBargeCommand(t){ return leadsWithStopWord(t) || WAKE_RE.test(t||""); }
+function admit(text){
+  var t=justWords(text||"").trim();
+  if(t.length<2) return null;
+  if(isAssistantEcho(t)){ ignoredNote("her own voice",t); return null; }
+  if(HALLU_RE.test(t)){ ignoredNote("a recogniser invention on near silence",t); return null; }
+  var open=Date.now()<followUntil;
+  if(WAKE_ON){
+    var m=WAKE_RE.exec(t);
+    if(m){
+      var rest=t.slice(m[0].length).trim();
+      openFollowUp();
+      if(rest.length<2){ ignoredNote("only her name: listening",t); return null; }
+      return rest;
+    }
+    if(!open){ ignoredNote("not addressed to her, outside the follow-up window; say \u201cAlexa\u201d first",t); return null; }
+  }
+  if(FILLER_RE.test(t) && !open){ ignoredNote("filler",t); return null; }
+  return t;
+}
+function heard(text){                     // a transcript becomes a question, or is let go
+  var t=admit(text);
+  if(t){ openFollowUp(); showSaid(t); ask(t); }
+  else if(armed&&!paused){ listen(); }
+}
+/* END LISTENING GATE */
 
 var ECHO_IGNORE=new Set(["a","an","the","in","on","at","to","for","of","and","is","it","are","was","be","that","this","with","as","by","have","has","had","do","does","did","but","or","so"]);
 function isAssistantEcho(heard){
@@ -1296,7 +1612,7 @@ function shouldBargeIn(recognizedWords){
   var clean=(recognizedWords||"").toLowerCase().trim();
   if(!clean) return false;
   if(isAssistantEcho(clean)) return false;   // our own voice through the speakers, stop word or not
-  return leadsWithStopWord(clean) || clean.split(/\s+/).filter(Boolean).length>=2;
+  return isBargeCommand(clean);
 }
 
 function triggerWordBargeIn(recognizedWords){
@@ -1327,6 +1643,7 @@ function watchForBargeIn(){
   stopBargeSR();
   if(!micAn) return;
   var over=0, ticks=0, leak=0, ducked=false;
+  bargeHotAt=0;
 
   // Listen while it talks, keeping the last ~0.8 s, so that if you do cut in the clip starts
   // at the beginning of your word.
@@ -1340,15 +1657,16 @@ function watchForBargeIn(){
     var bar=Math.max(FLOOR*2, vad.noise*4, leak*2, spk*1.5);
     var hit=lv>bar && harshNow(micAn)<VAD_HARSH;
     over=hit?over+1:Math.max(0,over-1);
+    if(hit) bargeHotAt=Date.now();
     // Background noise guard: pure ambient sound does not duck voice
     var candD=capText?justWords(capText).trim().toLowerCase():"";
-    var hasVoiceD=candD.length>=2 && !isAssistantEcho(candD) && (STOP_WORDS.has(candD) || candD.split(/\s+/).length>=3);
+    var hasVoiceD=candD.length>=2 && !isAssistantEcho(candD) && isBargeCommand(candD);
     if(over>=2 && !ducked && hasVoiceD){ ducked=true; duck(true); }
     if(over===0 && ducked){ ducked=false; duck(false); }
     if(over>=6){
       // Background noise guard: pure volume level NEVER interrupts! Only verified stop words or 3+ words can.
       var cand=capText?justWords(capText).trim().toLowerCase():"";
-      var hasWord = cand.length>=2 && !isAssistantEcho(cand) && (STOP_WORDS.has(cand) || cand.split(/\s+/).length>=3);
+      var hasWord = cand.length>=2 && !isAssistantEcho(cand) && isBargeCommand(cand);
       if(hasWord){
         clearInterval(bargeTimer);
         cut={said:spokenSoFar(),at:Date.now()};
@@ -1379,6 +1697,7 @@ function watchForBargeIn(){
         if(!words || words.trim().length<2) return; // noise / single click ignored
         // Ignore acoustic speaker leak of what the assistant itself is currently speaking
         if(isAssistantEcho(words)) return;
+        if(Date.now()-bargeHotAt>800) return;          // words with no loud voice behind them (a TV, a far room, her own echo) never cut in
         triggerWordBargeIn(words);
       };
       r.onerror=function(e){};
@@ -1398,9 +1717,17 @@ function watchForBargeIn(){
   }
 }
 
+function retireAnswer(){
+  try{ hideLineups(); }catch(e){}
+  if(!answer.textContent && !allSpans.length) return;
+  answer.classList.add("leaving"); fadeSaid(false);
+  setTimeout(function(){ if(!speaking){ setQuiet(""); } answer.classList.remove("leaving","stale","settled"); },280);
+}
+
 function liveSaid(text,interim){
   text=justWords(text);
   if(!text) return;                                       // noise: show nothing
+  userActive();
   var s=$("said");
   clearTimeout(idleT); wake();
   if(allSpans.length) answer.classList.add("stale");      // you are speaking: dim the last answer
@@ -1435,7 +1762,8 @@ function startBrowserRecognition(){
     REC=null;
     if(!armed||speaking||blocked) return;
     var t=justWords(finalText);
-    if(t.length>1 && !isAssistantEcho(t)){ liveSaid(t,false); setMode("thinking"); ask(t); }
+    var tt=t.length>1?admit(t):null;
+    if(tt){ openFollowUp(); liveSaid(tt,false); setMode("thinking"); ask(tt); } else if(armed&&!paused){ listen(); }
     else setTimeout(function(){ if(armed&&!speaking) listen(); },250);
   };
   REC=r;
@@ -1503,7 +1831,7 @@ async function sttFailed(err,timedOut,opt){
   if(!timedOut && status==="ok" && opt && opt.split(/\s+/).length>=2){
     // This clip only: the live caption already heard the words, so they are not lost.
     if(paused){ pendingQuestion=opt; return; }
-    showSaid(opt); ask(opt); return;
+    heard(opt); return;
   }
   if(status==="down") m="Sorry, an error occurred. Please try rephrasing your question for a better search, or try again later.";
   else if(timedOut) m="Sorry, that took too long. Please ask again.";
@@ -1524,7 +1852,6 @@ async function handleClip(pcm, snapCap){
       var r=await fetch(BASE+"/voice/stt",{method:"POST",signal:ctl.signal,
         headers:{
           "X-Audio-Type":"audio/pcm;rate=16000",
-          "X-Run-Agent":"1",
           "X-Tz-Offset":String(-new Date().getTimezoneOffset()),
           "X-Interrupted":interruptedHeader(takeCut())
         },body:pcm});
@@ -1566,11 +1893,43 @@ async function handleClip(pcm, snapCap){
   }
   // Heard while paused: kept, and asked on resume. Nothing the listener said is dropped.
   if(paused){ pendingQuestion=text; return; }
-  showSaid(text);
-  ask(text);
+  heard(text);
 }
 
+/* The conversation so far: what was asked, what was answered, and which tools of the Sideline server ran. */
+function threadAdd(role,text,result){
+  if(!text) return;
+  var list=$("histlist"); if(!list) return;
+  var m=document.createElement("div"); m.className="msg "+role;
+  m.appendChild(document.createTextNode(text));                     // text only: nothing from the feed becomes markup
+  if(role==="assistant" && result){
+    var tools=(result.tool_results||[]).map(function(t){return t.name}).filter(Boolean);
+    var d=result.debug||{};
+    if(tools.length||d.ms){
+      var sk=document.createElement("div"); sk.className="skill";
+      var s0=document.createElement("i"); s0.textContent="Sideline"; sk.appendChild(s0);
+      tools.slice(0,4).forEach(function(n){ var i=document.createElement("i"); i.textContent=n; sk.appendChild(i); });
+      if(d.ms){ var t=document.createElement("i"); t.className="ms"; t.textContent=(d.ms/1000).toFixed(1)+" s"; sk.appendChild(t); }
+      m.appendChild(sk);
+    }
+  }
+  list.appendChild(m);
+  while(list.children.length>60) list.removeChild(list.firstChild);
+  var box=$("hist"); if(box) box.scrollTop=box.scrollHeight;
+}
+function setHistory(open){
+  var box=$("hist"), b=$("histbtn"); if(!box||!b) return;
+  box.hidden=!open; b.setAttribute("aria-expanded",open?"true":"false");
+  if(open) box.scrollTop=box.scrollHeight;
+}
+$("histbtn").addEventListener("click",function(){ setHistory($("hist").hidden); });
+document.addEventListener("keydown",function(e){
+  if((e.key==="h"||e.key==="H") && !e.ctrlKey && !e.metaKey && !e.altKey && armed &&
+     !(e.target&&e.target.closest&&e.target.closest("input,textarea,select,[contenteditable]"))) setHistory($("hist").hidden);
+});
+
 function showSaid(text){
+  threadAdd("user",text);
   var s=$("said");
   s.classList.remove("on");
   void s.offsetWidth;                      // restart the transition
@@ -1982,19 +2341,17 @@ function browserSay(text,spans,base){
   },1200));
 }
 
-var idleT=null, IDLE_MS=30000;
+var idleT=null, IDLE_MS=40000;
 function wake(){ document.body.classList.remove("calm"); }
 function armIdleClear(){
   clearTimeout(idleT); wake();
-  // Persistent text: preserve response and match display permanently
-  if(false){
-    idleT=setTimeout(function(){
-      if(speaking||paused||MODE==="thinking"||sawVoice) return;
-      setQuiet(""); fadeSaid(false); hideMatch();      // all of it leaves; the next match answer brings it back
-      var s=$("said"); if(s) s.textContent="";
-      document.body.classList.add("calm");             // and the status line: only the eye remains
-    },IDLE_MS);
-  }
+  // After IDLE_MS of quiet the words go and only the eye remains; the conversation drawer keeps the history.
+  idleT=setTimeout(function(){
+    if(speaking||paused||MODE==="thinking"||sawVoice) return;
+    setQuiet(""); fadeSaid(false); try{ hideLineups(); }catch(e){}
+    var sd=$("said"); if(sd) sd.textContent="";
+    if(!FOLLOW){ hideMatch(); document.body.classList.add("calm"); }     // a followed match keeps its small score
+  },IDLE_MS);
 }
 
 function finishSpeaking(spans,done){
@@ -2019,6 +2376,7 @@ function finishSpeaking(spans,done){
   answer.classList.add("settled");
   audioEl=null; setMode("idle");
   clearInterval(bargeTimer); stopRolling(); stopBargeSR();
+  openFollowUp();                          // right after an answer you just keep talking
   armIdleClear();
   if(done)done();
   // Clear any residual microphone echo and reset VAD
@@ -2035,7 +2393,7 @@ function finishSpeaking(spans,done){
 }
 
 /* =============================================================== match */
-var M={minute:0,told:null,events:[],home:"",away:"",score:null};
+var M={reg:90,pm:45,pw:"half",sport:"football",sw:"goal",status:"",delay:0,minute:0,told:null,events:[],home:"",away:"",score:null};
 var shownScore=null;
 
 function setScore(home,away){
@@ -2047,16 +2405,30 @@ function setScore(home,away){
     }
   }
   put(h,home); put(a,away);
-  if(shownScore && (home+away)>(shownScore.home+shownScore.away) && !REDUCED) burst=1;
+  if(shownScore && (home+away)>(shownScore.home+shownScore.away)){
+    if(!REDUCED) burst=1;
+    if(M.sport!=="basketball") goalFlash(home>shownScore.home?M.home:M.away);       // a basket every minute would be a siren
+  }
   shownScore={home:home,away:away};
 }
 
-var KIND={goal:"Goal",card:"Card",substitution:"Sub",var:"VAR"};
+/* A new goal: the strip says so for a few seconds, then it is gone. The feed names the scorer only sometimes, so only
+   a name the feed gave is shown, and the minute is the newest goal's. */
+var flashT=null;
+function goalFlash(team){
+  var el=$("flash"); if(!el) return;
+  var g=null; (M.events||[]).forEach(function(e){ if(e.kind==="goal" && (!g||e.minute>=g.minute)) g=e; });
+  var t=String(M.sw||"goal").toUpperCase().replace(/_/g," ")+" \u00b7 "+(team||"")+(g&&g.player?" \u00b7 "+g.player:"")+(g?" "+g.minute+"\u2032":"");
+  el.textContent=t; el.classList.add("on"); $("match").classList.add("flashing");
+  clearTimeout(flashT); flashT=setTimeout(function(){ el.classList.remove("on"); $("match").classList.remove("flashing"); },7000);
+}
+
+var KIND={goal:"Goal",card:"Card",substitution:"Sub",var:"VAR",touchdown:"Touchdown",field_goal:"Field goal",basket:"Basket",home_run:"Home run",run:"Run"};
 function showPills(events){
   var box=$("pills"); box.innerHTML="";
   // Major updates first: goals, red cards and VAR decisions, then the rest,
   // always the most recent four and always shown in match order.
-  var major=function(e){ return e.kind==="goal"||e.kind==="var"||(e.kind==="card"&&e.colour==="red"); };
+  var major=function(e){ return !!SCORE_KINDS[e.kind]||e.kind==="var"||(e.kind==="card"&&e.colour==="red"); };
   var list=(events||[]).map(function(e,i){ return {e:e,i:i}; });
   list.sort(function(a,b){ return (major(b.e)-major(a.e)) || (b.i-a.i); });
   list=list.slice(0,4).sort(function(a,b){ return a.i-b.i; }).map(function(x){ return x.e; });
@@ -2064,30 +2436,44 @@ function showPills(events){
     var p=document.createElement("span");
     var cls=e.kind==="card"?(e.colour==="red"?"red":"yellow"):e.kind;
     p.className="pill "+cls+(e.kind==="card"?" card":"");
-    var label=e.kind==="card"?(e.colour==="red"?"Red":"Yellow"):(KIND[e.kind]||e.kind);
+    var label=e.kind==="card"?(e.colour==="red"?"Red":"Yellow"):(KIND[e.kind]||String(e.kind).replace(/_/g," ").replace(/^./,function(c){return c.toUpperCase();}));
     p.innerHTML='<span class="k"></span><span class="m"></span><span class="t"></span>';
     p.querySelector(".m").textContent=e.minute+"′";
     p.querySelector(".t").textContent=label+(e.player?" · "+e.player:"");
     box.appendChild(p);
     setTimeout(function(){ p.classList.add("in"); }, REDUCED?0:140+i*110);
   });
+  setTimeout(measureStrip,0);
 }
 
 function hideMatch(){
-  $("match").classList.remove("on");
+  $("match").classList.remove("on"); stripGoal=0;
   $("pills").innerHTML="";
   placeText();
 }
 
+/* The clock in the sport's own words: 34′ in football, Q3 in basketball and American football, P2 in hockey, an inning in
+   baseball, and FT or Final when it is over. */
+function clockLabel(){
+  var over=!!OVER_STATUS[M.status];
+  if(M.sport==="football") return over?"FT":M.minute+"\u2032";
+  if(over) return "Final";
+  var n=Math.min(Math.floor(Math.max(M.minute-0.001,0)/(M.pm||1))+1, Math.ceil(M.reg/(M.pm||1)));
+  return (M.pw==="inning"?"Inning ":M.pw==="period"?"P":"Q")+n;
+}
+var SCORE_KINDS={goal:1,touchdown:1,field_goal:1,basket:1,home_run:1,run:1,safety:1,shootout:1};
 function paint(){
-  placeText();
+  measureStrip(); placeText();
   if(!M.home && !M.score && !(M.events&&M.events.length)) return;
+  if(FOLLOW && cardHidden){ $("match").classList.remove("on"); stripGoal=0; return; }
   $("match").classList.add("on");
+  measureStrip();
+  followLabel();
   $("teamh").textContent=M.home;
   $("teama").textContent=M.away;
   if(M.score) setScore(M.score.home,M.score.away);
-  $("clock").textContent=M.minute+"′";
-  var pc=function(m){return Math.max(0,Math.min(100,m/90*100))+"%"};
+  var dw=whenOnly(M.info); $("clock").textContent=sportName(M.sport)+"   \u00b7   "+clockLabel()+(dw?"   \u00b7   "+dw:"");
+  var pc=function(m){return Math.max(0,Math.min(100,m/M.reg*100))+"%"};
   $("played").style.width=pc(M.minute);
   $("nowdot").style.left=pc(M.minute); $("nowdot").classList.add("on");
   var have={};
@@ -2095,30 +2481,214 @@ function paint(){
     have[n.dataset.k]=1;
   });
   document.querySelectorAll(".bar .tick").forEach(function(n){n.remove()});
-  M.events.forEach(function(e){
+  document.querySelectorAll(".bar .seg").forEach(function(n){n.remove()});
+  if(M.pm&&M.pm<M.reg){ for(var k=M.pm;k<M.reg-0.5;k+=M.pm){ var sg=document.createElement("div"); sg.className="seg"; sg.style.left=pc(k); $("bar").appendChild(sg); } }
+  (M.events.length>60?[]:M.events).forEach(function(e){        // a basketball game has a hundred baskets: the quarters say more
     var t=document.createElement("div");
-    t.className="tick"+(e.kind==="goal"?" goal":"");
+    t.className="tick"+(SCORE_KINDS[e.kind]?" goal":"");
     t.dataset.k=e.id||(e.minute+e.kind);
     if(have[t.dataset.k]) t.style.animation="none";
     t.style.left=pc(e.minute); $("bar").appendChild(t);
   });
+  var lw=$("legword"); if(lw) lw.textContent=String(M.sw||"goal").replace(/_/g," ");
+  var ed=$("edge"), le=$("legedge");
+  if(M.delay>0){ ed.style.left=pc(M.minute+M.delay/60); ed.classList.add("on"); le.style.display=""; }
+  else { ed.classList.remove("on"); le.style.display="none"; }
   var tm=$("toldmark");
   if(M.told!=null){tm.classList.add("on");tm.style.left=pc(M.told);}
   var g=$("gap");
   if(M.told!=null&&M.minute>M.told+1){
     g.style.left=pc(M.told);
-    g.style.width=((M.minute-M.told)/90*100)+"%"; g.style.opacity="1";
+    g.style.width=((M.minute-M.told)/M.reg*100)+"%"; g.style.opacity="1";
   }else g.style.opacity="0";
 }
 
+/* ============================================================== line-ups
+   "Show me the line-ups": a pitch across the middle of the screen, home on the left defending the left goal, away on the
+   right, each side's goalkeeper at its own end and the shape in between, with the bench under each side. It takes the
+   place of the eye while it is open and goes when the next question is about something else, with the words, or on x.
+   The shape is drawn from the formation and the positions the feed gives (not from where players stand on the pitch,
+   which it does not give), so it is the shape the team lined up in. */
+var LU_ABBR=[["goalkeeper","GK"],["wing back","WB"],["left back","LB"],["right back","RB"],["defensive midfielder","DM"],
+  ["attacking midfielder","AM"],["left midfielder","LM"],["right midfielder","RM"],["midfielder","CM"],["left winger","LW"],
+  ["right winger","RW"],["winger","W"],["defender","CB"],["striker","ST"],["forward","FW"],["back","B"]];
+function luAbbr(pos){
+  pos=(pos||"").toLowerCase();
+  for(var i=0;i<LU_ABBR.length;i++){ if(pos.indexOf(LU_ABBR[i][0])!==-1) return LU_ABBR[i][1]; }
+  return "";
+}
+function luDepth(pos){                          // how far up the pitch: 0 goalkeeper ... 5 forwards
+  pos=(pos||"").toLowerCase();
+  if(pos.indexOf("goalkeeper")!==-1) return 0;
+  if(pos.indexOf("defensive mid")!==-1) return 2;
+  if(pos.indexOf("attacking mid")!==-1) return 4;
+  if(pos.indexOf("wing back")!==-1) return 1.5;
+  if(/back|defender/.test(pos)) return 1;
+  if(/mid/.test(pos)) return 3;
+  if(/forward|striker|wing|attack/.test(pos)) return 5;
+  return 3;
+}
+function luSide(pos){                           // 0 left ... 2 right, the middle 1
+  pos=(pos||"").toLowerCase();
+  var l=pos.indexOf("left")!==-1, r=pos.indexOf("right")!==-1, c=/cent/.test(pos);
+  if(l&&!c) return 0; if(r&&!c) return 2; if(l) return .5; if(r) return 1.5; return 1;
+}
+function luPureCentre(pos){ pos=(pos||"").toLowerCase(); return !/left|right/.test(pos); }
+/* The starting eleven as columns from the goalkeeper up the pitch; each column is ordered from the team's left to its right. */
+function luColumns(xi,positions,formation){
+  var ps=(xi||[]).map(function(n,i){ var p=(positions||{})[n]||""; return {name:n,pos:p,i:i,d:luDepth(p),s:luSide(p),c:luPureCentre(p)}; });
+  ps.sort(function(a,b){ return a.d-b.d || ((a.d>=4&&a.c!==b.c)?(a.c?1:-1):0) || a.s-b.s || a.i-b.i; });
+  var gk=ps.filter(function(p){return p.d===0;}), field=ps.filter(function(p){return p.d!==0;});
+  var cols=[gk.slice(0,1)];
+  var shape=(formation||"").split("-").map(Number).filter(function(n){return n>0;});
+  var sum=shape.reduce(function(a,b){return a+b;},0);
+  if(sum===field.length&&shape.length){
+    var at=0; shape.forEach(function(n){ cols.push(field.slice(at,at+n)); at+=n; });
+  }else{                                        // no usable shape: one column for each step up the pitch
+    var by={}; field.forEach(function(p){ (by[Math.round(p.d)]=by[Math.round(p.d)]||[]).push(p); });
+    Object.keys(by).sort().forEach(function(k){ cols.push(by[k]); });
+  }
+  cols.forEach(function(c){ c.sort(function(a,b){ return a.s-b.s || a.i-b.i; }); });
+  return cols.filter(function(c){return c.length;});
+}
+function luSurname(name){ var w=(name||"").trim().split(/\s+/); return w.length>1?w.slice(1).join(" "):w[0]||""; }
+/* "Thu 15 Oct, 20:45 · UEFA Europa League · Groupama Stadium, Lyon": the when and where, in the viewer's own time zone. */
+var SPORT_NAMES={football:"Football",basketball:"Basketball",american_football:"American football",hockey:"Ice hockey",baseball:"Baseball"};
+function sportName(k){ return SPORT_NAMES[k]||""; }
+function whenWhere(info){
+  if(!info) return "";
+  var bits=[]; if(sportName(info.sport)) bits.push(sportName(info.sport));
+  if(info.competition) bits.push(info.competition);
+  var place=[info.venue,info.city].filter(function(x,i,a){ return x && a.indexOf(x)===i; }).join(", ");
+  if(place) bits.push(place);
+  if(info.kickoff){
+    var d=new Date(info.kickoff);
+    if(!isNaN(d.getTime())){
+      var day=d.toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short",year:"numeric"});
+      var time=d.toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit",hour12:false});
+      bits.push(day+", "+time);
+    }
+  }
+  return bits.join("  \u00b7  ");
+}
+/* The date and time alone, with the year: shown on the strip all the time, because which day a match was played matters. */
+function whenOnly(info){
+  if(!info||!info.kickoff) return "";
+  var d=new Date(info.kickoff); if(isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short",year:"numeric"})+", "+
+         d.toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit",hour12:false});
+}
+function luSame(a,b){ return String(a||"").toLowerCase()===String(b||"").toLowerCase(); }
+
+function luPitch(){
+  var p=document.createElement("div"); p.className="lu-pitch";
+  p.innerHTML='<i class="lu-mid"></i><i class="lu-circle"></i><i class="lu-box l"></i><i class="lu-box r"></i><i class="lu-six l"></i><i class="lu-six r"></i>';
+  return p;
+}
+function luTeam(pitch,team,t,away){
+  var cols=luColumns(t.xi,t.positions,t.formation), n=cols.length;
+  cols.forEach(function(col,ci){
+    var x=n>1?ci/(n-1):0;
+    var left=away?(96-x*40):(4+x*40);
+    col.forEach(function(pl,ri){
+      var k=col.length, y=k>1?12+ri*(72/(k-1)):50;
+      if(away) y=100-y;                          // the away side faces the other way: its left is the bottom of the screen
+      var m=document.createElement("div");
+      m.className="lu-p "+(away?"away":"home")+(pl.d===0?" gk":"");
+      m.style.left=left+"%"; m.style.top=y+"%";
+      m.title=pl.name+(pl.pos?" ("+pl.pos+")":"");
+      var num=(t.numbers||{})[pl.name];
+      m.innerHTML='<b></b><span class="n"></span><span class="a"></span>';
+      m.children[0].textContent=num||"";
+      m.children[1].textContent=luSurname(pl.name);
+      m.children[2].textContent=luAbbr(pl.pos);
+      pitch.appendChild(m);
+    });
+  });
+}
+function luBench(name,t,away){
+  var d=document.createElement("div"); d.className="lu-bench "+(away?"away":"home");
+  var h=document.createElement("h4"); h.textContent=name+(t.formation?"  ·  "+t.formation:""); d.appendChild(h);
+  var ul=document.createElement("ul");
+  (t.bench||[]).forEach(function(n){
+    var li=document.createElement("li");
+    var no=(t.numbers||{})[n], ab=luAbbr((t.positions||{})[n]);
+    li.textContent=(no?no+"  ":"")+n+(ab?"  "+ab:""); ul.appendChild(li);
+  });
+  if(!(t.bench||[]).length){ var li=document.createElement("li"); li.textContent="No substitutes listed"; ul.appendChild(li); }
+  var s=document.createElement("div"); s.className="lu-subs"; s.textContent="Substitutes"; d.appendChild(s); d.appendChild(ul);
+  return d;
+}
+/* Sports with no formation (basketball, American football when the starters are listed): the starters and the bench, side by
+   side, home on the left, in big numbers. */
+function luLists(sc,home,away){
+  var wrap=document.createElement("div"); wrap.className="lu-lists";
+  [[home,false],[away,true]].forEach(function(pair){
+    if(!pair[0]) return;
+    var t=sc.lineups[pair[0]]||{}, col=document.createElement("div"); col.className="lu-col "+(pair[1]?"away":"home");
+    var h=document.createElement("h4"); h.textContent="Starters"; col.appendChild(h);
+    var ul=document.createElement("ul"); ul.className="lu-starters";
+    (t.xi||[]).forEach(function(n){
+      var li=document.createElement("li"), no=(t.numbers||{})[n], ab=luAbbr((t.positions||{})[n])||((t.positions||{})[n]||"").toUpperCase().slice(0,3);
+      li.innerHTML='<b></b><span></span><i></i>'; li.children[0].textContent=no||""; li.children[1].textContent=n; li.children[2].textContent=ab; ul.appendChild(li);
+    });
+    if(!(t.xi||[]).length){ var none=document.createElement("li"); none.textContent="Not published yet"; ul.appendChild(none); }
+    col.appendChild(ul); wrap.appendChild(col);
+  });
+  return wrap;
+}
+function showLineups(sc){
+  var box=$("lineup"); if(!box||!sc||!sc.lineups) return false;
+  var names=Object.keys(sc.lineups); if(!names.length) return false;
+  var teams=sc.teams||{}, home=names[0], away=names[1];
+  names.forEach(function(n){ if(luSame(n,teams.home)) home=n; if(luSame(n,teams.away)) away=n; });
+  if(away===home) away=names.filter(function(n){return n!==home;})[0];
+  box.textContent="";
+  var head=document.createElement("div"); head.className="lu-head";
+  head.innerHTML='<span class="h"></span><span></span><span class="a"></span>';
+  head.children[0].textContent=home; head.children[2].textContent=away||"";
+  box.appendChild(head);
+  var info=document.createElement("div"); info.className="lu-info"; info.textContent=whenWhere(sc.match); if(info.textContent) box.appendChild(info);
+  var shaped=!!(sc.lineups[home]&&sc.lineups[home].formation)||!!(away&&sc.lineups[away]&&sc.lineups[away].formation);
+  if(shaped){
+    var pitch=luPitch(); box.appendChild(pitch);
+    luTeam(pitch,home,sc.lineups[home],false); if(away) luTeam(pitch,away,sc.lineups[away],true);
+  }else box.appendChild(luLists(sc,home,away));
+  var bench=document.createElement("div"); bench.className="lu-benches";
+  bench.appendChild(luBench(home,sc.lineups[home],false)); if(away) bench.appendChild(luBench(away,sc.lineups[away],true));
+  box.appendChild(bench);
+  box.classList.add("on"); document.body.classList.add("lineup-open");
+  placeLineups();
+  return true;
+}
+function placeLineups(){
+  var box=$("lineup"); if(!box||!box.classList.contains("on")) return;
+  var g=geometry(0), top=Math.max(stripGoal,0)+10, bottom=eyeEdge(g)+4;
+  box.style.top=top+"px"; box.style.height=Math.max(260,bottom-top)+"px";
+}
+function hideLineups(){
+  var box=$("lineup"); if(!box) return;
+  box.classList.remove("on"); document.body.classList.remove("lineup-open");
+}
+
+var TOOL_WORDS={get_match_state:"score",get_match_report:"match report",what_did_i_miss:"catch-up",follow_match:"following",
+  get_player_profile:"player",get_standings:"table",get_fixtures:"fixtures",get_lineups:"line-ups",get_match_stats:"match stats",
+  get_my_matches:"your matches",set_preferences:"settings",sync_broadcast_delay:"TV delay",search:"search"};
+function friendlyTool(n){ return TOOL_WORDS[n]||String(n||"").replace(/^get_/,"").replace(/_/g," "); }
+
 function renderAgentAnswer(result, t0){
+  try{
+    var lu=null; (result.tool_results||[]).forEach(function(i){ if(i.name==="get_lineups"&&i.structured&&i.structured.lineups) lu=i.structured; });
+    if(lu) showLineups(lu); else hideLineups();
+  }catch(e){}
+  try{ threadAdd("assistant", result&&result.text, result); }catch(e){}
   devRecord(devFromAnswer(result, t0));
   // Said "gamma osaka", meant "Gamba Osaka": show what we acted on.
   if(result.understood) showSaid(result.understood);
   var dot=$("dot"); dot.className="dot ok";
   void dot.offsetWidth; dot.classList.add("ping");
   var names=(result.tool_results||[]).map(function(item){return item.name});
-  $("tool").textContent=names.length?names.join(" · "):"conversation";
+  $("tool").textContent=names.length?names.map(friendlyTool).join(" · "):"conversation";
   var viaText = "Nova";
   if(result.generated_by==="swarm-fast"){
     var count = (result.agents_used && result.agents_used.length) || 8;
@@ -2139,7 +2709,29 @@ function renderAgentAnswer(result, t0){
   var aboutMatch=(result.tool_results||[]).some(function(i){
     var sc=i.structured||{}; return !!(sc.home||sc.score||(sc.events&&sc.events.length));
   });
-  if(aboutMatch){ (result.tool_results||[]).forEach(applyToolResult); paint(); }
+  var stoppedNow=(result.tool_results||[]).some(function(i){ return i.name==="follow_match"&&(i.structured||{}).stopped; });
+  if(aboutMatch||stoppedNow) (result.tool_results||[]).forEach(applyToolResult);
+  if(FOLLOW){
+    // The followed match is shown for a question about it, and not for a question about something else; the next
+    // question about it brings it back. (It is still followed, and still refreshed, either way.)
+    cardHidden=!(result.tool_results||[]).some(function(i){
+      var sc=i.structured||{};
+      return i.name==="follow_match" || (sc.fixture_id!=null && String(sc.fixture_id)===String(FOLLOW.fixture_id));
+    });
+    // The talk has moved on: the commentary goes quiet, and if it stays away from the match for two questions the match is
+    // let go altogether (she does not keep following something you have lost interest in). Ask about it again and it returns.
+    if(cardHidden){
+      unrelatedRun++; comm.hold=true;
+      if(unrelatedRun>=2){
+        var gone=FOLLOW.home+" v "+FOLLOW.away;
+        rpc("tools/call",{name:"follow_match",arguments:{stop:true}}).catch(function(){});
+        stopFollowing(); unrelatedRun=0;
+        try{ devRecord({kind:"card",note:"you moved on, so "+gone+" is no longer followed"}); }catch(e){}
+      }
+    }else{ unrelatedRun=0; comm.hold=false; }
+    paint();
+  }
+  else if(aboutMatch) paint();
   else hideMatch();
   var spoken=result.text||"Sorry, an error occurred. Please try rephrasing your question for a better search, or try again later.";
   if(paused) pendingAnswer=spoken;      // already told to the server: keep it, say it on resume
@@ -2149,6 +2741,8 @@ function renderAgentAnswer(result, t0){
 /* ================================================================ ask */
 var chatAbort=null;
 async function ask(text){
+  userActive();
+  if(localCommand(text)) return;
   var t0=performance.now(); clearTimeout(idleT); wake();
   devInput=text;
   setMode("thinking");
@@ -2178,11 +2772,204 @@ async function ask(text){
   }
 }
 
+/* ------------------------------------------------ the match being followed
+   The card stays for as long as a match is followed. It is refreshed every CARD_REFRESH_MS (the server polls a followed
+   match on the same 30 s beat) and after every answer; a goal bumps the score. It goes only when another match is followed
+   (the card switches) or the listener stops following (voice, or the x on the card). The server remembers the follow, so a
+   page refresh brings the card straight back. The refresh asks get_match_state, which is held to the listener's stream
+   delay, so the card never shows a goal ahead of their picture. */
+var FOLLOW=null, CARD_REFRESH_MS=30000, cardT=null, cardBusy=false, cardHidden=false;
+var OVER_STATUS={FT:1,AET:1,PEN:1,finished:1,PST:1,CANC:1,ABD:1};
+function followLabel(){
+  var fol=$("fol"); if(!fol) return;
+  fol.className="fol"; fol.textContent="";
+  // No words on screen: a live match turns the eye warm. Screen readers still get the state.
+  var m=$("match"); if(!m) return;
+  if(!FOLLOW) m.removeAttribute("aria-label");
+  else m.setAttribute("aria-label","Following "+FOLLOW.home+" against "+FOLLOW.away+(FOLLOW.over?", full time":FOLLOW.waiting?", not started":", live"));
+}
+function setFollow(sc){
+  cardHidden=false;
+  var changed=!FOLLOW||FOLLOW.fixture_id!==sc.fixture_id;
+  if(changed){ M.events=[]; $("pills").innerHTML=""; M.told=0; }
+  FOLLOW={fixture_id:sc.fixture_id, home:sc.home||(FOLLOW&&FOLLOW.home), away:sc.away||(FOLLOW&&FOLLOW.away)};
+  noteStatus(sc);
+  startCardTimer();
+  commEnsure(changed);
+}
+function noteStatus(sc){
+  if(!FOLLOW) return;
+  var st=sc.status;
+  FOLLOW.over=!!OVER_STATUS[st];
+  FOLLOW.waiting=(st==="NS"||st==="TBD");
+}
+function startCardTimer(){
+  clearInterval(cardT);
+  if(FOLLOW&&!FOLLOW.over) cardT=setInterval(refreshCard,CARD_REFRESH_MS);
+}
+function stopFollowing(){
+  comm.hold=false; unrelatedRun=0;
+  FOLLOW=null; cardHidden=false; clearInterval(cardT); cardT=null; commStop(); followLabel(); hideMatch();
+}
+async function refreshCard(){
+  if(!FOLLOW||cardBusy||document.hidden) return;
+  cardBusy=true;
+  try{
+    var before=M.score?(M.score.home+M.score.away):0;
+    var doc=await rpc("tools/call",{name:"get_match_state",arguments:{fixture_id:FOLLOW.fixture_id}});
+    var res=doc&&doc.result; if(!res||res.isError) return;
+    var sc=res.structuredContent||{}; if(!sc.home) return;
+    applyToolResult({name:"get_match_state",structured:sc}); noteStatus(sc); paint(); commEnsure(false);
+    var now=sc.score?(sc.score.home+sc.score.away):0;
+    devRecord({kind:"card",note:"followed match refreshed: "+sc.home+" "+(sc.score?sc.score.home+"\u2013"+sc.score.away:"")+" "+sc.away+
+      ", "+(sc.minute!=null?sc.minute+"\u2032":"")+" "+(sc.status||"")+(now>before?"  (a goal)":"")});
+    if(FOLLOW&&FOLLOW.over) clearInterval(cardT);
+  }catch(e){ /* the next beat tries again */ }
+  finally{ cardBusy=false; }
+}
+/* ============================================================== live commentary + typing */
+/* While a match is followed she reads the play out as it happens, like a friend on the sofa. The page asks the server
+   for the commentary after its own cursor every COMM_MS (no model involved: the server hands back the lines the feed
+   has, held to where the listener's picture is), and speaks only when nobody is talking. */
+var COMM_KEY="sideline_commentary", COMM_ON=true, COMM_MS=12000;
+try{ COMM_ON=localStorage.getItem(COMM_KEY)!=="off"; }catch(e){}
+var comm={t:null,cursor:null,fid:null,busy:false,fails:0,fallback:false,hold:false};
+var lastUserActivity=0, unrelatedRun=0;
+function userActive(){ lastUserActivity=Date.now(); }
+var TYPING=false;
+function commBusyNow(){
+  return speaking||paused||MODE==="thinking"||sawVoice||!!capText||document.hidden||comm.hold||
+    (Date.now()-lastUserActivity<10000)||
+    (TYPING&&document.activeElement===$("typein")&&$("typein").value.trim()!=="");
+}
+function commStop(){ clearInterval(comm.t); comm.t=null; comm.cursor=null; comm.fid=null; comm.fails=0; comm.fallback=false; }
+function commEnsure(reset){
+  if(!COMM_ON||!FOLLOW||FOLLOW.over||FOLLOW.waiting){ if(!FOLLOW||FOLLOW.over) commStop(); return; }
+  if(reset||comm.fid!==FOLLOW.fixture_id){ commStop(); comm.fid=FOLLOW.fixture_id; }
+  if(!comm.t){ comm.t=setInterval(commTick,COMM_MS); commTick(); }
+}
+function textOf(res){ return ((res&&res.content)||[]).map(function(c){return c.text||"";}).join(" ").trim(); }
+async function commTick(){
+  if(!COMM_ON||!FOLLOW||FOLLOW.over||comm.busy||!armed) return;
+  var base=(comm.cursor==null&&!comm.fallback);
+  if(!base && commBusyNow()) return;                      // never over anyone; the lines wait, the cursor stays
+  comm.busy=true;
+  try{
+    var doc=comm.fallback
+      ? await rpc("tools/call",{name:"what_did_i_miss",arguments:{fixture_id:FOLLOW.fixture_id}})
+      : await rpc("tools/call",{name:"get_match_report",arguments:{fixture_id:FOLLOW.fixture_id,part:"commentary",since_line:base?-1:comm.cursor,key_only:COMM_KEYONLY}});
+    var res=doc&&doc.result; if(!res) return;
+    var sc=res.structuredContent||{};
+    if(res.isError){
+      if(!comm.fallback && (sc.reason==="no_commentary"||sc.reason==="not_started") && ++comm.fails>=2){
+        comm.fallback=true; devRecord({kind:"card",note:"no running commentary for this match: reading out what happens instead"});
+      }
+      return;
+    }
+    if(comm.fallback){
+      if(!sc.event_count) return;
+      if(commBusyNow()||!FOLLOW) return;
+      var t0=textOf(res); if(t0){ commSay(t0); applyToolResult({name:"what_did_i_miss",structured:sc}); paint(); }
+      return;
+    }
+    if(typeof sc.cursor!=="number") return;
+    if(base){ comm.cursor=sc.cursor; return; }
+    var lines=sc.commentary||[]; if(!lines.length){ comm.cursor=sc.cursor; return; }
+    if(commBusyNow()||!FOLLOW||!COMM_ON) return;           // somebody spoke while we asked: keep these lines for next time
+    comm.cursor=sc.cursor;
+    commSay(textOf(res));
+  }catch(e){ /* the next beat tries again */ }
+  finally{ comm.busy=false; }
+}
+function commSay(text){
+  if(!text) return;
+  try{ threadAdd("assistant",text,{tool_results:[{name:"get_match_report"}],debug:{ms:0}}); }catch(e){}
+  try{ devRecord({kind:"card",note:"commentary: "+text.slice(0,140)}); }catch(e){}
+  say(text);
+}
+function setComm(on){
+  COMM_ON=on; try{ localStorage.setItem(COMM_KEY,on?"on":"off"); }catch(e){}
+  $("commLabel").textContent="Commentary: "+(on?"ON":"OFF"); $("commToggle").setAttribute("aria-pressed",on?"true":"false");
+  if(on) commEnsure(true); else commStop();
+}
+$("commToggle").onclick=function(){ setComm(!COMM_ON); };
+$("commLabel").textContent="Commentary: "+(COMM_ON?"ON":"OFF"); $("commToggle").setAttribute("aria-pressed",COMM_ON?"true":"false");
+
+
+(function(){
+  var b=$("settingsBtn"), box=$("settings");
+  function open(on){ box.hidden=!on; b.setAttribute("aria-expanded",on?"true":"false"); }
+  b.onclick=function(e){ e.stopPropagation(); open(box.hidden); };
+  document.addEventListener("click",function(e){ if(!box.hidden && !box.contains(e.target) && e.target!==b) open(false); });
+  document.addEventListener("keydown",function(e){ if(e.key==="Escape" && !box.hidden){ open(false); } });
+})();
+var COMM_ALL_KEY="sideline_comm_all", COMM_KEYONLY=true;
+try{ COMM_KEYONLY=localStorage.getItem(COMM_ALL_KEY)!=="all"; }catch(e){}
+function showCommDetail(){ $("commDetailLabel").textContent="Commentary lines: "+(COMM_KEYONLY?"KEY MOMENTS":"EVERYTHING"); $("commDetail").setAttribute("aria-pressed",COMM_KEYONLY?"true":"false"); }
+$("commDetail").onclick=function(){ COMM_KEYONLY=!COMM_KEYONLY; try{ localStorage.setItem(COMM_ALL_KEY,COMM_KEYONLY?"key":"all"); }catch(e){} showCommDetail(); };
+showCommDetail();
+
+/* "stop commentary" / "start commentary", spoken or typed. Handled here, no model: a switch is not a question. */
+var COMM_OFF_RE=/^(?:alexa[,\s]+)?(?:please\s+)?(?:stop|pause|turn off|switch off|mute|no more)\s+(?:the\s+)?(?:live\s+)?commentary\b/i;
+var COMM_ON_RE=/^(?:alexa[,\s]+)?(?:please\s+)?(?:start|resume|turn on|switch on|continue|begin)\s+(?:the\s+)?(?:live\s+)?commentary\b/i;
+function localCommand(text){
+  var t=(text||"").trim();
+  if(COMM_OFF_RE.test(t)){ showSaid(t); setComm(false); say("Commentary off. Ask me anything, or say start commentary."); return true; }
+  if(COMM_ON_RE.test(t)){
+    showSaid(t); setComm(true);
+    say(FOLLOW&&!FOLLOW.over?"Commentary on. I will keep you posted.":"Commentary on. Follow a match and I will read it out as it happens.");
+    return true;
+  }
+  return false;
+}
+
+/* Typing instead of talking: the microphone and her voice go off, answers appear as text. Alt+T or the footer button. */
+function setTyping(on){
+  if(on===TYPING||!armed) return;
+  TYPING=on;
+  document.body.classList.toggle("typing",on);
+  $("typeLabel").textContent="Mode: "+(on?"Typing":"Voice"); $("typeToggle").setAttribute("aria-pressed",on?"true":"false");
+  if(on){
+    stopSpeaking(); stopListening(); releaseMic();
+    clearInterval(bargeTimer); stopBargeSR();
+    setMode("idle");
+    setQuiet("Typing mode. The microphone is off. I will still read my answers to you.");
+    setTimeout(function(){ try{ $("typein").focus(); }catch(e){} },30);
+  }else{
+    setQuiet("");
+    ensureMic().then(function(){ if(!TYPING&&!speaking&&MODE!=="thinking"&&!paused) listen(); },function(){
+      setQuiet("I can’t use the microphone. Allow it, then try again.");
+    });
+  }
+  try{ measureStrip(); placeText(); fit(); }catch(e){}
+}
+$("typeToggle").onclick=function(){ setTyping(!TYPING); };
+document.addEventListener("keydown",function(e){ if(e.altKey&&(e.key==="t"||e.key==="T"||e.code==="KeyT")){ e.preventDefault(); setTyping(!TYPING); } });
+$("typein").addEventListener("input",userActive);
+$("typebar").addEventListener("submit",function(e){
+  e.preventDefault();
+  var inp=$("typein"), t=inp.value.trim(); if(!t) return;
+  inp.value="";
+  wake(); stopSpeaking(); retireAnswer(); showSaid(t); ask(t);
+});
+
+$("match").addEventListener("click",function(e){                    // the small score opens into the timeline
+  this.classList.toggle("expanded"); measureStrip();
+});
+
 function applyToolResult(item){
   var sc=item.structured||{};
+  // A match other than the one followed (asked about, not followed) does not take the card over.
+  if(FOLLOW && sc.fixture_id!=null && String(sc.fixture_id)!==String(FOLLOW.fixture_id) && item.name!=="follow_match") return;
+  if(item.name==="follow_match" && sc.stopped){ stopFollowing(); return; }
+  if(item.name==="follow_match" && sc.fixture_id!=null) setFollow(sc);
   if(sc.minute!=null)M.minute=sc.minute;
   if(sc.home){M.home=sc.home;M.away=sc.away;}
   if(sc.score)M.score=sc.score;
+  if(sc.delay_seconds!=null)M.delay=sc.delay_seconds;
+  if(sc.regulation_minutes){ M.reg=sc.regulation_minutes; M.pm=sc.period_minutes||M.reg; M.pw=sc.period_word||"half"; M.sport=sc.sport||"football"; M.sw=sc.score_word||"goal"; }
+  if(sc.status!=null)M.status=sc.status;
+  if(sc.match){ M.info=sc.match; var mi=$("matchinfo"); if(mi) mi.textContent=whenWhere(sc.match); }
   if(sc.window){M.told=sc.window.from_minute;M.minute=sc.window.to_minute;}
   if(sc.events&&sc.events.length){M.events=sc.events;showPills(sc.events);}
   if(item.name==="what_did_i_miss")M.told=M.minute;
@@ -2201,6 +2988,14 @@ async function connect(){
     $("tool").textContent=init.result.serverInfo.name;
     $("ms").textContent=list.result.tools.length+" tools";
     $("via").textContent="spec "+init.result.protocolVersion;
+    try{                                                  // a new session starts clean: a match followed earlier is not shown, and is let go
+      var st=await rpc("tools/call",{name:"get_match_state",arguments:{}});
+      var scs=st&&st.result&&!st.result.isError&&st.result.structuredContent;
+      if(scs&&scs.following){
+        await rpc("tools/call",{name:"follow_match",arguments:{stop:true}});
+        devRecord({kind:"system", note:"a match followed in an earlier session ("+scs.home+" v "+scs.away+") was let go: nothing is shown until you ask"});
+      }
+    }catch(e){}
     devRecord({kind:"system", note:"MCP connected: "+init.result.serverInfo.name+" \u00b7 spec "+init.result.protocolVersion+" \u00b7 "+list.result.tools.length+" tools"});
     return true;
   }catch(e){
@@ -2214,7 +3009,7 @@ async function connect(){
    real matches only (no recorded data), the per-listener "last told" marker, the spoiler guard, barge-in. */
 var INTRO="Hi, I\u2019m a simulated Alexa+, connected to Sideline: an MCP server for live sports. "
   +"I read real matches as they happen. I remember what you last heard, so just ask what did I miss. "
-  +"I stay behind your TV, so I won\u2019t spoil a goal. And you can talk over me. Which game are we following?";
+  +"I stay behind your TV, so I won\u2019t spoil a goal. Say stop and I will stop. Which game are we following?";
 
 var introStarted=false;
 $("begin").onclick=async function(){
@@ -2231,7 +3026,7 @@ $("begin").onclick=async function(){
     return;
   }
   $("gate").classList.add("gone");
-  sizeCore(); armed=true;
+  sizeCore(); armed=true; openFollowUp(25000);        // the first question after Go live needs no name
   startPassiveTicker();
   if(!caps.stt && !SR){
     setQuiet("This browser can’t turn speech into text. Try Chrome.");
@@ -2286,6 +3081,23 @@ function startPassiveTicker(){
 }
 
 /* ============================================================== subtitles / voice-only toggle */
+(function(){
+  var b=$("wakeToggle"), l=$("wakeLabel");
+  function show(){ l.textContent="Wake word: "+(WAKE_ON?"ON":"OFF"); b.setAttribute("aria-pressed",WAKE_ON?"true":"false"); }
+  b.onclick=function(){ WAKE_ON=!WAKE_ON; try{ localStorage.setItem(WAKE_KEY,WAKE_ON?"on":"off"); }catch(e){} show(); };
+  show();
+})();
+(function(){
+  var KEY="sideline.large", modes=["off","large","contrast"], i=0, b=$("largeToggle"), l=$("largeLabel");
+  try{ i=Math.max(0,modes.indexOf(localStorage.getItem(KEY))); }catch(e){}
+  function show(){
+    document.body.classList.toggle("large",i>0); document.body.classList.toggle("contrast",i===2);
+    l.textContent="Large type: "+["OFF","ON","HIGH CONTRAST"][i]; b.setAttribute("aria-pressed",i>0?"true":"false");
+    try{ measureStrip(); fit(); placeText(); }catch(e){}
+  }
+  b.onclick=function(){ i=(i+1)%3; try{ localStorage.setItem(KEY,modes[i]); }catch(e){} show(); };
+  show();
+})();
 var subBtn=$("subToggle"), subLabel=$("subLabel");
 function applyVoiceOnly(voiceOnly){
   if(voiceOnly){
