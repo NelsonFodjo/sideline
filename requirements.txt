@@ -9,6 +9,6 @@
 #
 # Everything stays inside the AWS account: speech in, language and speech out.
 
-boto3>=1.34                                                  # Bedrock, Polly, DynamoDB
+boto3>=1.43.112                                                  # Bedrock, Polly, DynamoDB
 aws-sdk-bedrock-runtime>=0.12 ; python_version >= "3.12"     # Nova Sonic speech in
 awscrt>=0.37 ; python_version >= "3.12"                      #   its duplex streaming transport
