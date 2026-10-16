@@ -156,6 +156,18 @@ POS_NORMALIZATION = {
 }
 
 
+# Team numbers for the sports with no tailored reader, named as they are said. Only what the feed lists.
+_OTHER_STAT_MAPS = {
+    "hockey": {"shotsTotal": "shots", "hits": "hits", "blockedShots": "blocked_shots", "takeaways": "takeaways",
+               "giveaways": "giveaways", "faceoffPercent": "faceoff_pct", "penalties": "penalties",
+               "penaltyMinutes": "penalty_minutes", "powerPlayGoals": "power_play_goals",
+               "powerPlayOpportunities": "power_play_chances"},
+    "american_football": {"totalYards": "total_yards", "netPassingYards": "passing_yards", "rushingYards": "rushing_yards",
+                          "firstDowns": "first_downs", "turnovers": "turnovers", "possessionTime": "possession",
+                          "thirdDownEff": "third_downs", "totalPenaltiesYards": "penalties", "completionAttempts": "completions"},
+}
+
+
 class EspnProvider(Provider):
     name = "espn"
     capabilities = frozenset({
@@ -463,6 +475,21 @@ class EspnProvider(Provider):
                     return fx
         return None
 
+    @staticmethod
+    def _series_text(comp, home_side, away_side):
+        """A playoff series as it stands ("Milwaukee Brewers wins series 4-0"): the feed says it with team abbreviations."""
+        series = (comp or {}).get("series") or {}
+        if isinstance(series, list):                       # a game's own page lists its series; a scoreboard gives the one
+            series = next((s for s in series if isinstance(s, dict) and s.get("summary")), {})
+        said = series.get("summary")
+        if not said:
+            return None
+        for side in (home_side, away_side):
+            t = side.get("team") or {}
+            if t.get("abbreviation") and t.get("displayName"):
+                said = re.sub(r"\b%s\b" % re.escape(t["abbreviation"]), t["displayName"], said)
+        return said
+
     def _norm_fixture(self, raw, sport, league):
         fid = str(raw.get("id"))
         espn_sport = _espn_sport(sport)
@@ -545,6 +572,9 @@ class EspnProvider(Provider):
             "country": None,
             "kickoff": kickoff,
         }
+        said_series = self._series_text(comp, home_side, away_side)
+        if said_series:
+            res["series"] = said_series
         if not hasattr(self, "_fixture_by_id"):
             self._fixture_by_id = {}
         self._fixture_by_id[fid] = (time.time(), res)
@@ -611,6 +641,7 @@ class EspnProvider(Provider):
             "round": None,
             "country": None,
             "kickoff": comp.get("date"),
+            "series": self._series_text(comp, home_side, away_side),
         }
         if not hasattr(self, "_fixture_by_id"):
             self._fixture_by_id = {}
@@ -797,11 +828,11 @@ class EspnProvider(Provider):
             pts = int(p.get("scoreValue") or 0)
 
             if p.get("scoringPlay"):
-                m = re.match(r"([A-Z][\w\s\-]+?)\s+makes", text, re.UNICODE)
+                m = re.match(r"(.+?)\s+makes\b", text, re.UNICODE)               # "De'Aaron Fox", "Jaren Jackson Jr.", "Gilgeous-Alexander"
                 player = m.group(1).strip() if m else "Unknown"
                 out.append(Event.make(fid, elapsed, "basket", points=pts, player=player, team=team, detail=text))
             elif "foul" in text.lower():
-                m = re.match(r"Foul on ([A-Z][\w\s\-]+)", text, re.I | re.UNICODE)
+                m = re.match(r"Foul on (.+?)(?:\s*\(|$)", text, re.I | re.UNICODE)
                 player = m.group(1).strip() if m else None
                 out.append(Event.make(fid, elapsed, "foul", player=player, team=team, detail=text))
             elif "timeout" in text.lower():
@@ -953,6 +984,10 @@ class EspnProvider(Provider):
                             st_dict["fouls"] = int(val)
                         except Exception:
                             st_dict["fouls"] = val
+                elif sideline_sport in _OTHER_STAT_MAPS:
+                    target = _OTHER_STAT_MAPS[sideline_sport].get(raw_name)
+                    if target and val not in (None, ""):
+                        st_dict[target] = val              # as the feed says it ("27/51", "35:38"): never reworked
                 else:
                     if raw_name in SOCCER_STAT_MAP:
                         target = SOCCER_STAT_MAP[raw_name]
@@ -1033,6 +1068,7 @@ class EspnProvider(Provider):
                 "%d-%d" % (int(float(wins_n)), int(float(stats_dict.get("losses") or 0))) if wins_n not in (None, "") else None)
             out.append({
                 "group": e.get("_group"),
+                "sport": sideline_sport,
                 "record": record,
                 "position": rank,
                 "team": team_name,
@@ -1077,6 +1113,8 @@ class EspnProvider(Provider):
                         "lost": row["lost"],
                         "goals_for": row["goals_for"],
                         "goals_against": row["goals_against"],
+                        "sport": row.get("sport"),
+                        "record": row.get("record"),
                         "clean_sheets": None,
                         "possession": None,
                     }
@@ -1095,6 +1133,8 @@ class EspnProvider(Provider):
                         "lost": row["lost"],
                         "goals_for": row["goals_for"],
                         "goals_against": row["goals_against"],
+                        "sport": row.get("sport"),
+                        "record": row.get("record"),
                         "clean_sheets": None,
                         "possession": None,
                     }
@@ -1116,6 +1156,10 @@ class EspnProvider(Provider):
                     break
 
         if not meta:
+            found = self._find_team(want)             # any sport: "Denver Broncos" is football, "Vegas Golden Knights" hockey
+            if found:
+                meta = found
+        if not meta:
             # Query ESPN search for team
             res = self.search(team, kind="team")
             if res:
@@ -1132,6 +1176,8 @@ class EspnProvider(Provider):
         data = self._fetch_json(url, ttl=120)
 
         athletes = data.get("athletes") or []
+        if athletes and isinstance(athletes[0], dict) and "items" in athletes[0]:      # American football, hockey, baseball: by group
+            athletes = [a for group in athletes for a in group.get("items") or []]
         players = []
         for a in athletes:
             name = a.get("displayName")
@@ -1139,7 +1185,10 @@ class EspnProvider(Provider):
                 continue
             num = a.get("jersey")
             pos_raw = (a.get("position") or {}).get("name", "").lower()
-            norm_pos = POS_NORMALIZATION.get(pos_raw, pos_raw or "attacker")
+            if espn_sport == "soccer":
+                norm_pos = POS_NORMALIZATION.get(pos_raw, pos_raw or "attacker")
+            else:
+                norm_pos = ((a.get("position") or {}).get("displayName") or pos_raw).lower()     # "quarterback", "goalie", "pitcher"
             players.append({"name": name, "number": num, "position": norm_pos})
 
         coaches = data.get("coach") or []
@@ -1153,11 +1202,55 @@ class EspnProvider(Provider):
             "coach": coach_name,
             "captain": None,
             "players": players,
+            "sport": self._SIDELINE_SPORT.get(espn_sport, espn_sport),
         }
 
     # ------------------------------------------------------ top_scorers
-    def top_scorers(self, competition):
+    # League leaders outside football, by the words a fan uses: word -> ESPN's category name, per sport.
+    _LEADER_WORDS = {
+        "basketball": (("rebound", "reboundsPerGame"), ("assist", "assistsPerGame"), ("steal", "stealsPerGame"),
+                       ("block", "blocksPerGame"), ("three", "3PointsMadePerGame"), ("point", "pointsPerGame"), ("scor", "pointsPerGame")),
+        "football": (("rush", "rushingYards"), ("receiv", "receivingYards"), ("touchdown", "passingTouchdowns"), ("sack", "sacks"),
+                     ("intercept", "interceptions"), ("tackle", "totalTackles"), ("pass", "passingYards")),
+        "hockey": (("assist", "assists"), ("save", "savePct"), ("win", "wins"), ("penalt", "penaltyMinutes"), ("point", "points"),
+                   ("goal", "goals"), ("scor", "points")),
+        "baseball": (("home", "homeRuns"), ("rbi", "RBIs"), ("batted", "RBIs"), ("average", "avg"), ("batting", "avg"),
+                     ("strikeout", "strikeouts"), ("era", "ERA"), ("save", "saves"), ("stolen", "stolenBases"), ("steal", "stolenBases"),
+                     ("hit", "hits"), ("win", "wins"), ("run", "runs")),
+    }
+    _LEADER_DEFAULT = {"basketball": "pointsPerGame", "football": "passingYards", "hockey": "points", "baseball": "homeRuns"}
+
+    def _leaders(self, espn_sport, league, stat):
+        """League leaders in one stat, for basketball, American football, hockey and baseball, from ESPN's leaders feed.
+        Each row says what the number is and which season it is from, because between seasons the feed shows the last one."""
+        data = self._fetch_json("https://site.api.espn.com/apis/site/v3/sports/%s/%s/leaders" % (espn_sport, league),
+                                ttl=300.0, strict=True)
+        cats = (data.get("leaders") or {}).get("categories") or []
+        sport = {"football": "football"}.get(espn_sport, espn_sport)
+        want = (stat or "").lower()
+        name = next((cat for word, cat in self._LEADER_WORDS.get(sport, ()) if word in want), None) if want else None
+        cat = next((c for c in cats if c.get("name") == (name or self._LEADER_DEFAULT.get(sport))), None) or (cats[0] if cats else None)
+        if not cat:
+            return []
+        season = data.get("requestedSeason") or data.get("currentSeason") or {}
+        said_season = ("%s %s" % (season.get("displayName") or "", ((season.get("type") or {}).get("name") or "").lower())).strip()
+        out = []
+        for l in (cat.get("leaders") or [])[:10]:
+            ath, tm = l.get("athlete") or {}, l.get("team") or {}
+            if not ath.get("displayName"):
+                continue
+            shown = l.get("displayValue") or ""
+            if "," in shown or not shown:                    # a baseball line ("8-19, 4 HR, ...") is not the number: use the number
+                v = l.get("value")
+                shown = "%d" % v if isinstance(v, (int, float)) and float(v).is_integer() else ("%.3f" % v).lstrip("0") if isinstance(v, (int, float)) and v < 1 else "%.1f" % v if isinstance(v, (int, float)) else ""
+            out.append({"player": ath["displayName"], "team": tm.get("displayName") or tm.get("name"), "goals": None,
+                        "value": shown, "stat": cat.get("displayName"), "season": said_season})
+        return out
+
+    def top_scorers(self, competition, stat=None):
         espn_sport, sideline_sport, league, _ = self._resolve_league(competition)
+        if espn_sport != "soccer" and sideline_sport in ("basketball", "american_football", "hockey", "baseball"):
+            return self._leaders(espn_sport, league, stat)
         url = f"https://site.api.espn.com/apis/site/v2/sports/{espn_sport}/{league}/statistics"
         data = self._fetch_json(url, ttl=120)
 
@@ -1187,12 +1280,22 @@ class EspnProvider(Provider):
     def _find_player(self, want, team=None):
         """The search hit for a player. Several people share a name: the one on the team asked about, else the one
         whose name matches exactly, else the first."""
-        url = "https://site.api.espn.com/apis/search/v2?query=%s" % urllib.parse.quote(want)
-        res = self._fetch_json(url, ttl=3600.0, strict=True)
-        hits = [c for g in res.get("results") or [] if g.get("type") == "player" for c in g.get("contents") or []]
+        canon = lambda t: re.sub(r"[^a-z]", "", (t or "").lower())      # noqa: E731
+        hits = []
+        # ESPN's search sometimes finds nothing for a full name ("Bo Nix") and finds him by the surname: then ask for the surname
+        # and keep only a player whose name holds everything that was said.
+        for query, strict_name in ((want, False), (want.split()[-1] if len(want.split()) > 1 else "", True)):
+            if not query:
+                continue
+            res = self._fetch_json("https://site.api.espn.com/apis/search/v2?query=%s" % urllib.parse.quote(query),
+                                   ttl=3600.0, strict=True)
+            hits = [c for g in res.get("results") or [] if g.get("type") == "player" for c in g.get("contents") or []]
+            if strict_name:
+                hits = [c for c in hits if canon(want) in canon(c.get("displayName"))]
+            if hits:
+                break
         if not hits:
             return None
-        canon = lambda t: re.sub(r"[^a-z]", "", (t or "").lower())      # noqa: E731
         return next((c for c in hits if team and canon(team) and canon(team) in canon(c.get("subtitle"))), None) \
             or next((c for c in hits if canon(c.get("displayName")) == canon(want)), None) or hits[0]
 
@@ -1218,6 +1321,16 @@ class EspnProvider(Provider):
                for a in articles if a.get("headline")]
         return {"scope": scope, "articles": out[:limit]} if out else None
 
+    # ESPN's athlete pages are under sport/league for everything but football (soccer): "basketball/nba", "hockey/nhl".
+    _LEAGUE_OF = {"nba": "basketball/nba", "wnba": "basketball/wnba", "nhl": "hockey/nhl", "mlb": "baseball/mlb",
+                  "nfl": "football/nfl", "ncaaf": "football/college-football", "college football": "football/college-football"}
+
+    def _athlete_path(self, hit):
+        sport = hit.get("sport") or "soccer"
+        if sport == "soccer":
+            return "soccer"
+        return self._LEAGUE_OF.get((hit.get("description") or "").strip().lower(), sport)
+
     def player_profile(self, player, team=None):
         """Who a player is: name, age, nationality, position, club, shirt number. ESPN carries no honours or career
         titles, so `honours` is None and the caller must say it does not have them."""
@@ -1228,7 +1341,7 @@ class EspnProvider(Provider):
         uid = hit.get("uid") or ""
         ath_id = uid.split(":")[-1] if ":" in uid else hit.get("id")
         sport = hit.get("sport") or "soccer"
-        a = (self._fetch_json("https://site.web.api.espn.com/apis/common/v3/sports/%s/athletes/%s" % (sport, ath_id),
+        a = (self._fetch_json("https://site.web.api.espn.com/apis/common/v3/sports/%s/athletes/%s" % (self._athlete_path(hit), ath_id),
                               ttl=3600.0, strict=True).get("athlete")) or {}
         if not a:
             return None
@@ -1263,6 +1376,157 @@ class EspnProvider(Provider):
                 "goals": club["goals"] if seen_club else None, "assists": club["assists"] if seen_club else None,
                 "international": dict(country) if seen_country else None}
 
+    def pitchers(self, fixture_id):
+        """{team: [(pitcher, innings)]} in the order they pitched, from a baseball box score."""
+        fid = str(fixture_id)
+        meta = self._event_meta.get(fid)
+        if not meta or meta[1] != "baseball":
+            return {}
+        out = {}
+        for team in (self._fetch_summary(meta[0], meta[2], fid).get("boxscore") or {}).get("players") or []:
+            for group in team.get("statistics") or []:
+                if (group.get("type") or group.get("name")) != "pitching":
+                    continue
+                keys = group.get("keys") or group.get("names") or []
+                rows = []
+                for row in group.get("athletes") or []:
+                    v = dict(zip(keys, row.get("stats") or []))
+                    name = (row.get("athlete") or {}).get("displayName")
+                    if name:
+                        rows.append((name, v.get("fullInnings.partInnings")))
+                out[(team.get("team") or {}).get("displayName") or "Team"] = rows
+        return out
+
+    def series(self, fixture_id):
+        """The playoff series this game belongs to, as it stands, or None (from the game's own page)."""
+        fid = str(fixture_id)
+        meta = self._event_meta.get(fid)
+        if not meta:
+            return None
+        summary = self._fetch_summary(meta[0], meta[2], fid)
+        comp = ((summary.get("header") or {}).get("competitions") or [{}])[0]
+        sides = comp.get("competitors") or []
+        return self._series_text(comp, next((c for c in sides if c.get("homeAway") == "home"), {}),
+                                 next((c for c in sides if c.get("homeAway") == "away"), {}))
+
+    def player_game(self, fixture_id, player):
+        """One player's figures in one game, from its box score, in the words of the sport. None if he is not in it."""
+        fid = str(fixture_id)
+        meta = self._event_meta.get(fid)
+        if not meta:
+            fx = self.fixture(fid)
+            if not fx:
+                return None
+            meta = (_espn_sport(fx.get("sport")), fx.get("sport"), fx.get("league_id"))
+        espn_sport, sport, league = meta
+        summary = self._fetch_summary(espn_sport, league, fid)
+        want = re.sub(r"[^a-z]", "", (player or "").lower())
+        for team in (summary.get("boxscore") or {}).get("players") or []:
+            for group in team.get("statistics") or []:
+                keys = group.get("keys") or group.get("names") or []
+                for row in group.get("athletes") or []:
+                    name = (row.get("athlete") or {}).get("displayName") or ""
+                    canon = re.sub(r"[^a-z]", "", name.lower())
+                    if not canon or not (want == canon or (want and (want in canon or canon in want))):
+                        continue
+                    v = dict(zip(keys, row.get("stats") or []))
+                    line = self._game_line(sport, group.get("type") or group.get("name") or "", v)
+                    if line:
+                        return {"name": name, "team": (team.get("team") or {}).get("displayName"), "line": line, "sport": sport}
+        return None
+
+    @staticmethod
+    def _game_line(sport, group, v):
+        def has(k):
+            return v.get(k) not in (None, "", "--")
+
+        def said(n, one, many):
+            return "%s %s" % (n, one if str(n) == "1" else many)
+
+        def join(bits):
+            return ", ".join(bits[:-1]) + (" and " if len(bits) > 1 else "") + bits[-1] if bits else ""
+        if sport == "basketball":
+            bits = [said(v[k], one, many) for k, one, many in (("points", "point", "points"), ("rebounds", "rebound", "rebounds"),
+                                                                ("assists", "assist", "assists")) if has(k)]
+            return join(bits) + (" in %s minutes" % v["minutes"] if has("minutes") and bits else "")
+        if sport == "hockey":
+            bits = [said(v[k], one, many) for k, one, many in (("goals", "goal", "goals"), ("assists", "assist", "assists"),
+                                                                ("shotsTotal", "shot", "shots")) if has(k)]
+            return join(bits) + (" in %s on the ice" % v["timeOnIce"] if has("timeOnIce") and bits else "")
+        if sport == "baseball":
+            if group == "pitching":
+                bits = []
+                if has("fullInnings.partInnings"):
+                    bits.append("%s innings" % v["fullInnings.partInnings"])
+                bits += [said(v[k], one, many) for k, one, many in (("hits", "hit", "hits"), ("runs", "run", "runs"),
+                                                                     ("strikeouts", "strikeout", "strikeouts")) if has(k)]
+                return "pitched " + join(bits) if bits else ""
+            bits = [said(v[k], one, many) for k, one, many in (("hits", "hit", "hits"), ("homeRuns", "home run", "home runs"),
+                                                                ("RBIs", "run batted in", "runs batted in"), ("runs", "run", "runs")) if has(k)]
+            return ("batted %s" % v["hits-atBats"] + (", with " + join(bits[1:]) if len(bits) > 1 else "")) if has("hits-atBats") and bits else ""
+        if sport == "american_football":
+            if group == "passing" and has("passingYards"):
+                return join([x for x in (said(v["passingYards"], "passing yard", "passing yards"),
+                                         said(v["passingTouchdowns"], "touchdown", "touchdowns") if has("passingTouchdowns") else "",
+                                         said(v["interceptions"], "interception", "interceptions") if has("interceptions") else "") if x])
+            if group == "rushing" and has("rushingYards"):
+                return join([x for x in (said(v["rushingYards"], "rushing yard", "rushing yards"),
+                                         said(v["rushingTouchdowns"], "touchdown", "touchdowns") if has("rushingTouchdowns") else "") if x])
+            if group == "receiving" and has("receivingYards"):
+                return join([x for x in (said(v["receptions"], "catch", "catches") if has("receptions") else "",
+                                         said(v["receivingYards"], "receiving yard", "receiving yards"),
+                                         said(v["receivingTouchdowns"], "touchdown", "touchdowns") if has("receivingTouchdowns") else "") if x])
+        return ""
+
+    @staticmethod
+    def _season_line(sport, names, splits):
+        """A player's regular-season figures in the words of his sport, or None. Only what the feed lists, never worked out."""
+        split = next((sp for sp in splits if "regular" in (sp.get("displayName") or "").lower()), None)
+        if not split:
+            return None
+        v = dict(zip(names, split.get("stats") or []))
+
+        def num(key):
+            raw = v.get(key)
+            if raw in (None, "", "--"):
+                return None
+            raw = str(raw).replace(",", "")
+            return raw[:-2] if raw.endswith(".0") else raw
+
+        def said(n, one, many):
+            return "%s %s" % (n, one if n == "1" else many)
+        bits = []
+        if sport == "basketball":
+            games = num("gamesPlayed")
+            for key, word in (("avgPoints", "points"), ("avgRebounds", "rebounds"), ("avgAssists", "assists")):
+                if num(key):
+                    bits.append("%s %s" % (num(key), word))
+            if games and bits:
+                return "regular season, %s: %s a game" % (said(games, "game", "games"), ", ".join(bits[:-1]) + (" and " if len(bits) > 1 else "") + bits[-1])
+        elif sport == "hockey":
+            games = num("games")
+            for key, one, many in (("goals", "goal", "goals"), ("assists", "assist", "assists"), ("points", "point", "points")):
+                if num(key) is not None:
+                    bits.append(said(num(key), one, many))
+            if games and bits:
+                return "regular season, %s: %s" % (said(games, "game", "games"), ", ".join(bits[:-1]) + (" and " if len(bits) > 1 else "") + bits[-1])
+        elif sport == "baseball":
+            games = num("gamesPlayed")
+            for key, one, many in (("hits", "hit", "hits"), ("homeRuns", "home run", "home runs"), ("RBIs", "run batted in", "runs batted in")):
+                if num(key) is not None:
+                    bits.append(said(num(key), one, many))
+            if games and bits:
+                return "regular season, %s: %s" % (said(games, "game", "games"), ", ".join(bits[:-1]) + (" and " if len(bits) > 1 else "") + bits[-1])
+        elif sport == "football":
+            for key, one, many in (("passingYards", "passing yard", "passing yards"), ("passingTouchdowns", "touchdown pass", "touchdown passes"),
+                                   ("interceptions", "interception", "interceptions"), ("rushingYards", "rushing yard", "rushing yards"),
+                                   ("rushingTouchdowns", "rushing touchdown", "rushing touchdowns")):
+                if num(key) not in (None, "0"):
+                    bits.append(said(num(key), one, many))
+            if bits:
+                return "regular season: " + ", ".join(bits[:-1]) + (" and " if len(bits) > 1 else "") + bits[-1]
+        return None
+
     def player_stats(self, player, team=None):
         want = (player or "").strip()
         if not want:
@@ -1279,7 +1543,7 @@ class EspnProvider(Provider):
         team_name = p_item.get("subtitle") or team
 
         # Fetch athlete overview
-        ov_url = f"https://site.web.api.espn.com/apis/common/v3/sports/{sport}/athletes/{ath_id}/overview"
+        ov_url = f"https://site.web.api.espn.com/apis/common/v3/sports/{self._athlete_path(p_item)}/athletes/{ath_id}/overview"
         ov_data = self._fetch_json(ov_url, ttl=120)
 
         st = ov_data.get("statistics") or {}
@@ -1288,6 +1552,10 @@ class EspnProvider(Provider):
 
         if sport == "soccer":
             return self._soccer_season(disp_name, team_name, names, splits)
+
+        line = self._season_line(sport, names, splits)
+        if line:
+            return {"name": disp_name, "team": team_name, "line": line, "sport": sport}
 
         apps, goals, assists = 0, 0, 0
         points, rebounds = None, None
@@ -1525,14 +1793,21 @@ class EspnProvider(Provider):
             if name == want:
                 return espn_sport, league, t_id, display
         words = " ".join(re.sub(r"[^\w\s]", " ", want).split())            # "bodo/glimt" -> "bodo glimt": ESPN's search finds nothing with the slash
-        url = "https://site.web.api.espn.com/apis/search/v2?query=%s&limit=5&type=team" % urllib.parse.quote(words or want)
-        for group in self._fetch_json(url, ttl=3600.0, strict=True).get("results") or []:
-            for hit in group.get("contents") or []:
-                match = re.search(r"~t:(\d+)", hit.get("uid") or "")
-                slug = hit.get("defaultLeagueSlug") or ""
-                if match and hit.get("sport") in ("soccer", "basketball", "football", "baseball", "hockey") \
-                        and ".w." not in slug and "women" not in slug:
-                    return hit["sport"], slug, match.group(1), hit.get("displayName")
+        # ESPN's team search can find "oilers" and nothing for "edmonton oilers" (or "kansas city chiefs"): when the whole name
+        # finds no team, ask for its last word, the nickname, and accept only a team whose name has that word in it.
+        last = words.split()[-1] if words else ""
+        tries = [(words or want, False)] + ([(last, True)] if last and last != words else [])
+        for query, nickname_only in tries:
+            url = "https://site.web.api.espn.com/apis/search/v2?query=%s&limit=5&type=team" % urllib.parse.quote(query)
+            for group in self._fetch_json(url, ttl=3600.0, strict=True).get("results") or []:
+                for hit in group.get("contents") or []:
+                    match = re.search(r"~t:(\d+)", hit.get("uid") or "")
+                    slug = hit.get("defaultLeagueSlug") or ""
+                    if nickname_only and last not in (hit.get("displayName") or "").lower().split():
+                        continue
+                    if match and hit.get("sport") in ("soccer", "basketball", "football", "baseball", "hockey") \
+                            and ".w." not in slug and "women" not in slug:
+                        return hit["sport"], slug, match.group(1), hit.get("displayName")
         return None
 
     def _schedule_fixture(self, ev, espn_sport, default_league):

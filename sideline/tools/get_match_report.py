@@ -11,7 +11,7 @@ import re
 from .. import clock, sports
 from ..mcp.errors import ToolError
 from ..status import FINISHED, has_started
-from . import events_for, resolve_fixture
+from . import events_for, feed, resolve_fixture
 
 LISTED = 6
 LISTED_GOALS = 12          # a football match is told to its last goal: the winner must never be "and 1 more"
@@ -95,6 +95,14 @@ def run(ctx, args, listener_id):
             fx["home"], fx["away"], clock.say_kickoff(fx, sp.start_word, tz_minutes=tz)),
             {"reason": "not_started", "fixture_id": fx["fixture_id"], "kickoff": ko.isoformat() if ko else None})
     part = args.get("part") or "all"
+    if part == "pitching":
+        pitched = feed(ctx, "pitchers", fx["fixture_id"]) if sp.key == "baseball" else {}
+        if not pitched:
+            raise ToolError("I don't have the pitchers for %s against %s." % (fx["home"], fx["away"]),
+                            {"reason": "no_pitching", "fixture_id": fx["fixture_id"]})
+        spoken = " ".join("%s used %s." % (team, ", ".join("%s%s" % (n, " for %s innings" % ip if ip else "") for n, ip in rows))
+                          for team, rows in pitched.items() if rows)
+        return spoken, {"fixture_id": fx["fixture_id"], "pitchers": pitched, "generated_by": "template"}, None
     if part == "commentary":
         since = args.get("since_line")
         return _commentary(ctx, fx, sp, since if isinstance(since, int) and not isinstance(since, bool) else None,
@@ -126,6 +134,10 @@ def run(ctx, args, listener_id):
         kind = _KINDS[part]
         mine = groups[kind]
         if not mine:
+            if not events and sp.key != "football":
+                raise ToolError("The feed has no play-by-play for %s against %s, so I can't say who scored. The final is %s %s, %s %s." % (
+                    fx["home"], fx["away"], fx["home"], fx["score"]["home"], fx["away"], fx["score"]["away"]),
+                    {"reason": "no_plays", "fixture_id": fx["fixture_id"]})
             return "There were no %s in %s against %s." % (_WORD[kind][1], fx["home"], fx["away"]), structured, None
         cap = LISTED_GOALS if (kind == "goal" and sp.key == "football") else LISTED
         shown = mine[:cap]

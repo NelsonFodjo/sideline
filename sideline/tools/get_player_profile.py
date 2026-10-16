@@ -63,11 +63,17 @@ def run(ctx, args, listener_id):
     spoken = line + "."
 
     # his / her / their: said as the feed says, "their" when it does not say
+    known = p.get("gender") in _PRONOUNS
     they, their = _PRONOUNS.get(p.get("gender"), ("they", "their"))
     honours = p.get("honours")
     if honours:
         spoken += " Major titles: %s." % ", ".join(honours[:5])
-    else:
+    elif known:
         spoken += " I can't give %s major titles: my feed doesn't carry honours." % their
-    spoken += " Want %s numbers this season, or how %s did in the latest match?" % (their, they)
+    else:
+        spoken += " I can't give major titles: my feed doesn't carry honours."        # no pronoun is guessed from a name
+    if known:
+        spoken += " Want %s numbers this season, or how %s did in the latest match?" % (their, they)
+    else:
+        spoken += " Want the numbers this season, or the latest match?"
     return spoken, {"player": p, "generated_by": "template"}, None

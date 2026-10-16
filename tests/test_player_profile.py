@@ -57,7 +57,9 @@ def main():
                                                                "position": "midfielder", "team": None, "number": None}
     spoken, _, _ = get_player_profile.run(ctx, {"player": "Ali Demir"}, "u")
     assert spoken.startswith("Ali Demir is a midfielder from Narnia."), spoken
-    assert "their major titles" in spoken and "how they did" in spoken, "no stated gender: their, never a guess: " + spoken
+    import re
+    assert not re.search(r"\b(he|she|his|her|him)\b", spoken, re.I), "no stated gender: no pronoun, never a guess: " + spoken
+    assert "I can't give major titles" in spoken and "Want the numbers this season" in spoken, spoken
     print("ok  gaps in the data are left out of the sentence, not filled in")
 
     ctx.provider.player_profile = lambda player, team=None: None

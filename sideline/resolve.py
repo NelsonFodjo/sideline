@@ -33,6 +33,7 @@ MAX_ITEMS = 80
 # tests/test_resolve.py; change them with that file open.
 OFFER_MIN = 0.66             # closest option must be at least this close...
 OFFER_MARGIN = 0.08          # ...and this much closer than the runner-up
+LOWERCASE_NAME_MIN = 0.93    # a lower-case word becomes a name only when it is almost exactly one ("arsenl")
 NAME_MIN = 0.86              # fixing a misheard name inside a longer sentence
 NAME_MIN_LETTERS = 5         # never "fix" short words: score, goal, half
 
@@ -368,10 +369,13 @@ def fix_names(text, items):
     touched however they sound.
     """
     canon = {}                                   # accent-free word -> its real spelling
+    owners = {}                                  # accent-free word -> the names (as word sets) it is part of
     for it in items:
+        said_words = {_fold(x) for x in re.findall(r"[^\W\d_]+", it.say, flags=re.UNICODE)}
         for w in re.findall(r"[^\W\d_]+", it.say, flags=re.UNICODE):
             if len(w) >= NAME_MIN_LETTERS:
                 canon.setdefault(_fold(w), w)
+                owners.setdefault(_fold(w), []).append(said_words)
     if not canon:
         return text
 
@@ -387,7 +391,15 @@ def fix_names(text, items):
             sim = similarity([norm], [cand])
             if sim > best:
                 best, hit = sim, cand
-        return canon[hit] if hit and best >= NAME_MIN else word
+        # A name is capitalised; an ordinary word that merely resembles one ("triple" ~ "Tripoli") is not repaired.
+        if not (hit and best >= (NAME_MIN if word[:1].isupper() else LOWERCASE_NAME_MIN)):
+            return word
+        # "Auston Matthews" is a person, not a misheard "Aston Villa": when the next word is a capitalised word that is no part
+        # of the name this one would become, leave it alone.
+        nxt = re.match(r"\s+([A-Z][^\W\d_]+)", m.string[m.end():], flags=re.UNICODE)
+        if nxt and any(len(w) > 1 for w in owners.get(hit, [])) and all(_fold(nxt.group(1)) not in w for w in owners.get(hit, [])):
+            return word
+        return canon[hit]
 
     return re.sub(r"[^\W\d_]+", repair, text, flags=re.UNICODE)
 
@@ -516,7 +528,10 @@ def snap(listener_id, text, names=(), now=None):
                     best_typo_cand = cand
                     best_typo_tok = tok
 
-    if best_typo_cand and 0.80 <= best_typo_score < NAME_MIN:
+    # "Did you mean...?" is for a close miss only. It was once offered for any name the feed's football pool lacked ("Seahawks" ~
+    # "Hawks", "Brunson" ~ "Bruins", "Flames" ~ "Fulham"): in a hundred questions across five sports it blocked a fifth of them.
+    # Anything this near is fixed outright above (NAME_MIN), so the band that is left for asking is empty on purpose.
+    if best_typo_cand and 0.95 <= best_typo_score < NAME_MIN:
         repaired = heard
         if best_typo_tok:
             repaired = re.sub(r"\b" + re.escape(best_typo_tok) + r"\b", best_typo_cand, heard, flags=re.IGNORECASE)

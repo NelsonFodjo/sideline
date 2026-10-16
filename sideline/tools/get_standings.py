@@ -1,5 +1,7 @@
 """The league table, or where one team sits in it."""
 
+import re
+
 from .. import names, resolve
 from ..mcp.errors import ToolError
 from . import competition_for, feed, ordinal
@@ -28,9 +30,13 @@ def _league_of(ctx, team):
         return None, None
     names = []
     for fx in ((found or {}).get("recent") or []) + ((found or {}).get("upcoming") or []):
+        c = fx.get("competition") or ""
+        if re.fullmatch(r"[a-z0-9]+(\.[a-z0-9]+)+", c):
+            continue                            # an unnamed competition (a feed slug such as "eng.w.1"): never read out
         if fx.get("competition") and fx["competition"] not in names:
             names.append(fx["competition"])
-    for name in names[:3]:
+    domestic = [n for n in names if not re.search(r"champions|europa|conference league|cup|qualif|nations|friendl|super|playoff", n, re.I)]
+    for name in (domestic + [n for n in names if n not in domestic])[:3]:
         table = ctx.provider.standings(name)
         if table and any(_row_is(r, team) for r in table):
             return name, table
@@ -45,9 +51,15 @@ def _in(competition):
     return ("the " if competition.lower().endswith(_THE) else "") + competition
 
 
+_CONFERENCE = re.compile(r"^(?:the )?(?:eastern|western|atlantic|metropolitan|central|pacific|northeast|southeast|northwest|southwest|"
+                         r"afc|nfc|american league|national league|al|nl)(?: conference| division| league)?(?: east| west| north| south| central)?$", re.I)
+
+
 def run(ctx, args, listener_id):
     team = (args.get("team") or "").strip()
     table = None
+    if team and _CONFERENCE.match((args.get("competition") or "").strip()):
+        args = dict(args, competition="")             # a conference is part of a league, not a competition: the team's own league has it
     try:
         competition = competition_for(ctx, args, listener_id)
     except ToolError:

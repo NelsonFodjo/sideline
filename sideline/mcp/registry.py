@@ -118,9 +118,9 @@ tool(
 tool(
     "get_match_report",
     "What happened in a match",
-    "What happened in a match that was played or is on (not one to come: get_match_preview): result, goals, assists, cards, substitutions, VAR. Say: 'what happened in the Celtic game', 'who scored', 'who got booked', 'anyone sent off', 'who came on', 'was there a penalty', 'what's the commentary'. Set `part` when they ask for one thing. Not who played (get_lineups); not what you missed (what_did_i_miss); not a player's season goals (get_player_stats).",
+    "What happened in a match that was played or is on (not one to come: get_match_preview): result, goals, assists, cards, substitutions, VAR. Say: 'what happened in the Celtic game', 'who scored', 'who got booked', 'anyone sent off', 'who came on', 'who led the Spurs in scoring', 'who pitched for the Dodgers' (part pitching), 'was there a penalty', 'what's the commentary'. Set `part` when they ask for one thing. Not who played (get_lineups); not what you missed (what_did_i_miss); not a player's season goals (get_player_stats).",
     _obj({"fixture_id": _fixture,
-          "part": {"type": "string", "enum": ["all", "goals", "cards", "substitutions", "var", "penalties", "commentary"],
+          "part": {"type": "string", "enum": ["all", "goals", "cards", "substitutions", "var", "penalties", "commentary", "pitching"],
                    "description": "goals for 'who scored', cards for 'any cards' or 'sent off', substitutions for 'who came on', var for VAR, commentary for 'what's the commentary', 'play by play', 'what are they saying'. Omit only for the whole story."},
           "since_line": {"type": "integer", "minimum": -1,
                          "description": "Only with part=commentary, for a client that reads the match out as it goes: the `cursor` the last call returned. Only lines after it come back. -1 means from now (no lines, just a cursor). Not for a person's question."},
@@ -145,7 +145,7 @@ tool(
 tool(
     "get_lineups",
     "Line-ups and formation",
-    "The players in a match, played or not: starting eleven, formation, bench. Say: 'who's playing', 'who played in the Celtic Rangers game', 'what's the line-up', 'who's on the bench', 'who started for the Knicks', 'what formation', 'what formation did they play'. Not which matches are on (get_fixtures); not a whole squad (get_squad).",
+    "The players in a match, played or not: starting eleven, formation, bench. Say: 'who's playing', 'who played in the Celtic Rangers game', 'what's the line-up', 'who's on the bench', 'who are the Seahawks' starters', 'who started for the Knicks', 'what formation', 'what formation did they play'. Not which matches are on (get_fixtures); not a whole squad (get_squad).",
     _obj({"fixture_id": _fixture,
           "team": {"type": "string", "maxLength": 60,
                    "description": "Limit to one side. Omit for both."}}),
@@ -312,8 +312,9 @@ tool(
 tool(
     "get_top_scorers",
     "The top scorers",
-    "Who has scored most in a competition. Say: 'who's the top scorer', 'golden boot race'. Not the league table or who is top of it (get_standings); not one player's tally (get_player_stats).",
-    _obj({"competition": _competition,
+    "Who has scored most in a competition. Say: 'who's the top scorer', 'golden boot race'; in basketball, American football, hockey and baseball the league leaders: 'who leads the NBA in points', 'NFL rushing yards leader', 'who has the most home runs' (pass `stat`). Not the league table or who is top of it (get_standings); not one player's tally (get_player_stats).",
+    _obj({"stat": {"type": "string", "maxLength": 40, "description": "Basketball, American football, hockey, baseball only: what the leaders are ranked by: points, rebounds, assists, passing yards, rushing yards, goals, home runs, saves."},
+          "competition": _competition,
           "team": {"type": "string", "maxLength": 60, "description": "Only this team's scorers, if they named one."}}),
     output_hint="the leading scorers with their teams and goals",
 )
@@ -321,7 +322,7 @@ tool(
 tool(
     "get_schedule",
     "When a team plays, and how it did",
-    "A team's next matches, or its last results, no match needed. Say: 'when does Arsenal play', 'what time is Arsenal playing', 'when do Arsenal play Lille', 'is Spurs on today', 'next fixtures' (which next); 'last results', 'recent games', 'did they win' (which last). Always pass `team`. Not the whole day (get_fixtures); not the weather or ground of a match (get_match_preview).",
+    "A team's next matches, or its last results, no match needed. Say: 'when does Arsenal play', 'what time is Arsenal playing', 'who do the Jets play this week', 'what time is Leeds against Manchester United', 'when do Arsenal play Lille', 'is Spurs on today', 'next fixtures' (which next); 'last results', 'recent games', 'did they win' (which last). Always pass `team`. Not the whole day (get_fixtures); not the weather or ground of a match (get_match_preview).",
     _obj({"team": _team,
           "which": {"type": "string", "enum": ["next", "last"],
                     "description": "next (the default): the coming matches. last: the latest results with scores."},
@@ -333,7 +334,7 @@ tool(
 tool(
     "get_squad",
     "A team's players",
-    "A team's players, with no match needed. Say: 'who is in the Celtic squad', 'who's their goalkeeper', 'who plays in goal for Celtic', 'who's the manager or coach', 'who's the captain', 'list their defenders'. Always pass `team`; add `position` for names. Not who starts this match (get_lineups); not one player (get_player_stats).",
+    "A team's players, with no match needed. Say: 'who is in the Celtic squad', 'who's their goalkeeper', 'who plays in goal for Celtic', 'who is the Broncos quarterback', 'who is the Vegas goalie', 'who's the manager or coach', 'who's the captain', 'list their defenders'. Always pass `team`; add `position` for names. Not who starts this match (get_lineups); not one player (get_player_stats).",
     _obj({"team": _team,
           "position": {"type": "string", "enum": ["goalkeeper", "defender", "midfielder", "attacker"],
                        "description": "Only if they asked for one position, to hear the names."}}, ["team"]),
@@ -352,7 +353,7 @@ tool(
     "get_match_stats",
     "Match statistics",
     "The match numbers. Say: 'who has more possession', 'how many shots', 'how many corners did they have', 'who had the most shots', 'who's dominating'. Pass `stat` only when they ask for one number; for 'the stats' or 'how did they do' call once with no `stat`. Not the score (get_match_state); not players (get_standouts).",
-    _obj({"stat": {"type": "string", "enum": ["possession", "shots", "passes", "corners", "offsides", "saves", "fouls", "cards"],
+    _obj({"stat": {"type": "string", "enum": ["possession", "shots", "passes", "corners", "offsides", "saves", "fouls", "cards", "penalties", "rebounds", "assists", "turnovers", "steals", "blocks", "rushing", "passing", "yards", "hits", "power_plays"],
                    "description": "Only when they ask for one number: 'how many corners' is corners. Omit for the whole picture."},
           "fixture_id": _fixture,
           "team": {"type": "string", "maxLength": 60,
@@ -363,8 +364,10 @@ tool(
 tool(
     "get_player_stats",
     "A player's season so far",
-    "A player's season totals. Say: 'has he scored this season', 'how many goals has Saka got', 'how many appearances'. Not his shirt number or who he is, or what he did today (get_player_context).",
-    _obj({"player": {"type": "string", "minLength": 2, "maxLength": 60,
+    "A player's season totals. Say: 'has he scored this season', 'how many goals has Saka got', 'how many appearances'. For one game, pass `when` last (or yesterday, today): 'how many points did Brunson score last night', 'did Ohtani hit a home run', 'how many yards did Mahomes throw'. Not his shirt number or who he is (get_player_profile); not what he did in a football match in play (get_player_context).",
+    _obj({"when": {"type": "string", "enum": ["last", "yesterday", "today"], "description": "Only for one game's figures: which of the player's team's games. 'Last night' is last."},
+          "opponent": {"type": "string", "maxLength": 60, "description": "Only for one game's figures: the other team, if named."},
+          "player": {"type": "string", "minLength": 2, "maxLength": 60,
                      "description": "The player as the listener said it."},
           "team": {"type": "string", "maxLength": 60, "description": "Their team, if said."}}, ["player"]),
     output_hint="goals, assists and appearances this season",

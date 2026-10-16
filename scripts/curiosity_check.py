@@ -106,9 +106,59 @@ MULTISPORT = [
     ("Across sports", "What's the score?"),
 ]
 
+# Round 2: 100 more across five sports (15-16 October 2026). Each is asked as its own listener, so one answer cannot colour the next.
+ROUND2 = [
+    ("Basketball", q) for q in [
+        "What was the score of the Rockets and Thunder game?", "Who won the Celtics game last night?",
+        "How many points did Jalen Brunson score last night?", "Who led the Spurs in scoring against the Suns?",
+        "Who started for the Heat against the Nets?", "Where are the Celtics in the Eastern Conference standings?",
+        "When do the Celtics play next?", "What NBA games are on tonight?", "Which NBA game had the highest score last night?",
+        "Who is injured on the Knicks?", "Tell me about Victor Wembanyama.", "How many assists did Jalen Brunson have last night?",
+        "What's the Lakers' record this season?", "Did the Warriors win last night?", "What time do the Lakers play today?",
+        "Show me the Thunder line-up.", "Who are the NBA's top scorers this season?", "How many fouls did the Knicks have last night?",
+        "What's a triple-double?", "How long is an NBA quarter?"]] + [
+    ("American football", q) for q in [
+        "Who won the Denver Broncos and Seattle Seahawks game?", "Who scored the touchdowns in the Broncos and Seahawks game?",
+        "What was the score at halftime of the Broncos and Seahawks game?", "What time do the Patriots play on Sunday?",
+        "Who do the Jets play this week?", "What NFL games are on this weekend?", "Where are the Broncos in the standings?",
+        "Who is the Broncos quarterback?", "Who are the Seahawks' starters?", "Tell me about Patrick Mahomes.",
+        "How many rushing yards did the Broncos have against the Seahawks?", "What were the team stats for the Broncos and Seahawks game?",
+        "Who is injured for the Texans?", "When do the Ravens play the Browns?", "Who is the NFL leader in rushing yards?",
+        "What's a safety in football?", "How many players are on the field in American football?", "How long is an NFL game?",
+        "Did the Seahawks win last night?", "Follow the Falcons and Bears game."]] + [
+    ("Hockey", q) for q in [
+        "What was the score of the Maple Leafs and Sabres game?", "Who won the Panthers and Canucks game?",
+        "Who scored for the Lightning against the Kraken?", "Who had the most shots in the Senators and Islanders game?",
+        "How many power plays did Vegas have against Calgary?", "Where are the Maple Leafs in the standings?",
+        "When do the Maple Leafs play next?", "What NHL games are on tonight?", "Who is the Vegas Golden Knights goalie?",
+        "Tell me about Connor McDavid.", "How many goals has Auston Matthews scored this season?",
+        "Who started in goal for the Lightning against the Kraken?", "Show me the Panthers line-up.", "What's icing in hockey?",
+        "How long is a hockey game?", "What's a power play?", "Did the Senators win?", "Who are the NHL's top scorers?",
+        "Who is injured on the Maple Leafs?", "How many penalties did the Sabres have against the Maple Leafs?"]] + [
+    ("Baseball", q) for q in [
+        "What was the score of the Guardians and Rays game?", "Who won the Dodgers and Brewers game last night?",
+        "Who hit home runs in the Dodgers and Brewers game?", "How many hits did the Brewers have against the Dodgers?",
+        "Who pitched for the Dodgers last night?", "When is the next Dodgers game?", "Where are the Dodgers in the standings?",
+        "What MLB games are on today?", "Tell me about Shohei Ohtani.", "How many home runs does Shohei Ohtani have this season?",
+        "Who is injured on the Dodgers?", "What's the Dodgers line-up?", "What inning is it in the Dodgers game?", "What's a balk?",
+        "How many innings are in a baseball game?", "What does RBI stand for?", "What's a save in baseball?",
+        "Who is leading MLB in home runs?", "What's the series score between the Dodgers and the Brewers?", "Did the Rays win?"]] + [
+    ("Football", q) for q in [
+        "Who plays Arsenal on Sunday?", "What time is Leeds against Manchester United?", "Who is Arsenal's top scorer this season?",
+        "Where is Manchester United in the Premier League table?", "Tell me about Bukayo Saka.", "Who is the manager of Arsenal?",
+        "What's the Premier League table?", "Who are the top scorers in the Premier League?", "Who are Arsenal's goalkeepers?",
+        "How have Leeds and Manchester United done against each other before?", "What's Nottingham Forest's recent form?",
+        "Who is injured at Manchester United?", "What's on in La Liga today?", "What's on in Serie A today?",
+        "How did Juventus do in the Europa League?", "What's the weather forecast for Brighton against Crystal Palace?",
+        "What's on in the Bundesliga today?", "Any news about Arsenal?", "Tell me about Erling Haaland.",
+        "What's the score of the Frosinone and Sassuolo game?"]]
 
-def post(url, body, timeout=90):
-    req = urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json"})
+
+def post(url, body, timeout=90, listener=None):
+    headers = {"Content-Type": "application/json"}
+    if listener:
+        headers["X-Sideline-Listener"] = listener
+    req = urllib.request.Request(url, json.dumps(body).encode(), headers)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
 
@@ -116,18 +166,25 @@ def post(url, body, timeout=90):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", help="a range like 1-10")
-    ap.add_argument("--set", choices=("football", "multisport"), default="football")
+    ap.add_argument("--set", choices=("football", "multisport", "round2"), default="football")
     ap.add_argument("--out", default=os.path.join(ROOT, "docs", "CURIOSITY_QA.md"))
     args = ap.parse_args()
-    questions = MULTISPORT if args.set == "multisport" else QUESTIONS
+    questions = {"multisport": MULTISPORT, "round2": ROUND2}.get(args.set, QUESTIONS)
     lo, hi = 1, len(questions)
     if args.only:
         a, _, b = args.only.partition("-")
         lo, hi = int(a), int(b or a)
 
+    try:                                                       # a server left over from an earlier run would answer with old code
+        urllib.request.urlopen("http://127.0.0.1:%d/health" % PORT, timeout=1)
+        sys.exit("port %d is already serving something (a leftover server?). Stop it first: lsof -iTCP:%d -sTCP:LISTEN" % (PORT, PORT))
+    except (urllib.error.URLError, OSError):
+        pass
     env = dict(os.environ, SIDELINE_PORT=str(PORT), SIDELINE_STATE="memory", SIDELINE_LOG_DIR="off")
     server = subprocess.Popen([sys.executable, "-m", "sideline"], cwd=ROOT, env=env,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    import atexit
+    atexit.register(lambda: server.poll() is None and server.terminate())
     base = "http://127.0.0.1:%d" % PORT
     try:
         for _ in range(60):
@@ -147,7 +204,8 @@ def main():
             try:
                 for attempt in range(3):                       # the model's account can throttle: wait and ask again
                     try:
-                        res = post(base + "/agent/chat", {"text": q, "tz_offset_minutes": 240})
+                        res = post(base + "/agent/chat", {"text": q, "tz_offset_minutes": 240},
+                                   listener=("r2-%d" % n) if args.set == "round2" else None)
                         break
                     except urllib.error.HTTPError as e:
                         if e.code != 503 or attempt == 2:

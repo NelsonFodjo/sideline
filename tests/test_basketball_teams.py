@@ -25,11 +25,15 @@ def main():
              "team": {"id": "18"}, "text": "Jalen Brunson makes 26-foot three point jumper"},
             {"period": {"number": 1}, "clock": {"displayValue": "9:40"}, "scoringPlay": True, "scoreValue": 1,
              "team": {"displayName": "Toronto Raptors"}, "text": "Scottie Barnes makes free throw 1 of 1"},
+                {"period": {"number": 1}, "clock": {"displayValue": "9:10"}, "scoringPlay": True, "scoreValue": 2,
+             "team": {"id": "18"}, "text": "Jaren Jackson Jr. makes driving dunk"},
+            {"period": {"number": 1}, "clock": {"displayValue": "8:50"}, "scoringPlay": True, "scoreValue": 2,
+             "team": {"id": "28"}, "text": "De'Aaron Fox makes pullup jump shot"},
         ],
     }
     events = EspnProvider()._basketball_events("1", summary, -1)
-    assert [e["team"] for e in events] == ["Toronto Raptors", "New York Knicks", "Toronto Raptors"], [e["team"] for e in events]
-    assert [e["player"] for e in events] == ["RJ Barrett", "Jalen Brunson", "Scottie Barnes"]
+    assert [e["team"] for e in events] == ["Toronto Raptors", "New York Knicks", "Toronto Raptors", "New York Knicks", "Toronto Raptors"], [e["team"] for e in events]
+    assert [e["player"] for e in events] == ["RJ Barrett", "Jalen Brunson", "Scottie Barnes", "Jaren Jackson Jr.", "De'Aaron Fox"], [e["player"] for e in events]
     print("ok  a basket is credited to the team the header names for the play's id")
     print("\nbasketball teams: all good")
 

@@ -23,6 +23,13 @@ def run(ctx, args, listener_id):
         args = dict(args, fixture_id=fx0["fixture_id"])
     fx = resolve_fixture(ctx, args, listener_id)
     spoken = ctx.lang.templates.say_match_state(fx, fx)
+    if not fx.get("series") and fx.get("sport") in ("basketball", "hockey", "baseball"):
+        try:                                       # a playoff series is on the game's own page, not on a team's schedule
+            fx["series"] = ctx.provider.series(fx["fixture_id"]) if hasattr(ctx.provider, "series") else None
+        except Exception:                          # noqa: BLE001  a courtesy: the score stands without it
+            fx["series"] = None
+    if fx.get("series"):
+        spoken += " %s." % fx["series"].rstrip(".")
     if fx.get("score_unconfirmed"):
         spoken += " I can't be sure that is where your screen is."
 
@@ -44,6 +51,7 @@ def run(ctx, args, listener_id):
         # The time now and the fixture's start: "when does it kick off?"
         "clock": clock.snapshot(fx),
         "match": match_info(fx),
+        "series": fx.get("series"),
         # How far behind the live match this listener's picture is, and whether the held-back score could be placed.
         "delay_seconds": int(fx.get("broadcast_offset") or 0),
         "score_unconfirmed": bool(fx.get("score_unconfirmed")),

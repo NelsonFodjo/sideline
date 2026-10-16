@@ -80,6 +80,11 @@ _GENERAL_KNOWLEDGE = re.compile(
     r"what(?:'s| is) a [\d-]+ formation|how many (?:substitutions?|subs|players|minutes) (?:are|is|can)|"
     r"how long is a (?:football|soccer|basketball|hockey|baseball)? ?(?:match|game)|explain (?:the )?(?:offside|var)|"
     r"what does (?:era|rbi|obp|ops|whip|mvp|qb|td|nba|nfl|nhl|mlb|mls|ppg|xa|pk|ot|erm) (?:mean|stand for)\b|"
+    r"what(?:'s| is) (?:a|an|the) (?:triple.?double|double.?double|safety|icing|power play|penalty kill|balk|save|walk|bunt|infield fly|"
+    r"touchdown|field goal|first down|two.?point conversion|punt|fumble|sack|blitz|hat.?trick|nutmeg|clean sheet|slam dunk|alley.?oop|"
+    r"shot clock|free throw|three.?pointer|pick and roll|home run|strikeout|no.?hitter|grand slam|offside|face.?off|hat trick)\b|"
+    r"how long is (?:a|an|the) (?:nba |nfl |nhl |mlb |college )?(?:quarter|period|half|inning|overtime|game|match)\b|"
+    r"how many (?:innings|periods|quarters|downs|outs|strikes|balls|players|timeouts|fouls) (?:are|is|in|on|can|does|do)\b|"
     r"what(?:'s| is) the difference between (?:football|soccer) and (?:american football|football|soccer))", re.I)
 
 
@@ -94,6 +99,11 @@ _OUT_OF_SCOPE = [
      "I don't have stadium sizes. I can tell you which ground a match is at, and where."),
     (re.compile(r"\b(best|greatest) (?:player|footballer|team|manager|coach)s?\b.*\b(world|ever|all time|history)\b|\bgoat\b", re.I),
      "That's a matter of opinion and I don't rank players across the world. I can tell you who stood out in a match."),
+    (re.compile(r"\b(?:score|result) (?:at|by|in) (?:the )?(?:half.?time|the half|the break|the end of the (?:first|second|third) (?:quarter|period))\b|"
+                r"\b(?:half.?time|quarter.?time) score\b", re.I),
+     "I don't have half-time or quarter scores, only the final and, for football, the goals with their minutes."),
+    (re.compile(r"\b(?:highest|lowest|biggest|largest|smallest) (?:score|scoring|margin|win|total)\b|\bmost points in a game\b", re.I),
+     "I don't rank games by score. I can read out the day's results, or one game's score."),
     (re.compile(r"\bwho won\b.*\b(last year|last season|in (?:19|20)\d\d|back in)\b|\b(?:last year's|last season's) (?:winners?|champions?)\b", re.I),
      "I don't have past seasons: my feed covers this season's tables, results and fixtures."),
 ]

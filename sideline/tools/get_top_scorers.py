@@ -8,6 +8,11 @@ TOP = 5
 
 def run(ctx, args, listener_id):
     team = (args.get("team") or "").strip()
+    if team and not (args.get("competition") or "").strip():
+        from .get_standings import _league_of           # "Arsenal's top scorer" is in their league, not in whichever cup they played last
+        own, _ = _league_of(ctx, team)
+        if own:
+            args = dict(args, competition=own)
     try:
         competition = competition_for(ctx, args, listener_id)
     except ToolError:
@@ -17,7 +22,8 @@ def run(ctx, args, listener_id):
         competition, _ = _league_of(ctx, team)
         if not competition:
             raise
-    rows = feed(ctx, "top_scorers", competition)
+    stat = (args.get("stat") or "").strip()
+    rows = feed(ctx, "top_scorers", competition, stat) if stat else feed(ctx, "top_scorers", competition)
     if team and rows:
         from .get_standings import _row_is
         mine = [r for r in rows if r.get("team") and _row_is(r, team)]
@@ -28,6 +34,12 @@ def run(ctx, args, listener_id):
     if not rows:
         raise ToolError("I can't see the top scorers for %s." % competition,
                         {"reason": "no_match", "competition": competition})
+    if rows[0].get("value") is not None:                    # another sport's leaders, in that sport's own words
+        rows = rows[:TOP]
+        lead = "%s%s leaders, %s" % ("%s " % possessive(team) if team else "", rows[0].get("stat") or "stat", rows[0].get("season") or competition)
+        spoken = "%s: %s." % (lead, ". ".join("%s, %s, %s" % (r["player"], r["team"], r["value"]) if r.get("team")
+                                              else "%s, %s" % (r["player"], r["value"]) for r in rows))
+        return spoken, {"competition": competition, "scorers": rows, "generated_by": "template"}, None
     rows = sorted(rows, key=lambda r: -(r.get("goals") or 0))[:TOP]
     lead = "%s top scorers in the %s" % (possessive(team), competition) if team else "Top scorers in the %s" % competition
     spoken = "%s: %s." % (lead, ". ".join(

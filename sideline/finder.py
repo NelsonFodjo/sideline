@@ -37,6 +37,8 @@ CLEAR_WIN = 0.6               # ...and the best wins outright when the runner-up
 FOLLOWED_LIFT = 1.25
 DISCUSSED_LIFT = 2.0          # the match they were just asking about outranks the one merely followed
 DISCUSSED_SECONDS = 600       # ...for ten minutes
+DAILY_DECAY_DAYS = 1.5        # basketball, hockey and baseball teams play every day or two: the nearest game is plainly the one meant
+DAILY_SPORTS = frozenset(("basketball", "hockey", "baseball"))
 DECAY_DAYS = 7.0              # with no time said, a match fades with its distance from now...
 FLOOR = 0.1                   # ...but never to nothing: a match weeks ago is still the answer when it is the one that fits
 MISMATCH = 0.35               # a match of the wrong kind for the question (played versus upcoming)
@@ -135,7 +137,15 @@ def candidates(ctx, ref, rec, tz):
         if data:
             for fx in data["recent"] + data["upcoming"]:
                 add(fx)
-        elif not has_schedules:                                   # a feed that cannot look further: scan the days near now
+        if ref.opponent and has_schedules:
+            # "Panthers" is Florida in hockey and Carolina in football: the other side's schedule finds the game either way.
+            try:
+                other = ctx.provider.team_matches(ref.opponent)
+            except NotImplementedError:
+                other = None
+            for fx in ((other or {}).get("recent") or []) + ((other or {}).get("upcoming") or []):
+                add(fx)
+        if not data and not has_schedules:                                   # a feed that cannot look further: scan the days near now
             for offset in (-1, 0, 1):
                 for fx in find_matches(ctx, ref.team, None, offsets=(offset,), tz=tz):
                     add(fx)
@@ -224,7 +234,8 @@ def score_all(cands, ref, followed, tz, now=None, discussed=None, preferred_spor
         else:                                                      # then nearest to now
             ko = clock.kickoff(fx)
             days = abs((ko - now).total_seconds()) / 86400.0 if ko else 0.0
-            s *= max(FLOOR, math.exp(-days / DECAY_DAYS))
+            decay = DAILY_DECAY_DAYS if (fx.get("sport") or "football") in DAILY_SPORTS else DECAY_DAYS
+            s *= max(FLOOR, math.exp(-days / decay))
         if ref.prefers and k != "live" and k != ref.prefers:
             s *= MISMATCH
         if followed is not None and fx["fixture_id"] == followed:

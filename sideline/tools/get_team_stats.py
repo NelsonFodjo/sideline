@@ -18,6 +18,15 @@ def run(ctx, args, listener_id):
     s = feed(ctx, "team_stats", team)
     if not s or s.get("played") is None:
         raise no_team(ctx, team)
+    if s.get("sport") in ("basketball", "american_football", "baseball", "hockey") and s.get("won") is not None:
+        # A record in the sport's own words: no draws, and points (not goals) when the feed lists them as played games.
+        said = "%s this season: won %s, lost %s" % (s["team"], s["won"], s["lost"])
+        if s["played"]:
+            said = "%s this season: %s, won %s, lost %s" % (s["team"], _n(s["played"], "game", "games"), s["won"], s["lost"])
+        if s.get("goals_for") and s.get("goals_against") and s["played"]:
+            word = "goal" if s["sport"] == "hockey" else "point"
+            said += ". %s scored and %s conceded" % (_n(s["goals_for"], word, word + "s"), s["goals_against"])
+        return said + ".", {"stats": s, "generated_by": "template"}, None
     parts = ["%s this season: %s" % (s["team"], _n(s["played"], "game", "games"))]
     if None not in (s.get("won"), s.get("drawn"), s.get("lost")):
         parts[0] += ", won %s, drew %s, lost %s" % (s["won"], s["drawn"], s["lost"])

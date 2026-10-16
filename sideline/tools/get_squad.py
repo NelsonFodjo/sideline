@@ -16,6 +16,32 @@ def _names(players):
     return ", ".join(p["name"] if not p.get("number") else "%s, number %s" % (p["name"], p["number"]) for p in players)
 
 
+_SYNONYMS = {"goalkeeper": ("goalie", "goaltender"), "keeper": ("goalie", "goaltender"), "goalie": ("goalie", "goaltender"),
+             "qb": ("quarterback",), "defender": ("defens", "back", "linebacker", "safety"), "defenseman": ("defense",),
+             "forward": ("forward", "wing", "center"), "striker": ("forward",), "receiver": ("receiver",), "rb": ("running back",)}
+
+
+def _other_sport(s, players, position):
+    """A squad outside football: no goalkeepers and defenders, but the positions that sport lists (quarterback, goalie, pitcher)."""
+    team = s["team"]
+    if position:
+        words = (position,) + _SYNONYMS.get(position, ())
+        mine = [p for p in players if any(w in (p.get("position") or "") for w in words)]
+        if not mine:
+            raise ToolError("I don't have any %s listed for %s." % (position, team),
+                            {"reason": "no_match", "team": team, "position": position})
+        shown = mine[:LISTED]
+        spoken = "%s %s: %s." % (possessive(team), position + ("s" if not position.endswith("s") else ""), _names(shown))
+        if len(mine) > len(shown):
+            spoken += " And %d more." % (len(mine) - len(shown))
+        return spoken, {"team": team, "position": position, "players": shown, "generated_by": "template"}, None
+    spoken = "%s have %d players." % (team, len(players))
+    if s.get("coach"):
+        spoken += " The feed lists %s as head coach, and it can be out of date." % s["coach"]
+    spoken += " Ask for a position, like quarterback or goalie, to hear the names."
+    return spoken, {"team": team, "coach": s.get("coach"), "total": len(players), "generated_by": "template"}, None
+
+
 def run(ctx, args, listener_id):
     team = (args.get("team") or "").strip()
     position = (args.get("position") or "").strip().lower()
@@ -29,6 +55,8 @@ def run(ctx, args, listener_id):
     if not s or not s.get("players"):
         raise no_team(ctx, team)
     players = s["players"]
+    if s.get("sport") not in (None, "football"):
+        return _other_sport(s, players, position)
     if position in _PLURAL:
         mine = [p for p in players if p.get("position") == position]
         if not mine:

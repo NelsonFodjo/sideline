@@ -13,6 +13,21 @@ _BB_LABELS = (("field_goals", "Field goals", ""), ("field_goal_pct", "Field goal
               ("blocks", "Blocks", ""), ("turnovers", "Turnovers", ""), ("fouls", "Fouls", ""))
 
 
+_HOCKEY_LABELS = (("shots", "Shots", ""), ("power_play_goals", "Power play goals", ""), ("power_play_chances", "Power play chances", ""),
+                  ("penalties", "Penalties", ""), ("penalty_minutes", "Penalty minutes", ""), ("hits", "Hits", ""),
+                  ("blocked_shots", "Blocked shots", ""), ("takeaways", "Takeaways", ""), ("giveaways", "Giveaways", ""),
+                  ("faceoff_pct", "Faceoffs won", " percent"))
+_FOOTBALL_US_LABELS = (("total_yards", "Total yards", ""), ("passing_yards", "Passing yards", ""), ("rushing_yards", "Rushing yards", ""),
+                       ("first_downs", "First downs", ""), ("turnovers", "Turnovers", ""), ("third_downs", "Third downs", ""),
+                       ("completions", "Completions and attempts", ""), ("penalties", "Penalties and yards", ""),
+                       ("possession", "Time of possession", ""))
+_STAT_WORDS = {"shots": ("shots",), "fouls": ("fouls",), "penalties": ("penalt",), "rebounds": ("rebounds",), "assists": ("assists",),
+               "turnovers": ("turnovers", "giveaways"), "steals": ("steals", "takeaways"), "blocks": ("blocks", "blocked"),
+               "rushing": ("rushing",), "passing": ("passing", "completions"), "yards": ("yards",), "hits": ("hits",),
+               "power_plays": ("power play",), "possession": ("possession",), "corners": ("corners",)}
+_OTHER_LABELS = {"hockey": _HOCKEY_LABELS, "american_football": _FOOTBALL_US_LABELS}
+
+
 def _line(label, unit, home, away, a, b):
     if a is None and b is None:
         return None
@@ -139,9 +154,13 @@ def run(ctx, args, listener_id):
         return (warn + _football_spoken(home, away, rows, a, b, args.get("stat")),
                 {"home": home, "away": away, "stats": stats, "table": rows, "generated_by": "template"},
                 {"table": rows, "home": home, "away": away})
-    labels = _BB_LABELS if fx.get("sport") == "basketball" else _LABELS
+    labels = _BB_LABELS if fx.get("sport") == "basketball" else _OTHER_LABELS.get(fx.get("sport"), _LABELS)
     parts = [_line(label, unit, home, away, a.get(key), b.get(key)) for key, label, unit in labels]
     parts = [p for p in parts if p]
+    wanted = _STAT_WORDS.get(args.get("stat") or "")
+    if wanted and parts:                                  # one number asked for ("how many fouls", "rushing yards")
+        mine = [p for p in parts if any(w in p.lower() for w in wanted)]
+        parts = mine or parts
     if not parts:
         raise ToolError("There are no statistics for this match yet.",
                         {"reason": "no_match", "fixture_id": fx["fixture_id"]})
