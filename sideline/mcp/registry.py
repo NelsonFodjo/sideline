@@ -88,7 +88,7 @@ tool(
 tool(
     "get_match_state",
     "Score and clock",
-    "The score and the clock, right now. Say: 'what's the score', 'how long left', 'who's winning', 'has it finished', 'what was the score of the Knicks game last night' (pass `team`, and `when` last for a game already played). Only the score and clock: not a player, a formation, the stats or the cards. If the listener doubts it ('are you sure', 'check again', 'that's wrong'), call again with refresh true. Not what happened (what_did_i_miss); not 'I'm watching X' or 'follow X' (follow_match).",
+    "The score and the clock, right now. Say: 'what's the score', 'how long left', 'who's winning', 'has it finished', 'what's the series score', 'what was the score of the Knicks game last night' (pass `team`, and `when` last for a game already played). Only the score and clock: not a player, a formation, the stats or the cards. If the listener doubts it ('are you sure', 'check again', 'that's wrong'), call again with refresh true. Not what happened (what_did_i_miss); not 'I'm watching X' or 'follow X' (follow_match).",
     _obj({"fixture_id": _fixture,
           "refresh": {"type": "boolean",
                       "description": "True to forget anything kept and read the feed now. Only when the listener doubts the score."}}),
@@ -322,7 +322,7 @@ tool(
 tool(
     "get_schedule",
     "When a team plays, and how it did",
-    "A team's next matches, or its last results, no match needed. Say: 'when does Arsenal play', 'what time is Arsenal playing', 'who do the Jets play this week', 'what time is Leeds against Manchester United', 'when do Arsenal play Lille', 'is Spurs on today', 'next fixtures' (which next); 'last results', 'recent games', 'did they win' (which last). Always pass `team`. Not the whole day (get_fixtures); not the weather or ground of a match (get_match_preview).",
+    "A team's next matches, or its last results, no match needed. Say: 'when does Arsenal play', 'what time is Arsenal playing', 'who do the Jets play this week', 'who plays Arsenal on Sunday', 'what time is Leeds against Manchester United', 'when do Arsenal play Lille', 'is Spurs on today', 'next fixtures' (which next); 'last results', 'recent games', 'did they win' (which last). Always pass `team`. Not the whole day (get_fixtures); not the weather or ground of a match (get_match_preview).",
     _obj({"team": _team,
           "which": {"type": "string", "enum": ["next", "last"],
                     "description": "next (the default): the coming matches. last: the latest results with scores."},
@@ -336,8 +336,8 @@ tool(
     "A team's players",
     "A team's players, with no match needed. Say: 'who is in the Celtic squad', 'who's their goalkeeper', 'who plays in goal for Celtic', 'who is the Broncos quarterback', 'who is the Vegas goalie', 'who's the manager or coach', 'who's the captain', 'list their defenders'. Always pass `team`; add `position` for names. Not who starts this match (get_lineups); not one player (get_player_stats).",
     _obj({"team": _team,
-          "position": {"type": "string", "enum": ["goalkeeper", "defender", "midfielder", "attacker"],
-                       "description": "Only if they asked for one position, to hear the names."}}, ["team"]),
+          "position": {"type": "string", "maxLength": 30,
+                       "description": "Only if they asked for one position, to hear the names: goalkeeper, defender, midfielder or attacker in football; quarterback, receiver, goalie, pitcher or guard in the other sports."}}, ["team"]),
     output_hint="how many players by position with the manager and captain, or the names in one position",
 )
 

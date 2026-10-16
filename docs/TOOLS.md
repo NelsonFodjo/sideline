@@ -8,7 +8,7 @@ call the tool and what it returns. These are written **for the model**,
 not for us. We have not observed Alexa+ itself routing; our test checks our
 own wording.
 
-Three rules applied throughout `registry.py`:
+Four rules applied throughout `registry.py`:
 
 **1. Lead with intent, not implementation.**
 
@@ -18,8 +18,7 @@ Three rules applied throughout `registry.py`:
 **2. Include the phrasings listeners actually use.**
 
 People say "what did I miss", "what happened", "catch me up", "did I miss
-anything", "I just got back", "fill me in". All of those must land on the
-same tool. `tests/test_routing_phrases.py` asserts they are still in the
+anything", "fill me in". All of those must land on the same tool. `tests/test_routing_phrases.py` asserts they are still in the
 description, because this is what breaks silently when somebody tidies
 the wording.
 
@@ -67,6 +66,15 @@ in 1 hour 56 minutes, at 11:45"), and the structured result carries a `clock` bl
 kickoff, minutes between). The clock is `sideline/clock.py`; spoken clock times are in the server machine's
 local zone, which is the listener's when it runs on their machine.
 
+`refresh: true` is for a listener who doubts the answer ("are you sure", "check again"): what is kept for that match is
+forgotten and the feed is read again. In basketball, hockey and baseball a playoff series, when the game's own page has
+one, is said after the score. If the score held back for a delayed listener could not be placed, the answer ends "I
+can't be sure that is where your screen is."
+
+Besides the score, minute and status, the structured result carries `match`, `series`, `delay_seconds` (how far
+behind the live match the listener's picture is held), `score_unconfirmed`, `following` (whether this is the followed
+match), and the sport's clock: `sport`, `regulation_minutes`, `period_minutes`, `period_word` and `score_word`.
+
 **Does not advance `last_told_at`.** Hearing the score is not the same as
 being told what happened. A listener who asks the score and then asks
 what they missed must still get the goals. There is a test for this,
@@ -77,8 +85,13 @@ because it is exactly the kind of thing that gets "optimised" later.
 The graphic on screen for eight seconds before kick-off, never read
 aloud. Listeners ask for it late and often.
 
-Keeper first, then the rest — a listener building a mental picture needs
-the shape, not an alphabetical list.
+`team` limits it to one side; omit it for both. The structured result also carries `teams` (home and away) and
+`match`.
+
+In football: the formation, then the keeper first, then the rest — a listener building a mental picture needs
+the shape, not an alphabetical list. Other sports read the starters as the feed lists them: the starting five in
+basketball, the first five starters in American football, the first three batters in baseball ("leads off with"),
+and the first three names in hockey ("starting line features").
 
 Advances `last_told_at`: we spoke to them about this match at this
 minute, so the catch-up window should start here.
@@ -109,14 +122,25 @@ not helpfully invent one.
 Live commentary never lets you go back. A listener who half-heard a goal
 while the kettle was on has no way to retrieve it.
 
-Resolution order: explicit id, then nearest minute, then most recent of a
-kind. **Nearest**, not exact — listeners say "that goal around the half
-hour" and are usually a minute or two out.
+Resolution order: a named `player` first (with no id and no minute given:
+that player's latest moment of the kind, or failing that one he assisted),
+then explicit id, then nearest minute, then most recent of a kind.
+**Nearest**, not exact — listeners say "that goal around the half hour" and
+are usually a minute or two out.
 
-`kind` is per sport (`goal`, `card`, `substitution`, `var` in football;
-`basket`, `foul`, `timeout`, `ejection`, `review`, `substitution` in
-basketball), plus `score`, which means whatever scores in this sport, so
-"that goal" and "that basket" resolve the same way. See [SPORTS.md](SPORTS.md).
+`kind: penalty` with no id or minute reads the whole penalty story, awarded
+then taken, not only its last line.
+
+`kind` is per sport: `goal`, `card`, `substitution`, `var`, `penalty` in
+football; `basket`, `foul`, `timeout`, `ejection`, `review`, `substitution`
+in basketball; `touchdown`, `field_goal`, `safety`, `turnover`,
+`interception`, `fumble`, `timeout`, `review` in American football; `run`,
+`home_run`, `hit`, `strikeout`, `walk`, `error`, `pitching_change` in
+baseball; `goal`, `penalty`, `power_play`, `shootout`, `review` in hockey.
+There is also `score`, which means whatever scores in this sport, so "that
+goal" and "that basket" resolve the same way, and `any`. (`score` is listed
+twice in the schema's enum, because American football and hockey also
+declare it as a kind; harmless, but a nit.) See [SPORTS.md](SPORTS.md).
 
 ### `get_officials`
 
@@ -130,7 +154,8 @@ without.
 
 ### `get_player_context`
 
-The on-screen caption, spoken.
+The on-screen caption, spoken: what a named player did in this match, with his position, number, goals, shots,
+saves and the moments he was in. "He" after a match is over is asked about, never guessed.
 
 Matching is fuzzy on purpose. Listeners say surnames, mispronounce
 names, and transcription is imperfect. Exact matching would fail
@@ -183,22 +208,24 @@ is asking about.
 ### `get_match_preview`
 
 What a friend says before the game: who is hosting whom and in which competition, where it is played, when it
-starts **in the listener's own clock**, the weather at the ground, how each side lines up, and who the data
-vendor's model favours. Every part is a real fact or left out and named in `missing`; nothing is guessed, and no id
+starts **in the listener's own clock**, the weather at the ground, and how each side lines up. It gives no prediction
+or estimate of who will win. Every part is a real fact or left out and named in `missing`; nothing is guessed, and no id
 is ever said. Times use the zone the page reports (its offset and its name) and are said the way people say them: "10 PM Mauritius
 time", "5 PM US Eastern time", "8 PM India time". With no zone known they are UTC, said as such.
 
 The football feed has no weather, so a city and country go to [Open-Meteo](https://open-meteo.com/) and are
 accepted only when the country matches (a Hartlepool in another country is not used). `SIDELINE_WEATHER=off` keeps
-that off the network. The estimate is the vendor's, labelled as an estimate, and is not advice.
+that off the network.
 
 Does not advance `last_told_at`: a preview is not news of what happened.
 
 ### Names that are not found
 
-A team name that matches nothing is not guessed at. If a covered team sounds close ("Selltic", "Ranjers") the answer is "I can't find
-Selltic. Did you mean Celtic?", from the teams in the covered leagues' tables (`known_teams`, kept an hour). A real team the plan does
-not cover (Arsenal) is not "corrected": the answer names the leagues that are covered.
+A team name that matches nothing is not guessed at. If a team in today's fixtures sounds close ("Selltic") the answer is "I can't
+find Selltic. Did you mean Celtic?" (`known_teams`: on ESPN, the teams in today's fixtures). Otherwise the answer depends on how
+many leagues the feed covers: six or fewer are named; more than six (ESPN lists 18 soccer leagues alone) would help nobody read
+aloud, so on a day Celtic do not play the answer is "I can't find Selltic. Try the full name, or tell me which league
+they play in."
 
 ### Pointing any tool at any match
 
@@ -215,19 +242,18 @@ except the two that remember. All of them say what is missing instead of guessin
 
 | Group | Tool | Notes |
 |---|---|---|
-| Discover | `search`, `get_competitions` | A heard name is checked against what exists; a free feed's few leagues are listed. |
+| Discover | `search`, `get_competitions` | A heard name is checked against what exists; the feed's leagues are listed (on ESPN, 18 soccer leagues plus the NBA, WNBA, NCAA men's basketball, NFL, NCAA football, MLB and NHL). |
 | | `get_standings`, `get_top_scorers` | Pass `team` for one team's place or scorers (its league is found from its matches). Positions are said as words (first, second...). With no competition named, the followed match's is used; with a team named, its league is found from the team's own matches (so "how many points do Celtic have" needs no match followed); with neither, it asks which, listing the leagues the feed covers. **Outside football** (`get_top_scorers`): the league leaders in basketball, American football, hockey and baseball by `stat` (points, rebounds, rushing yards, goals, home runs...), each said with the season it is from, because between seasons the feed shows the last one. |
-| | `get_schedule` | A team's next matches with times (`which: next`) or its last results with scores (`which: last`), as far as the feed can see (six weeks ahead, three months back on the free plan). Owns "what time is X playing"; `get_match_preview` owns "tell me about the match". |
-| Teams, with no match | `get_squad`, `get_team_stats`, `get_team_form` | Players by position with the manager and captain (a position gives the names); the season so far; the last results as won/drew/lost (pass `team`). None needs a match to be followed. Outside football `get_squad` lists a team by that sport's positions (quarterback, goalie, pitcher), and `get_team_stats` gives a record (won, lost), not goals. |
-| Played matches | `get_match_report` | The result and goals first, then cards, substitutions or VAR by name (`part`). Any match that has been played: the events come from the feed once and are kept. Returned as written. | Ask for **the commentary** (`part: commentary`) and it reads the latest five lines of the feed's running commentary, as it is right now and never past the minute a delayed listener's screen has reached; a feed with none says so. A client that reads the match out as it goes passes `since_line` (the `cursor` of its last call; -1 means from now) and gets only the lines after it, at most three.
-| The match | `get_match_stats`, `get_team_form`, `get_injuries` | The numbers (pass `stat` for one: possession, shots, fouls, rushing, power plays; basketball, hockey and American football have their own tables), the last results as won/drew/lost, who is out and why. |
+| | `get_schedule` | A team's next matches with times (`which: next`) or its last results with scores (`which: last`), as far as the feed can see (on ESPN, 30 days back and 30 days ahead). Owns "what time is X playing"; `get_match_preview` owns "tell me about the match". |
+| Teams, with no match | `get_squad`, `get_team_stats`, `get_team_form` | Players by position with the manager and captain (a position gives the names); the season so far; the last results as won/drew/lost (pass `team`, or leave it out for the two sides in the match). None needs a match to be followed. Outside football `get_squad` lists a team by that sport's positions (quarterback, goalie, pitcher), and `get_team_stats` gives a record (won, lost), not goals. |
+| Played matches | `get_match_report` | The result and goals (and penalties, in the order they happened) first, then cards, substitutions, VAR or penalties by name (`part`: `goals`, `cards`, `substitutions`, `var`, `penalties`). In baseball `part: pitching` names who pitched for each side and for how many innings. Any match that has been played or is in play: the events come from the feed once and are kept. Returned as written. Ask for **the commentary** (`part: commentary`) and it reads the latest five lines of the feed's running commentary, as it is right now and never past the minute a delayed listener's screen has reached; a feed with none says so. A client that reads the match out as it goes passes `since_line` (the `cursor` of its last call; -1 means from now) and gets only the lines after it, at most three; with `key_only` it also drops routine lines and keeps goals, penalties, cards, substitutions, VAR, saves, shots off the woodwork and the start and end of each half. |
+| The match | `get_match_stats`, `get_injuries` | The numbers, and who is out and why. Pass `stat` for one number: `possession`, `shots`, `passes`, `corners`, `offsides`, `saves`, `fouls`, `cards`, `penalties`, `rebounds`, `assists`, `turnovers`, `steals`, `blocks`, `rushing`, `passing`, `yards`, `hits` or `power_plays`; basketball, hockey and American football have their own tables. |
 | People | `get_player_profile` | Who a player is, whatever match is on: name, age, nationality, position, club, shirt number; then an offer. The feed has no honours, so it says "I can't give his major titles" instead of leaving them out. |
-| | `get_player_stats` | A player's season, **club and country kept apart**; with `when` (last, yesterday, today) one game's figures from its box score, in basketball, hockey, baseball and American football ("how many points did Brunson score last night"). A player's season line outside football is the regular season the feed lists (a goal for his country is not a goal for his club). ESPN gives starts, so starts is what is said. |
-| | `get_player_context` | What a named player did in this match: position, number, goals, shots, saves, and the moments he was in. "He" after a match is over is asked about, never guessed. |
+| | `get_player_stats` | A player's season, **club and country kept apart** (a goal for his country is not a goal for his club); with `when` (last, yesterday, today) or `opponent`, one game's figures from its box score, in basketball, hockey, baseball and American football ("how many points did Brunson score last night"). Outside football the season is the regular season the feed lists, already in that sport's words: the result carries it as `line`. ESPN gives starts, so starts is what is said. |
 | | `get_standouts` | Who did the most in a match, by what is counted (goals, assists, shots on target, saves). It says plainly that the feed has no ratings. |
 | News | `get_news` | The top three headlines on a team, a competition or football, each with its age; `which` gives one headline's summary. ESPN's feed, said to be ESPN's. |
 | You | `set_favourites`, `get_my_matches` | Only names the listener gave are stored. "Are my teams on" then needs no name. Nothing is pushed: Alexa+ cannot be spoken first. |
-| | `set_preferences` | "Brief", "normal" or "full", and a language. The detail reaches the agent's instructions; the language is what `what_did_i_miss` already translates to. |
+| | `set_preferences` | "Brief", "normal" or "full", a preferred `sport` (which the finder then favours), and a language. The detail reaches the agent's instructions; the language is what `what_did_i_miss` already translates to. `forget: everything` erases all that is kept about the listener: the match followed, their teams, their settings and what they have heard. |
 | Meta | `get_capabilities` | Read from the tools actually offered, so it is true for this feed. |
 
 **Tools follow the feed.** `registry.TOOL_REQUIRES` maps a tool to the capability it needs, and a feed lists what it
@@ -265,11 +291,13 @@ a bug. See [ACCESSIBILITY.md](ACCESSIBILITY.md).
 
 | Kind | Shape | When |
 |---|---|---|
-| `InvalidParams` | JSON-RPC error, -32602 | Argument failed schema validation |
+| Invalid arguments | Success, `isError: true`, `structuredContent.reason: "invalid_arguments"`, the schema problem in the text | An argument failed schema validation |
+| `InvalidParams` | JSON-RPC error, -32602 | `tools/call` with no tool name, an unknown tool (or one the feed cannot answer), or `arguments` that is not an object |
 | `MethodNotFound` | JSON-RPC error, -32601 | Unknown method |
 | `ToolError` | Success, `isError: true`, spoken text | The tool ran but could not do the job |
 
-The distinction matters. A tool that cannot find a fixture has not broken
+A bad argument is the call's failure, not the protocol's (MCP 2025-11-25): a result the model can read and correct,
+rather than an error object most clients never show it. The distinction matters. A tool that cannot find a fixture has not broken
 the protocol — Alexa+ should be able to tell the listener so, rather than
 see a transport failure and go silent.
 

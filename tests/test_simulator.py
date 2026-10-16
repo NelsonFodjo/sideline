@@ -179,7 +179,7 @@ def main():
     assert "if(over>=6){" in page and "duck(true)" in page and "duck(false)" in page, "the interruption rule"
     assert "preroll=carry" in page and "pcmChunks=preroll||[]" in page, "the start of a word is kept"
     assert "body.calm .hud,body.calm .wire,body.calm .stage{opacity:0" in page and "classList.add(\"calm\")" in page
-    assert "tz_offset_minutes" in page and "interrupted:takeCut()" in page and "if(t && sawVoice)" in page and "pendingAnswer" in page
+    assert "tz_offset_minutes" in page and "interrupted:takeCut()" in page and "if(t && sawVoice && !isAssistantEcho(t))" in page and "pendingAnswer" in page
     assert "startLiveCaption" in page and 'caps.caption!=="browser"' in page
     print("ok  GET / serves the simulator, and it is an MCP client (initialize/tools/list/tools/call)")
 

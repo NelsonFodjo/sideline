@@ -3,7 +3,7 @@
 In order, each step with a way to check it worked. Console menu names and model availability change; where a
 step fails, trust the error and `make aws-check` over this page.
 
-> **Status, 2026-10-13, one account.** Bedrock (Anthropic Claude), Nova 2 Sonic, Polly and DynamoDB were each run
+> **Status, 2026-10-13, one account.** Bedrock (the language model), Nova 2 Sonic, Polly and DynamoDB were each run
 > against a real account and work. Nothing here has been run on a different account, so treat the permission lists
 > as what *this* code calls, not as a promise about yours.
 
@@ -11,7 +11,7 @@ You do not need all of it. What each piece unlocks:
 
 | | What it does | Without it |
 |---|---|---|
-| **Bedrock (Anthropic Claude)** | writes the spoken catch-up; the voice agent chooses tools | the fast tools still answer in templated wording; the simulator's voice agent has no answer |
+| **Bedrock (Amazon Nova Pro by default)** | writes the spoken catch-up; the voice agent chooses tools | the fast tools still answer in templated wording; the simulator's voice agent has no answer |
 | **Polly** | the voice, with word timings | the page uses the browser's own voice |
 | **Voxtral Small** and **Nova 2 Sonic** | speech in (Voxtral first, Sonic the fallback) | the browser's own recognition (the least accurate) |
 | **DynamoDB** | what a listener has heard survives a restart | state lives in memory |
@@ -44,7 +44,7 @@ access keys.
 
 ## Step 3: Bedrock model access
 
-Check that Anthropic Claude is available to your account in the region: console, Amazon Bedrock, Model catalog
+Check that Amazon Nova Pro (and Mistral Voxtral Small, for speech in) is available to your account in the region: console, Amazon Bedrock, Model catalog
 or Model access, and complete any first-use step shown. The default id is `amazon.nova-pro-v1:0` (Amazon Nova Pro).
 
 **Check it:** `make aws-check` runs a real call ("bedrock responds") and lists models you can use if the id is
@@ -100,7 +100,7 @@ make aws-check
 ```
 
 It checks each layer in turn and names the one that failed: boto3, credentials, region, model access, a real
-Bedrock answer, **Anthropic Claude calling a Sideline tool**, **a catch-up written by Bedrock**, speech in, speech out, and
+Bedrock answer, **the Nova MCP agent calling a Sideline tool** ("Nova MCP agent tool use"), **a catch-up written by Bedrock**, speech in, speech out, and
 DynamoDB. It uses small synthetic inputs, so it needs no football key. Run it before the server, not after.
 
 Polly needs no model-access step. The startup log then reads `voice: in=... out=polly (Amy)`; `out=browser` means it
@@ -152,7 +152,7 @@ do not need AWS running during judging, so tear things down when you are not tes
 | `ValidationException: model not found` | wrong region or model id | `AWS_REGION=us-east-1`; `make aws-check` lists what you can use |
 | `AccessDeniedException` on DynamoDB, Polly | the IAM user lacks the permission (often a Bedrock API key's user) | step 4 |
 | `ResourceNotFoundException` on DynamoDB | the table does not exist | `make create-table` |
-| `ThrottlingException` | an account quota or burst limit | with Bedrock on, the failure is reported to the listener; request a quota increase if it persists |
+| `ThrottlingException` | an account quota or burst limit | the voice agent tries once more after a throttle or a read timeout; if that fails too, the failure is reported to the listener. Request a quota increase if it persists |
 | a slow first answer, quick ones after | a cold connection | the server warms Polly and Bedrock at startup; the first question after a long idle is still slower |
 | `CERTIFICATE_VERIFY_FAILED` on any HTTPS call | python.org Python on macOS has no CA bundle | handled in `sideline/tls.py`, which never disables verification; or run "Install Certificates.command" |
 | `ImportError: boto3` | not installed | `pip3 install boto3` |

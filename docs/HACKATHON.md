@@ -34,7 +34,7 @@ Where each criterion is answered, for a judge reading only the text:
 
 | Criterion | Where to look |
 |---|---|
-| **Tech Implementation** | [README, "What makes it a server"](../README.md#what-makes-it-a-server-and-not-a-lookup) and "What has been verified"; [ARCHITECTURE.md](ARCHITECTURE.md); the 61 offline suites, the official-SDK check, the routing check ([BEDROCK.md](BEDROCK.md)) |
+| **Tech Implementation** | [README, "What makes it a server"](../README.md#what-makes-it-a-server-and-not-a-lookup) and "What has been verified"; [ARCHITECTURE.md](ARCHITECTURE.md); the 68 offline suites, the official-SDK check, the routing check ([BEDROCK.md](BEDROCK.md)) |
 | **Design** | [ACCESSIBILITY.md](ACCESSIBILITY.md) (rules for a listener who cannot see a screen); [TOOLS.md](TOOLS.md) (what each answer sounds like); the simulator's screen and Dev log |
 | **Potential Impact** | [README, "Where this goes"](../README.md#where-this-goes); section 6 of the submission text below |
 | **Quality of the Idea** | per-listener state and the clock-exact spoiler guard ([README](../README.md#what-makes-it-a-server-and-not-a-lookup)); truth over fluency ([README, "What it sounds like"](../README.md#what-it-sounds-like)) |
@@ -125,7 +125,7 @@ AWS Builder.
 |---|---|
 | Text description | [README](../README.md) |
 | Public GitHub repo with an open-source licence | MIT, [LICENSE](../LICENSE). It must be detectable in the repo's About box |
-| Demo video, under three minutes, public, no third-party trademarks or music | to be recorded; show the simulator running on a live match |
+| Demo video, under three minutes, public, no third-party trademarks or music | **Placeholder: to be recorded.** Not recorded yet; show the simulator running on a live match, then put the public URL here |
 | Product feedback on every tool, API and SDK, with a yes/no on building again | [PRODUCT_FEEDBACK.md](PRODUCT_FEEDBACK.md) |
 | Friction log (optional, up to +10%) | [FRICTION_LOG.md](FRICTION_LOG.md) |
 | Feature requests (optional) | [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md) |
@@ -143,10 +143,11 @@ until judging ends (20 November).
 | Open-Meteo | weather at the ground for a match preview; a city and country are sent, nothing about the listener; off with `SIDELINE_WEATHER=off` | CC BY 4.0, free for non-commercial use, no key |
 | MCP specification 2025-11-25 | implemented from the spec, no SDK | open standard |
 | boto3, aws-sdk-bedrock-runtime, awscrt | optional AWS SDKs | their licences |
+| Groq (Whisper Large v3 Turbo), Cartesia, ElevenLabs | optional speech in (Groq) and speech out (Cartesia, ElevenLabs) for the simulator, outside AWS; off unless named with `SIDELINE_STT=groq` or `SIDELINE_TTS=cartesia` / `elevenlabs` and a key, never because a key is set ([`voice.py`](../simulator/voice.py), [`config.py`](../sideline/config.py)) | each company's own terms and charges; not used in the demo |
 | Public Sans, IBM Plex Mono | the simulator page's fonts, loaded from Google Fonts | open licences; confirm before relying on this |
 | Python standard library | everything else | n/a |
 
-**Zero data keys required.** Live sports data requires zero configuration or API tokens. AWS credentials unlock Bedrock Claude/Nova reasoning, DynamoDB persistence, and Polly natural voice. The README documents exactly what each piece unlocks and what still works without AWS.
+**Zero data keys required.** Live sports data requires zero configuration or API tokens. AWS credentials unlock Bedrock reasoning (Amazon Nova Pro by default), DynamoDB persistence, and Polly natural voice. The README documents exactly what each piece unlocks and what still works without AWS.
 
 ---
 
@@ -195,6 +196,10 @@ You ask out loud; it answers in a sentence or two, leading with what matters.
 * **Thirty tools across five sports** (football, basketball, American football, baseball, hockey): scores, line-ups,
   penalties, match stats, standouts, standings, head-to-head, news, a player's profile and season, and the question people
   actually ask: *"was there a penalty, and what happened?"*
+* **A simulated Alexa+ page built for the ear.** Short tones for "I heard you" and "the microphone needs you", a speech
+  speed control, page-only commands that need no model ("say that again", "spell that"), a score strip that clears when
+  the question is about something else, line-ups that light each player as she says the name, and a demo mode (Alt+R)
+  that shows only the product.
 
 ---
 
@@ -202,8 +207,8 @@ You ask out loud; it answers in a sentence or two, leading with what matters.
 The MCP server is standard-library Python in one folder (`sideline/`); a web page plays the part of Alexa+ so it can be
 tried by voice. Four AWS services do real work together:
 * **Amazon Bedrock, Amazon Nova Pro.** In the simulator it is the host: it reads the server's `tools/list`, chooses the tool
-  and words the answer. On a 79-phrasing routing check with all 30 tools offered it called the intended tool on
-  77 of the 79 (97%) (the other models we ran, and the caveats, are in [BEDROCK.md](BEDROCK.md)).
+  from a shortlist picked for each question (four core tools and up to four more by keyword) and words the answer. On a
+  79-phrasing routing check, through the same shortlist, it called the intended tool on 77 of the 79 (97%) (the other models we ran, and the caveats, are in [BEDROCK.md](BEDROCK.md)).
 * **Amazon Bedrock, Mistral Voxtral and Nova 2 Sonic.** Speech in, entirely inside the listener's AWS account.
 * **Amazon Polly (generative voice).** Speech out, with word timings so the screen highlights each word as it is spoken.
 * **Amazon DynamoDB.** One table: the listener's marker, the match event log (deduplicated, expiring after 48 hours) and
@@ -238,11 +243,12 @@ bad it was, our workaround and a suggestion. The ones we would most want Amazon'
   worth a server, and both are covered by tests.
 * **Truth over fluency.** It declines to guess (a referee the feed does not name, expected goals, a player's honours), and
   every fact traces to a tool result.
-* **Evidence.** 61 offline test suites that need no network or credentials; three live conversation batches (70 questions)
-  against real matches; a routing check across four Bedrock models; the official SDK client run against the server.
+* **Evidence.** 68 offline test suites that need no network or credentials; three live conversation batches (70 questions)
+  and 174 curiosity questions ([CURIOSITY_QA.md](CURIOSITY_QA.md)) against real matches; a routing check across four Bedrock models; the official SDK client run against the server.
 * **Candour.** The README lists what is not done: no real Alexa+, no OAuth, one listener per server, an unofficial data source.
-* **Tried with a blind listener (reported by the team):** one blind person used it informally in a first session, with a
-  real microphone. That is one person and no measurements, not a study, and we would like many more sessions.
+* **Built for blind listeners, and ready for them.** Every answer is written to be heard first, and nothing essential
+  is only on screen ([ACCESSIBILITY.md](ACCESSIBILITY.md)). Sessions with blind and low-vision fans are the next step. No session is claimed here until the
+  team states it first-hand (see [DEVPOST_STORY.md](DEVPOST_STORY.md)).
 
 ---
 
@@ -256,3 +262,7 @@ bad it was, our workaround and a suggestion. The ones we would most want Amazon'
    *"goal"* could arrive the moment it happens, still held back to the listener's picture.
 4. **A pattern others can copy.** The marker-per-listener design suits any add-on that answers "what changed since I last
    asked": a delivery, a flight, a market. Sport is where it matters most when you cannot see the screen.
+5. **A licensed feed and other languages.** ESPN sits behind a provider interface
+   ([`providers/base.py`](../sideline/providers/base.py)), so a contracted feed is a new provider, not a rewrite. The
+   listener's language is already a stored preference (`set_preferences`); next: speech in and out in that language,
+   tested.

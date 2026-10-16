@@ -44,8 +44,8 @@ first. A judge may read this file, so it is written to be checked.
 >    30 small cards, each a tool name in monospace; show about 12 readable names, e.g. `follow_match`, `get_match_state`,
 >    `what_did_i_miss`, `get_lineups`, `get_match_stats`, `get_player_profile`, `get_standings`, `get_fixtures`, `get_schedule`,
 >    `get_event_detail`, `get_match_report`, `set_preferences`, and let the rest be unlabelled dots. A line of description text
->    from the tool "The listener missed something while away" scans across, and `what_did_i_miss` lights up. Caption: "The host reads 30 tool
->    descriptions and picks one."
+>    from the tool, "What happened since the listener last heard anything. Say: 'what did I miss'", scans across, and
+>    `what_did_i_miss` lights up. Caption: "The host reads the tool descriptions and picks one."
 > 3. **9 to 14: The call.** A packet travels from the host to the server box, labelled in monospace with real protocol text:
 >    `POST /mcp  {"jsonrpc":"2.0","method":"tools/call","params":{"name":"what_did_i_miss","arguments":{}}}`.
 >    Above the arrow, small grey labels `MCP 2025-11-25` and `Streamable HTTP`. Caption: "A standard MCP call. Any MCP client can make it."
@@ -53,7 +53,7 @@ first. A judge may read this file, so it is written to be checked.
 >    packet passes through, left to right:
 >    - **Listener memory:** a small table row `last_told_at: minute 34` and `told_event_ids: 6`, with a pill "stored in Amazon DynamoDB".
 >      Caption: "It knows what you were already told."
->    - **Live feed:** a clock icon and the text `live data is cached 3 to 5 seconds, never longer`, a pill "ESPN public feeds",
+>    - **Live feed:** a clock icon and the text `live data is cached 3 to 5 seconds`, a pill "ESPN public feeds",
 >      two requests arrow out and back. Caption: "Live means live."
 >    - **Spoiler guard:** a timeline bar with a notch labelled "your TV" behind a notch labelled "live", and a goal marker that stays
 >      greyed out until the "your TV" notch reaches it. Caption: "It will not spoil a goal your TV has not shown."
@@ -80,12 +80,12 @@ first. A judge may read this file, so it is written to be checked.
 >
 > After the HTML, print a short list of the scene start times so I can match narration to it.
 
-## Narration to read over it (about 85 words, 32 seconds)
+## Narration to read over it (about 70 words, 28 seconds: the video uses 28 s of the animation)
 
-> "You ask. The host, Alexa+, reads thirty tool descriptions and picks one. It calls our server with a standard MCP request.
+> "You ask. The host, Alexa+, reads the tool descriptions and picks one. It calls our server with a standard MCP request.
 > Inside, the server checks what you've already been told, reads the live feed, and holds back anything your TV hasn't shown yet.
-> The answer goes back two ways: words for your ear, data for any screen. Same pipe for football, basketball, American football,
-> hockey and baseball. Built on Amazon Bedrock, Polly and DynamoDB."
+> The answer goes back two ways: words for your ear, data for any screen. Same pipe for every sport.
+> Built on Amazon Bedrock, Polly and DynamoDB."
 
 ## The facts behind each beat (so you can defend them)
 
@@ -95,9 +95,9 @@ first. A judge may read this file, so it is written to be checked.
 | MCP spec 2025-11-25, Streamable HTTP, `initialize`, `tools/list`, `tools/call` | [MCP.md](../MCP.md); the official Python SDK client check, `scripts/check_with_sdk.py` |
 | `content` and `structuredContent` in every result | [MCP.md](../MCP.md); the page draws its screens from `structuredContent` |
 | Per-listener memory (`last_told_at`, told event ids), kept in DynamoDB | [ARCHITECTURE.md](../ARCHITECTURE.md), `sideline/state/` |
-| Live data cached only seconds | `sideline/providers/espn.py` (the cache times: scoreboard 5 s, a live match 3 s, a finished match kept) and `tests/test_cache.py` |
+| Live data cached only seconds | `sideline/providers/espn.py` (the cache times: scoreboard and a live match summary 5 s, a parsed live match 3 s, schedule 30 s, standings 60 s, news 120 s, a finished match kept for hours) and `tests/test_cache.py` |
 | The spoiler guard | README, "What makes it a server and not a lookup"; `tests/test_score_truth.py` |
-| Amazon Nova Pro chooses tools (in the simulator) | [BEDROCK.md](../BEDROCK.md): routing 77 of 79 phrasings on Nova Pro |
+| Amazon Nova Pro chooses tools (in the simulator) | [BEDROCK.md](../BEDROCK.md): routing 77 of 79 phrasings on Nova Pro. In the demo the host is offered a shortlist of the 30 (four core tools plus up to four by keyword), and some plain questions take a fast path with no model; the scene shows the general MCP pattern, which any host can follow with the full catalog |
 | Voxtral and Nova Sonic for speech in, Polly for speech out | [SPEECH.md](../SPEECH.md) |
 
 ## If Claude's first attempt is too busy

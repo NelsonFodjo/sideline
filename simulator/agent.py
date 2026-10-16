@@ -1058,7 +1058,17 @@ def _ask(system, messages, tool_config=None):
         request["toolConfig"] = tool_config
     started = time.time()
     try:
-        response = _converse(**request) or {}
+        try:
+            response = _converse(**request) or {}
+        except Exception as first:
+            # A read timeout or a throttle is usually fine a moment later: one more try, rather than "Sorry, an error
+            # occurred" for the first question of a session (logged three times in two days). Anything else fails at once.
+            if not re.search(r"timeout|timed out|throttl|too many requests|serviceunavailable", "%s %s" % (type(first).__name__, first), re.I):
+                raise
+            LOG.warning("Nova agent request failed (%s); trying once more", first)
+            _trace_calls().append({"ms": round((time.time() - started) * 1000), "error": type(first).__name__, "retried": True})
+            started = time.time()
+            response = _converse(**request) or {}
     except Exception as exc:
         _trace_calls().append({"ms": round((time.time() - started) * 1000), "error": type(exc).__name__})
         LOG.warning("Nova agent request failed: %s", exc)

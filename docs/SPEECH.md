@@ -11,21 +11,26 @@ this page is the story of how an AWS model caught it.
 | Order | Model | When it is used |
 |---|---|---|
 | 1 | **Mistral Voxtral Small** (`mistral.voxtral-small-24b-2507`), on Bedrock, through Converse | AWS credentials work. About 0.8 s per clip |
-| 2 | **Amazon Nova 2 Sonic** (Bedrock bidirectional streaming) | Voxtral failed for that clip, and the streaming SDK is installed (Python 3.12+). About 3.5 s |
+| 2 | **Amazon Nova 2 Sonic** (Bedrock bidirectional streaming) | Voxtral failed for that clip, and the streaming SDK is installed (Python 3.12+). About 4.2 s |
 | 3 | the browser's own recognition | nothing above is available. The least accurate |
+
+**Mini shipped by mistake for a while.** Commit 61d13e2 set the id to Voxtral Mini, the model eliminated below. It
+answered questions instead of transcribing them: a live check on 16 October 2026 sent "Who scored in the Lyon game?" and
+got back "I don't have real-time or up-to-date information". It was switched back to Small on 16 October 2026.
 
 Amazon Transcribe is not used: the account this was built on returned `SubscriptionRequiredException` for it
 (see [FL-08](FRICTION_LOG.md)).
 
 `SIDELINE_STT=auto` (the default) walks that list. **A clip that one model fails goes to the next**, so a throttle or a
 blip never leaves a listener unheard; a clip that a model heard nothing in is *not* retried (silence is an answer). A
-model that fails in a way retrying cannot fix (access denied) is dropped for the rest of the run. Naming one
+model that fails in a way retrying cannot fix (access denied) is taken out of rotation for 600 s (`DISABLE_SECONDS`) and
+then tried again. Naming one
 (`SIDELINE_STT=sonic`) uses it alone and never silently swaps it for another.
 
 ## How we got here: three rounds
 
 **Round 1: Nova Sonic against a third party (Groq's hosted Whisper), 48 clips.** Groq won clearly, so it led, with
-Sonic as the "stays in AWS" fallback. Word error 0.4% clean and 3.7% noisy against Sonic's 0.8% and 8.5%, and 1.1 s a clip
+Sonic as the "stays in AWS" fallback. Word error 0.4% clean and 3.7% noisy against Sonic's 0.8% and 8.5%, and 1.4 s a clip
 against 4.2 s. That meant the listener's audio left AWS whenever a key was set, which for a product whose listeners may
 be blind is a real cost, and the one part of the build that did not run on AWS.
 
@@ -35,7 +40,8 @@ phrases it answered "What's the score?" with an invented "The score is 2-1." and
 failure this product cannot afford. This time we found out why, instead of giving up:
 
 - Voxtral is a chat model. Put the instruction *before* the audio and it answers what it hears; put the **audio first** and
-  the instruction after it, and it transcribes.   once wrote "Alright, so I'm going to ask you a question" over and over.)
+  the instruction after it, and it transcribes. (With the instruction first, it once wrote "Alright, so I'm going to ask you
+  a question" over and over.)
 - A **system message is refused** alongside audio (`ValidationException`), so the instruction goes in the user turn.
 - The small model is reliable and the **mini model is not**: on the full run it answered questions ("That goal was scored by
   Martin Ødegaard for Arsenal.") and printed the names from the vocabulary hint when given noise.
@@ -77,7 +83,7 @@ names 24.6% and 39.1% error and 4 failed clips; without, 21 failed clips (the le
 On this set Voxtral, as shipped, is ahead on every measure, and it **got every name right**, which is the thing that matters
 here, because a wrong name is a wrong answer. We read that as "at least level", not "better": 48 clips, one run, synthetic
 speech. The first run (with the names in the prompt) had Groq a little ahead on clean speech, which is why the comparison
-is described as level. Either way it met the condition for removing the third party, so Groq was removed and Voxtral leads.
+is described as level. Either way it met the condition for removing the third party, so Groq was taken out of the default path and Voxtral leads.
 
 **Eliminated, by the rule "one error or being slow is enough":**
 
@@ -111,9 +117,9 @@ is described as level. Either way it met the condition for removing the third pa
 
 - **Nothing leaves AWS.** Voxtral and Sonic run on Bedrock in your account, so speech in counts for the AWS Builder entry and
   needs no third-party key or terms. Sideline stores no audio. See [ACCESSIBILITY.md](ACCESSIBILITY.md).
-- **Live captions are the one exception**, and are switchable: while you speak the page also runs the browser's recognition
-  to type interim words, which sends that audio to the browser's vendor (Chrome and Edge send it to theirs).
-  `SIDELINE_LIVE_CAPTION=off` keeps the audio with Bedrock only, and nothing types until the clip ends.
+- **Live captions are the one exception**, and are off by default: with `SIDELINE_LIVE_CAPTION=browser` the page also runs
+  the browser's recognition while you speak to type interim words, which sends that audio to the browser's vendor (Chrome
+  and Edge send it to theirs). `off` (the default) keeps the audio with Bedrock only, and nothing types until the clip ends.
 - **Voxtral is a Bedrock model you must have access to** in your region (`us-east-1` here), and every call is billed as
   input and output tokens. They are logged with the rest (`make log-report`, source `speech`).
 
@@ -128,7 +134,8 @@ Restart; the startup log says `voice: in=voxtral out=polly (Amy)`. Then:
 
 ```bash
 make stt-check        # one model, with and without the vocabulary hint
-make compare-stt      # the AWS models head to head, clean and noisy (ARGS names contenders: voxtral sonic2)
+make compare-stt      # the AWS models head to head, clean and noisy
+make compare-stt ARGS="voxtral sonic2"   # only the contenders named
 make aws-check        # includes a real round trip through the active model
 ```
 
@@ -142,20 +149,21 @@ Measured on 2026-10-13, from the moment you stop talking to the first audio:
 | Stage | Before | After |
 |---|---|---|
 | Waiting to be sure you have stopped | 0.85 s | stated as 0.70 s, but the page actually waited 0.75 to 0.95 s (0.95 s with browser captions off): see FL-27. Now recognition starts after 0.32 s of quiet and a finished sentence is sent at once; not yet timed on a real microphone |
-| Speech recognition (Groq at the time; Voxtral is about 1.2 s) | 0.8 s | 0.8 s |
+| Speech recognition (Groq at the time; Voxtral as shipped is about 0.8 s, 1.2 s with names in the prompt) | 0.8 s | 0.8 s |
 | Nova agent (one or more tool calls) | 0.8 to 2.8 s | unchanged: the largest remaining cost, and the first turn is the slowest |
 | Polly speech (audio, then word marks) | 1.8 s | about 0.5 s: the two calls now run in parallel, and Polly is warmed at startup |
 
 That is roughly 4.5 to 6.5 s before and 3.5 to 5 s after. The agent is what is
-left; skipping it for plain questions ("what's the score") would cut most of the
-rest and has not been done.
+left. Since then some plain questions ("what's the score") skip it: a fast path
+(`_try_fast_path` in `simulator/agent.py`) matches the whole question to a fixed
+pattern and runs one read-only tool with no model. Its time was not measured here.
 
 **Typing as you speak.** Server recognition (Voxtral, Sonic) returns text only after
 the clip ends, so nothing could type while you talked, which browser recognition
-does. The page now runs the browser's recognition on the side **purely to show
-interim words**, then replaces them with the server's more accurate transcript.
-Cost: that audio also reaches the browser vendor, as it did before. Set
-`SIDELINE_LIVE_CAPTION=off` to keep the audio with the chosen provider only (then
+does. With `SIDELINE_LIVE_CAPTION=browser` the page runs the browser's recognition
+on the side **purely to show interim words**, then replaces them with the server's
+more accurate transcript. Cost: that audio also reaches the browser vendor. The
+default is `off`, which keeps the audio with the chosen provider only (then
 nothing types until the clip ends). Not available in Firefox, which has no
 browser recognition. This was verified by unit tests and by reading the code, but
 **not in a browser by me**: try it in Chrome.
@@ -234,6 +242,17 @@ press is loud for a moment. Two layers now stop it:
   and it comes straight back if the sound was a cough or a door. The last 0.8 s are kept, so the clip starts at the
   beginning of your word and the first syllable is not lost to the time it took to decide.
 
+**Transcript filters.** A recogniser can write words nobody said, so each transcript passes filters before it becomes a
+question. On the server (`simulator/voice.py`): `assistant_reply` drops the recogniser talking ("I'm sorry, I can't
+understand that"); `repeated_phrase` drops one short phrase repeated on noise ("Yeah. Yeah. Yeah."); a list of Voxtral
+refusals ("unable to transcribe", "no audio", "please provide") is returned as heard nothing; the length guard drops a
+Voxtral reply with more words than the clip could hold; and a list of Whisper's stock phrases on near silence ("thanks for
+watching") is dropped, for Groq only. On the page (`simulator/index.html`): `HALLU_RE` drops the same stock phrases,
+`FRAGMENT_RE` a lone word such as "I" or "the", `FILLER_RE` filler ("okay", "um") outside the follow-up window after an answer, and
+`isAssistantEcho` her own words coming back through the speakers. In a noisy room, where the quiet never holds, the same
+finished speculative transcript heard twice is committed as the question. All of these are rules on the text; a short,
+plausible wrong transcript gets through.
+
 Limits, stated plainly: this is a detector tuned on synthetic frames, **not tried
 in a real browser with a real keyboard**; a constant hum (a fan) is learned over
 a few seconds rather than rejected at once; and typing very close to the
@@ -296,8 +315,9 @@ repair step in `resolve.py` snaps a misheard name to.
 ## Tried and rejected
 
 **Groq's hosted Whisper** (`whisper-large-v3-turbo`) was the benchmark and led until Voxtral matched it: see the three
-rounds above. Removed, with its key, its request code and its tests, so the product has no third-party service in the
-voice path. It remains in the git history, and the numbers it set are above.
+rounds above. It is out of the default path: `SIDELINE_STT=auto` never uses it. The request code remains and is used only when
+`SIDELINE_STT=groq` is named (with `GROQ_API_KEY`), never because a key happens to be set. The same holds for speech
+out: Cartesia and ElevenLabs code exists and is off unless `SIDELINE_TTS` names one. The numbers Groq set are above.
 
 **Voxtral Mini, Nova 2 Sonic and Nova 2.5 Sonic** as the first choice: see "Eliminated" above.
 

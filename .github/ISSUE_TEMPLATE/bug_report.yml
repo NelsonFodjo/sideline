@@ -1,0 +1,42 @@
+name: Bug report
+description: Something Sideline said or did that was wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: asked
+    attributes:
+      label: What you asked or did
+      description: The words you said or typed, and the match if there was one.
+      placeholder: '"Who scored in the Lyon game?" while following Lyon v Crystal Palace'
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: What she said, and anything on screen. The Dev log (Alt+D) has "copy as MCP call" for the tool that ran.
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - The MCP server (any client)
+        - The simulator page (voice)
+        - The simulator page (typing)
+        - Setup or documentation
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Output of `make env` (it never prints a secret), the browser, and the OS.
+      render: text

@@ -1,5 +1,39 @@
 # Contributing
 
+Thank you for helping. Sideline is a voice companion for live sport, built first for blind and low-vision fans, and every
+change is judged by one question: does a listener who cannot see the screen get a better answer?
+
+## Get set up (five minutes)
+
+```bash
+git clone https://github.com/NelsonFodjo/sideline && cd sideline
+make test                   # the offline suite: no network, no credentials, no install
+make run                    # the server and the simulated Alexa+ on http://127.0.0.1:8765/
+```
+
+The server is standard-library Python 3.8+. Node is only needed for the tests that run the page's own JavaScript. AWS
+credentials are only needed for the voice agent and the voice; copy `.env.example` to `.env` if you have them.
+
+## How a change gets in
+
+1. **Open an issue first** for anything bigger than a typo, so we agree on the behaviour before the code.
+2. **Branch** from `main` (`fix/strip-hides-late`, `feat/hockey-shootout`).
+3. **Write the test first** when you can. Tests are plain Python scripts in `tests/` (`tests/test_*.py`, each with a
+   `main()`), picked up by `make test` automatically. Fixtures are small, labelled, invented, and live in `tests/fixtures/`.
+4. **Run** `make test` and `python3 scripts/check_links.py`.
+5. **Open a pull request** with the template filled in. CI runs the suite on Python 3.8 to 3.13 and macOS, starts
+   `sideline/` on its own, checks the docs' links, and runs CodeQL. A maintainer reviews every change.
+
+Commit messages say what changed and why, in the present tense: `Strip hides as soon as an unrelated question is asked`.
+
+## Releases
+
+A maintainer tags `vX.Y.Z` on `main`. The release workflow runs the suite and publishes the MCP server on its own
+(`sideline-mcp-vX.Y.Z.zip`) and the full repository. [CHANGELOG.md](CHANGELOG.md) says what is in it.
+
+By contributing you agree to the [code of conduct](CODE_OF_CONDUCT.md) and to license your work under the
+[MIT licence](LICENSE). Security problems go to [SECURITY.md](SECURITY.md), never to a public issue.
+
 ## Read these two files first
 
 1. [`sideline/state/store.py`](sideline/state/store.py): the product is
@@ -56,4 +90,6 @@ at the top of that file. A sport is a `SportProfile` ([docs/SPORTS.md](docs/SPOR
 make test
 ```
 
-No network, no credentials. If a test needs either, it is testing the wrong thing.
+No network, no credentials. If a test needs either, it is testing the wrong thing. Checks that do need them
+(`make route-check`, `make verify-data`, `make aws-check`, `scripts/curiosity_check.py`) are run by hand and their results
+written into the docs with the date.

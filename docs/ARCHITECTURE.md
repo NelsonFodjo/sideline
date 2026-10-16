@@ -8,8 +8,10 @@ In the intended deployment the client is Alexa+: it does speech recognition, cho
 to, writes the wording the listener hears, speaks it and renders anything on screen, and we expose tools and
 hold state. **That deployment is not reachable by hackathon participants** (the add-on tooling is partner-only;
 see [HACKATHON.md](HACKATHON.md)). So today the client is a **simulated Alexa+**: our own web page, `simulator/index.html`,
-and a thin Anthropic Claude host on Bedrock. It gives Claude the current MCP catalog with complete descriptions and schemas up front, then
-dispatches only calls for tools in that catalog. Any MCP client can connect to the same server.
+and a thin host on Bedrock, Amazon Nova Pro by default (`SIDELINE_BEDROCK_MODEL` can name another). For each question it
+gives the model a shortlist from the live MCP catalog (four core tools plus up to four picked by keyword, each with its full
+description and schema), then dispatches only calls for tools in that catalog. A few plain questions ("what's the score?")
+skip the model: a fixed pattern runs one tool. Any MCP client can connect to the same server.
 
 One consequence holds either way: **the quality of a tool's description is product surface.** The agent and any
 MCP client choose a tool by reading its description. A badly worded description is a bug the listener
@@ -18,23 +20,23 @@ experiences as "it keeps telling me the score when I asked what happened."
 ## The layers
 
 ```
-   MCP client: the simulated Alexa+ (a web page + Claude/Bedrock host), or any MCP client
+   MCP client: the simulated Alexa+ (a web page + Nova Pro/Bedrock host), or any MCP client
                               |
               MCP / Streamable HTTP / 2025-11-25
                               |
                      OUR MCP SERVER                          this repo
             |           |            |              |
         Bedrock     DynamoDB      poller       live sports feed
-   (Anthropic Claude: (listener   (a thread    (ESPN Multi-Sport CDN)
+   (Nova Pro:         (listener   (a thread    (ESPN Multi-Sport CDN)
     wording, tool     state)       in the
     host)                          server)
 ```
 
 | Layer | Who owns it |
 |---|---|
-| MCP client | the host fetches `initialize` instructions and `tools/list`, gives the live tool definitions to Claude, then makes every selected `tools/call` over `/mcp` ([`simulator/mcp_client.py`](../simulator/mcp_client.py)). External clients use `/mcp` directly |
+| MCP client | the host fetches `initialize` instructions and `tools/list`, gives a shortlist of the live tool definitions to the model, then makes every selected `tools/call` over `/mcp` ([`simulator/mcp_client.py`](../simulator/mcp_client.py)). External clients use `/mcp` directly |
 | MCP server | this repo ([`mcp/server.py`](../sideline/mcp/server.py)) |
-| Bedrock | AWS: Amazon Nova Pro writes the catch-up and chooses among the discovered MCP tools; Nova 2 Sonic hears speech |
+| Bedrock | AWS: Amazon Nova Pro writes the catch-up and chooses among the shortlisted MCP tools; Mistral Voxtral Small hears speech first, Nova 2 Sonic as the fallback |
 | Polly | AWS: speech out (generative voice), with word timings |
 | DynamoDB | AWS: listener state and the event log (memory when no table is available) |
 | Poller | this repo: a thread in the server process |
@@ -49,18 +51,21 @@ The listener says **"what did I miss?"**
 1. The client captures the listener's speech. In the simulator the browser records it and the server
    transcribes it (Voxtral, or Nova Sonic as the fallback, both on Bedrock: see [SPEECH.md](SPEECH.md)).
 2. `sideline/resolve.py` checks whether it answers a choice we just offered, and repairs misheard names.
-3. The host discovers `tools/list` over MCP and gives Claude the full descriptions and schemas.
-4. Claude compares overlapping tool use cases and calls the fitting tool or asks a focused clarification.
+3. The host discovers `tools/list` over MCP and gives the model (Nova Pro by default) a shortlist, with full descriptions
+   and schemas. For a few plain questions a fixed pattern picks the tool and no model is called.
+4. The model calls the fitting tool or asks a focused clarification. If it answers a fact question with no tool, it is
+   asked again and must call one.
 5. The host's MCP client calls `tools/call` on `/mcp`. The server validates the arguments and runs the tool.
 6. The tool reads this listener's `last_told_at` from the store and pulls every logged event since, minus
    anything already told.
-7. For Claude it returns the event facts (a header asks for facts rather than a
-   paragraph, because Claude is an LLM and would only paraphrase one). For any other client, Bedrock
-   composes the paragraph.
+7. For the simulator's agent it returns the event facts (a header asks for facts rather than a
+   paragraph, because the agent's model would only paraphrase one; `generated_by: tool-data`). For any other
+   client, Bedrock composes the paragraph.
 8. `last_told_at` moves forward; the event ids are recorded as told.
-9. Claude phrases the result, Polly speaks it, and the page highlights each word as it is spoken.
+9. The model phrases the result, Polly speaks it, and the page highlights each word as it is spoken.
 
-The server side is steps 4 to 7; the rest belong to the client. A client such as Alexa+ would do steps 1, 3 and 8.
+The server side is steps 5 to 8; the rest belong to the client. In the simulator step 2 runs in the host
+(`simulator/host.py`, using `sideline/resolve.py`); a client such as Alexa+ would do steps 1, 3, 4 and 9 itself.
 
 ## The two halves
 
@@ -78,7 +83,8 @@ Two decisions inside it worth knowing:
   is cheap and correct; bookkeeping is neither.
 - **It only polls fixtures somebody is following.** Polling every live match in the world is a good way to
   exhaust a request budget by lunchtime. A match that is over is read once more and then left alone, and a match
-  nobody follows any more is dropped from the list, so a finished game does not keep spending the hourly limit.
+  nobody follows any more is dropped from the list, so a finished game does not keep costing requests. (ESPN publishes
+  no rate limit for these endpoints; this is to be a light user of them, not to stay under a known cap.)
 
 The protocol surface, what is implemented and what is not, is in [MCP.md](MCP.md).
 
@@ -109,7 +115,8 @@ when using `python3 -m sideline` directly. The `./run.sh` launcher creates an
 isolated `.venv` and installs `requirements.txt` so those integrations are
 available without changing the system Python. That separation is deliberate:
 
-1. **A reviewer can run it.** Clone, set a token, `./run.sh`. Its dependencies stay in the project `.venv`.
+1. **A reviewer can run it.** Clone, then `./run.sh`. No token is needed locally (`SIDELINE_AUTH_TOKEN` is optional, for
+   a server exposed beyond the machine). Its dependencies stay in the project `.venv`.
 2. **Supply chain.** A public repo with a handful of transitive dependencies is a public repo with a handful of
    things that can be compromised between now and judging.
 3. **It forced better decisions.** No web framework meant writing the Streamable HTTP transport properly rather
@@ -177,7 +184,7 @@ offline cost of each tool). These are what we saw, not targets:
   shows each part for every question.
 
 What keeps repeat questions cheap is the cache in `sideline/cache.py`: bounded, lifetimes by kind of data (a match that
-is over is kept for hours, a live scoreboard for 30 seconds), and one request shared by everyone asking for the same page
+is over is kept for hours, a live scoreboard or a match in play for 5 seconds), and one request shared by everyone asking for the same page
 at once. See [ESPN_NOTES.md](ESPN_NOTES.md) for the endpoint facts behind it.
 
 ## Failure behaviour

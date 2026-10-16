@@ -13,11 +13,17 @@ are what we have **verified live** (marked "verified") and what community docume
 | League id to name and slug | `site.web.api.espn.com/apis/site/v2/leagues/dropdown?sport=soccer&limit=500` | **verified.** About 220 soccer leagues; keep for a day. |
 | A team's matches | `site/v2/sports/soccer/all/teams/{id}/schedule` (played) and `...?fixture=true` (still to come) | **verified.** Never both in one answer: ask twice. |
 | Find a team or player | `site.api.espn.com/apis/search/v2?query=...` | **verified.** `uid` is `s:600~t:ID` (team) or `s:600~a:ID` (athlete). The `id` field is a GUID, not what other endpoints want. |
-| Match detail | `site/v2/sports/soccer/all/summary?event=ID` | **verified.** Works through `all`, so no league slug is needed. Has `keyEvents`, `commentary`, `rosters`, `boxscore`. |
+| Match detail | `site/v2/sports/soccer/all/summary?event=ID` | **verified.** Works through `all`, so no league slug is needed. Has `keyEvents`, `commentary`, `rosters`, `boxscore`, and `injuries` (what `get_injuries` reads; a summary with no `injuries` key is said as "I don't have an injury report", not "no one is out"). |
 | Player profile | `site.web.api.espn.com/apis/common/v3/sports/soccer/athletes/ID` | **verified.** Age, citizenship, jersey, position, club. No honours or titles. |
 | Player season | `.../athletes/ID/overview` | **verified.** `statistics.splits` mixes club and national-team competitions: tell them apart by the split's name. |
 | League table | `site.api.espn.com/apis/v2/sports/soccer/{league}/standings` | **verified.** Under `/apis/site/v2/` soccer standings come back empty. Competitions in groups have one `children` entry per group. |
 | News | `site/v2/sports/soccer/{league or all}/news?limit=N` and `?team=ID` | **verified.** |
+| Other sports' day lists | `site/v2/sports/{basketball,football,baseball,hockey}/{league}/scoreboard` | Used by `espn.py`. We ask one request per league (NBA, WNBA, NCAA men's basketball, NFL, NCAA football, MLB, NHL). |
+| Other sports' match detail | `site/v2/sports/{sport}/{league}/summary?event=ID` | Used by `espn.py`. Box score, rosters and, where given, key events. Also where `get_injuries` reads (`injuries`), where a playoff series comes from (the `header` competition, read by `series()`) and where baseball's pitchers come from (the box score's `pitching` group, read by `pitchers()`). There is no separate series or pitchers endpoint. |
+| A team's matches, other sports | `site/v2/sports/{sport}/{league}/teams/{id}/schedule` and `...?fixture=true` | Used by `espn.py`. As for soccer, but under the team's league, not `all`. |
+| Squad | `site/v2/sports/{sport}/{league}/teams/{id}/roster` | Used by `espn.py`. American football, hockey and baseball group players by position. |
+| League leaders, other sports | `site.api.espn.com/apis/site/v3/sports/{sport}/{league}/leaders` | Used by `espn.py`. Note `v3`. Each answer says its season; between seasons it is the last one, so we say which. |
+| Top scorers, soccer | `site/v2/sports/soccer/{league}/statistics` | Used by `espn.py`: the `goalsLeaders` category. |
 | Competitions not in a hard-coded list | the dropdown above | AFC Champions League Two is `afc.cup`, Elite is `afc.champions`. |
 
 ## Behaviour to know

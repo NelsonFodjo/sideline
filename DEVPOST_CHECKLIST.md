@@ -24,12 +24,12 @@ at <https://amazonappdev2026.devpost.com/> before you submit. Deadline: **Friday
 | **Track** | **Alexa+** (a self-hosted MCP server) |
 | **Mini challenge** | **AWS Builder**. The Open Source mini challenge is **not** entered (see [docs/HACKATHON.md](docs/HACKATHON.md)); do not tick it unless you add a real contribution first |
 | **Elevator pitch** | **copy** the "Elevator Pitch" in [docs/HACKATHON.md](docs/HACKATHON.md) |
-| **About the project** (the long text) | **copy** sections 1 to 6 of "Devpost Pitch & Submission Copy" in [docs/HACKATHON.md](docs/HACKATHON.md): Inspiration, What it does, How we built it, Challenges, Accomplishments, What's next. Add what you learned if the form has that field (the friction log and feature requests are the honest answer) |
+| **About the project** (the long text) | **copy** [docs/DEVPOST_STORY.md](docs/DEVPOST_STORY.md) (the current version: five sports, the 174 questions (50 football, 24 across the other sports, 100 in round 2), 68 suites). The older sections 1 to 6 of "Devpost Pitch & Submission Copy" in [docs/HACKATHON.md](docs/HACKATHON.md): Inspiration, What it does, How we built it, Challenges, Accomplishments, What's next. Add what you learned if the form has that field (the friction log and feature requests are the honest answer) |
 | **Built with** (tags) | `Python`, `Model Context Protocol (MCP)`, `Amazon Bedrock`, `Amazon Nova Pro`, `Amazon Polly`, `Amazon DynamoDB`, `Mistral Voxtral (Bedrock)`, `Amazon Nova 2 Sonic`, `ESPN public data`, `JavaScript (Web Audio, simulator page)` |
 | **Try it out / links** | The public GitHub URL. No hosted demo is needed (the FAQ accepts a locally runnable public repo plus the video; re-check the FAQ wording). The README's "Run it" section is the judge's path: `git clone`, `make run`, open `http://127.0.0.1:8765/`. The live data needs no key |
 | **Demo video** | **you** the public video URL |
 | **Images / screenshots** | **you** 3 to 4: the simulator mid-answer, the Dev log panel (Alt+D), a terminal with `make test` passing, the friction log's table. Crop out keys, emails and any logos |
-| **Testing instructions for judges** | **copy** `No account or key is needed for the data. Python 3.8+. git clone <repo> && cd sideline && make run, then open http://127.0.0.1:8765/ (Chrome or Edge, allow the microphone once). Without AWS credentials the server answers every tool in templated wording through any MCP client; the simulator's voice agent needs Bedrock. make test runs the 61 offline suites with no network or credentials. Hosting is not required.` |
+| **Testing instructions for judges** | **copy** `No account or key is needed for the data. Python 3.8+. git clone <repo> && cd sideline && make run, then open http://127.0.0.1:8765/ (Chrome or Edge, allow the microphone once). Without AWS credentials the server answers every tool in templated wording through any MCP client; the simulator's voice agent needs Bedrock. make test runs the 68 offline suites with no network or credentials. Hosting is not required.` |
 | **AWS services used** (AWS Builder: must be described in the answer, not only the repo) | **copy** the table in [docs/HACKATHON.md](docs/HACKATHON.md) ("AWS services": Bedrock Nova Pro, Voxtral, Nova 2 Sonic, Polly, DynamoDB, each with what it does) and say plainly that AgentCore, Strands and Kiro are **not** used |
 | **Product feedback** (every tool, API and SDK used, each with what you used it for, what worked, what needs work, onboarding, and whether you would build with it again) | **copy** all of [docs/PRODUCT_FEEDBACK.md](docs/PRODUCT_FEEDBACK.md). It ends each section with the yes or no |
 | **Friction log** (optional; up to +10% from Amazon's review, assessed in Stage 1) | **copy or attach** [docs/FRICTION_LOG.md](docs/FRICTION_LOG.md): 28 entries, each with task, steps, expected, actual, severity, workaround, suggestion. Lead with the summary table |
@@ -42,8 +42,8 @@ at <https://amazonappdev2026.devpost.com/> before you submit. Deadline: **Friday
 
 - **Do not** claim the real Alexa+ was used. The README says what is true: a simulated Alexa+ page, because the add-on tooling is partner-only.
 - **Do not** claim hosting, OAuth or account linking. They are not built, and the README says so.
-- **Do not** paste numbers that are not in the repo. The ones that are: 30 tools, 5 sports, 61 offline suites, routing 77 of 79 on Nova Pro,
-  a first question about 6 s cold and 0 to 3 s after, 27 friction entries, 9 feature requests.
+- **Do not** paste numbers that are not in the repo. The ones that are: 30 tools, 5 sports, 68 offline suites, routing 77 of 79 on Nova Pro,
+  a first question about 6 s cold and 0 to 3 s after, 28 friction entries, 9 feature requests.
 - **Keep the video honest.** It must not speed up or splice an answer so it looks faster than it was.
 - **Check the video** frame by frame for keys, email addresses, account ids and club crests or broadcast footage.
 

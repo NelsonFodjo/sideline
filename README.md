@@ -1,46 +1,160 @@
-# Sideline
+<div align="center">
 
-**A friend for the match, in your ear. Built first for people who cannot see the screen.**
+<img src="docs/media/banner.svg" alt="Sideline: a friend for the match, in your ear. An MCP server for live sport by voice, built first for people who cannot see the screen." width="100%">
 
-A self-hosted [MCP](https://modelcontextprotocol.io) server that answers a listener's questions about live and recent
-sport, built for the Alexa+ track of the *Build, Ship, Shape: Amazon Developer Hackathon*. It reads ESPN's public data
-(football, basketball, American football, baseball and hockey), remembers what each listener has already heard, holds
-back anything their delayed stream has not shown yet, and speaks through Amazon Bedrock and Polly.
+<p>
+  <a href="https://github.com/NelsonFodjo/sideline/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NelsonFodjo/sideline/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/NelsonFodjo/sideline/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/NelsonFodjo/sideline/actions/workflows/codeql.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-22c6ff?style=flat-square"></a>
+  <img alt="Python 3.8+" src="https://img.shields.io/badge/python-3.8%2B-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="MCP 2025-11-25" src="https://img.shields.io/badge/MCP-2025--11--25-7a5cff?style=flat-square">
+  <img alt="30 tools" src="https://img.shields.io/badge/tools-30-0b7a75?style=flat-square">
+  <img alt="68 offline test suites" src="https://img.shields.io/badge/tests-68%20offline%20suites-2ea44f?style=flat-square">
+  <img alt="No dependencies" src="https://img.shields.io/badge/server%20dependencies-none-555?style=flat-square">
+  <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-ff7a59?style=flat-square"></a>
+</p>
 
-> **The web page in this repository is a simulated Alexa+.** Alexa+ is the voice assistant that would talk to this
-> server, and its add-on tooling is partner-only, so participants cannot connect the real one. The simulator plays that
-> part honestly: it listens, chooses tools, calls them over MCP exactly as an external client would, and speaks the answer.
-> It is a stand-in for Alexa+, not Alexa+, and it is how you run and judge everything below.
+<p>
+  <img alt="Amazon Bedrock" src="https://img.shields.io/badge/Amazon%20Bedrock-Nova%20Pro%20·%20Voxtral%20·%20Nova%20Sonic-232F3E?style=flat-square">
+  <img alt="Amazon Polly" src="https://img.shields.io/badge/Amazon%20Polly-generative%20voice-232F3E?style=flat-square">
+  <img alt="Amazon DynamoDB" src="https://img.shields.io/badge/Amazon%20DynamoDB-listener%20state-232F3E?style=flat-square">
+</p>
+
+<p><b><a href="#quick-start">Quick start</a> · <a href="#see-it">See it</a> · <a href="#how-it-works">How it works</a> · <a href="#the-tools">The tools</a> · <a href="#connect-it-to-anything-and-host-it-later">Host it</a> · <a href="#what-has-been-verified">What is verified</a> · <a href="#the-potential">The potential</a> · <a href="#known-limitations">Limits</a> · <a href="#contributing">Contribute</a></b></p>
+
+</div>
 
 ---
 
-## At a glance
+> [!IMPORTANT]
+> **The web page in this repository is a simulated Alexa+.** Alexa+ is the voice assistant that would talk to this server,
+> and its add-on tooling is partner-only, so participants cannot connect the real one. The simulator plays that part
+> honestly: it listens, chooses tools, calls them over MCP exactly as an external client would, and speaks the answer. It is
+> a stand-in for Alexa+, not Alexa+, and it is how you run and judge everything below.
+
+<a name="the-problem"></a>
+
+## 🎧 The problem
+
+You want the score. So you stop what you are doing, unlock your phone, open an app, search, scroll. **Or you just ask.**
+
+For someone who cannot see a screen, asking is not a shortcut: it is the only way in. A broadcast is a picture with an audio
+track attached. The line-ups are a graphic shown once and never read aloud; the score and the clock sit in a corner; the
+booking, the substitution, the VAR decision are on screen and rarely spoken. A blind fan watching with a friend turns and
+asks. Alone, there is nobody to ask.
+
+**Sideline is that friend.** A self-hosted [MCP](https://modelcontextprotocol.io) server that answers a listener's questions
+about live and recent sport, built for the Alexa+ track of the *Build, Ship, Shape: Amazon Developer Hackathon*. It reads
+ESPN's public data (football, basketball, American football, hockey and baseball), remembers what each listener has already
+heard, holds back anything their delayed stream has not shown yet, and speaks through Amazon Bedrock and Polly. The
+[WHO](https://www.who.int/news-room/fact-sheets/detail/blindness-and-visual-impairment) estimates that at least 2.2 billion
+people live with a near or distance vision impairment; they are who it is built for first. The same help suits anyone whose
+hands or eyes are busy: driving, cooking, in a meeting, or late to the match.
+
+<a name="at-a-glance"></a>
+
+## ✨ At a glance
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<p><b>🧠 It remembers you</b><br> One marker per listener (<code>last_told_at</code>), so "what did I miss?" needs no time range and never repeats itself.</p>
+<p><b>🙈 It never spoils</b><br> Say your stream is behind and every event your picture has not reached is held back, by the clock.</p>
+<p><b>🗣️ It says what it does not know</b><br> Every fact comes from a tool, never a model's memory. No referee in the feed? It says so.</p>
+</td>
+<td width="50%" valign="top">
+<p><b>🏟️ Five sports, one set of tools</b><br> Football (about 220 competitions), basketball, American football, hockey and baseball. The clock speaks each sport's words.</p>
+<p><b>⚡ Built for speed</b><br> Live data cached for seconds; a question after the first takes 0 to 3 s; standard-library Python, no install.</p>
+<p><b>🔍 Every answer is traceable</b><br> The Dev log shows which tool ran, with which arguments, how long it took and how many feed requests it made.</p>
+</td>
+</tr>
+</table>
 
 | | |
 |---|---|
-| **What it is** | A standard MCP server (spec 2025-11-25, Streamable HTTP): 30 tools, five sports, about 220 football competitions, live ESPN data with no key |
-| **What no client can do alone** | Remember what *this* listener has heard (one marker, `last_told_at`) and hold back anything their delayed stream has not shown yet |
-| **How it answers** | In a sentence or two, leading with the fact; says what its feed does not have; never answers a fact from a model's memory |
+| **What it is** | A standard MCP server (spec 2025-11-25, Streamable HTTP): 30 tools, five sports, live ESPN data with no key |
+| **What no client can do alone** | Remember what *this* listener has heard and hold back anything their delayed stream has not shown yet |
 | **Speed** | A question after the first takes 0 to 3 s; the first takes about 6 s with the model (measured from Mauritius against a table in us-east-1; the follow tool alone is 4.5 s) |
 | **Memory you control** | The conversation lives in the session only; "forget that" ends it; "forget everything about me" erases what the server keeps |
 | **Built on** | Amazon Bedrock (Nova Pro as the host, Voxtral and Nova Sonic for speech in), Polly, DynamoDB |
-| **Evidence** | 61 offline test suites; 70 live questions on real matches; routing **77 of 79** on a 79-phrasing check; the official MCP Python SDK client run against it |
-| **Honesty** | 28-entry [friction log](docs/FRICTION_LOG.md), 9 [feature requests](docs/FEATURE_REQUESTS.md), and a [known-limitations list](#known-limitations) that includes what is not done |
+| **Evidence** | 68 offline test suites; 174 everyday questions asked of the live system and every answer published ([CURIOSITY_QA](docs/CURIOSITY_QA.md)); routing **77 of 79** on Nova Pro; the official MCP Python SDK client run against it |
+| **Honesty** | 28-entry [friction log](docs/FRICTION_LOG.md), 9 [feature requests](docs/FEATURE_REQUESTS.md), and a [known-limitations list](#known-limitations) |
 
----
+<a name="quick-start"></a>
 
-## The problem
+## 🚀 Quick start
 
-A football broadcast is a visual medium with an audio track attached. Strip away the picture and a surprising amount of
-the match goes with it. The line-ups are a graphic shown once and never read aloud. The score and the clock sit in a
-corner of the screen. Substitutions appear on a board. The booking, the referee's name, the VAR decision: all on screen,
-rarely spoken. A blind fan watching with a sighted friend simply turns and asks. Watching alone, there is nobody to ask.
+```bash
+git clone https://github.com/NelsonFodjo/sideline && cd sideline
+make test                   # 68 offline suites: no network, no credentials, no install
+make run                    # the server and the simulated Alexa+ on http://127.0.0.1:8765/
+```
 
-**Sideline is that friend.** It works from match data, not video, and is meant to be heard privately, through an earbud.
-The [WHO](https://www.who.int/news-room/fact-sheets/detail/blindness-and-visual-impairment) estimates that at least 2.2 billion people live with a near or distance vision impairment; blind and low-vision fans
-are who we designed for first. The same features suit anyone with their eyes busy, in a noisy room, or tired of spoilers.
+Open `http://127.0.0.1:8765/` in Chrome or Edge, press **Go live**, allow the microphone once, and talk: *"Follow Lyon."*
+*"Who scored?"* *"Show me the line-ups."* The live data needs no key. The voice agent and the voice need AWS credentials:
+`cp .env.example .env` and fill them in (details under [Run it](#run-it)).
 
-## What it sounds like
+<a name="see-it"></a>
+
+## 🎬 See it
+
+<div align="center">
+<img src="docs/media/tour.webp" alt="A 60-second loop of the simulated Alexa+: going live; a followed match with the score, sport, clock and date; a goal flash; the timeline; the line-ups drawn home-left and away-right with the named player lit; basketball and American football; large type; high contrast; typing mode; settings; the Dev log." width="100%">
+<br><sub>A 60-second loop of screenshots from a preview copy of the page, built from real results of 15 October 2026. Not a recording of a live session.</sub>
+</div>
+
+<table>
+<tr>
+<td width="33%"><img src="docs/video/screenshots/02-following-a-match.png" alt="Following Lyon 3-2 Crystal Palace: a full-width score strip with the sport, the clock and the date, above the eye, with the spoken answer below."><br><sub><b>A followed match</b>: score, sport, clock, date</sub></td>
+<td width="33%"><img src="docs/video/screenshots/15-lineup-highlight.png" alt="The line-ups of Lyon and Crystal Palace on a pitch, home on the left and away on the right, with Tolisso and Nakamura lit as she names them."><br><sub><b>Line-ups</b>: the player she names lights up</sub></td>
+<td width="33%"><img src="docs/video/screenshots/03-timeline-open.png" alt="The timeline opened under the score: every goal and card as a mark, with the ground and the date."><br><sub><b>The timeline</b>: goals, cards, where your picture is</sub></td>
+</tr>
+<tr>
+<td><img src="docs/video/screenshots/11-basketball-following.png" alt="Following a basketball game, Knicks 122-120 Raptors, with the clock in quarters."><br><sub><b>Basketball</b>: quarters, not minutes</sub></td>
+<td><img src="docs/video/screenshots/13-american-football-following.png" alt="Following an American football game, Broncos 17-14 Seahawks."><br><sub><b>American football</b>: same tools, another sport</sub></td>
+<td><img src="docs/video/screenshots/09-dev-log.png" alt="The Dev log drawer: the tool that ran, its arguments, its timings and its feed requests."><br><sub><b>The Dev log</b>: every answer traceable</sub></td>
+</tr>
+<tr>
+<td><img src="docs/video/screenshots/05-large-type.png" alt="Large type mode: the score and the answer in much bigger letters."><br><sub><b>Large type</b>, for low vision</sub></td>
+<td><img src="docs/video/screenshots/06-high-contrast.png" alt="High contrast mode: black background, white and yellow text."><br><sub><b>High contrast</b></sub></td>
+<td><img src="docs/video/screenshots/07-typing-mode.png" alt="Typing mode: a text field at the bottom; she still reads the answer aloud."><br><sub><b>Typing mode</b>: she still reads the answer</sub></td>
+</tr>
+</table>
+
+The demo video (under three minutes) is linked from [docs/HACKATHON.md](docs/HACKATHON.md) once it is published.
+
+
+<a name="the-potential"></a>
+<a name="where-this-goes"></a>
+
+## 🌍 The potential
+
+Sideline answers a narrow question well: *what is happening in the match, for me, right now?* The parts that make it work
+are not narrow.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<p><b>🎙️ Every match, as audio, for almost nothing</b><br>An audio layer built from match data, not video, costs almost nothing per match and covers every match the data covers: about 220 football competitions and four more sports today, from one public feed. For broadcasters and rights holders, that is an accessible companion for every fixture, not only the ones with a commentary team.</p>
+<p><b>🧩 Any assistant, not one app</b><br>It is a standard MCP server, so the same endpoint serves Alexa+, a car, a smart speaker, a phone assistant, or any MCP client. Nothing in it is specific to the simulator.</p>
+<p><b>🏟️ A new sport is a profile, not a rewrite</b><br>Five sports share 30 tools; each sport is one profile file (its clock, its scoring words, its headlines). A licensed official feed is one new provider behind the same interface.</p>
+</td>
+<td width="50%" valign="top">
+<p><b>🧠 A pattern beyond sport</b><br>"What has changed since I last asked?" is the question behind a delivery, a flight, an election night, a market. A per-listener marker plus a held-back view of events is a reusable answer to it.</p>
+<p><b>🙈 The spoiler guard, for everyone</b><br>Anyone on a delayed stream, a recording, or a different time zone wants the match without the group chat ruining it. Holding events back by the listener's own clock is built in, not bolted on.</p>
+<p><b>🌐 Next: the friend who speaks first</b><br>The day an MCP host lets a server speak first, "goal!" arrives the moment it happens, still held to the listener's picture (<a href="docs/FEATURE_REQUESTS.md">FR-01</a>). The language layer can already reword the same facts in another language or register.</p>
+</td>
+</tr>
+</table>
+
+**The road from here.** Host it and connect a real client (the steps are [below](#connect-it-to-anything-and-host-it-later));
+certified Alexa+ account linking with OAuth, which Amazon controls today; a licensed data source in place of the public
+feed; sessions moved out of the process so one deployment serves many listeners; and server-initiated alerts as soon as the
+platform allows them.
+
+<a name="what-it-sounds-like"></a>
+
+## 💬 What it sounds like
 
 These are real answers from the live ESPN feed on 2026-10-15, about a match played the night before. They are the words
 the tools return; with a model in front, they are spoken by it.
@@ -67,7 +181,9 @@ It says what it does not have (a referee the feed does not name, expected goals,
 out or guessing, and when something goes wrong it says an error occurred and to rephrase or try again later, never "no
 matches".
 
-## What makes it a server and not a lookup
+<a name="what-makes-it-a-server-and-not-a-lookup"></a>
+
+## 🧩 What makes it a server and not a lookup
 
 **Reach.** A match is happening right now. A language model alone cannot know the score, the line-up or how many cards the
 referee has shown.
@@ -92,41 +208,65 @@ just heard a goal") and the server holds back every event their picture has not 
 once the delay after we first saw it has passed. Every tool that reads events goes through the same filter, so the match
 report, the player and the officials never say what the score hides (`tests/test_critical_fixes.py`).
 
-## How it works
+<a name="how-it-works"></a>
 
-```
-   Alexa+  (the real client: partner-only)        the simulated Alexa+ (what runs today)
-        \                                          a web page + a Bedrock model as MCP host
-         \                                         /
-          MCP over Streamable HTTP, spec 2025-11-25
-                          |
-                   Sideline MCP server          30 tools · event log · last_told_at · sport profiles
-              /          |            \                   \
-        Bedrock      DynamoDB      poller         ESPN public API
-   (a model: the       (listener   (a thread,     (unofficial; cached,
-    host, and the       state)      followed       see docs/ESPN_NOTES.md)
-    wording)                        matches only)
-   Polly (voice)   Voxtral / Nova Sonic (speech in)
+## 🏗️ How it works
+
+```mermaid
+flowchart LR
+    L(["🎧 Listener"]) -- speaks --> H
+    subgraph host ["Simulated Alexa+ (the web page)"]
+        H["Voice in · Bedrock<br/>Voxtral / Nova Sonic"] --> A["Agent · Bedrock<br/>Amazon Nova Pro"]
+        A --> V["Voice out · Amazon Polly<br/>with word timings"]
+    end
+    A -- "MCP · Streamable HTTP<br/>spec 2025-11-25" --> S
+    subgraph mcp ["Sideline MCP server (sideline/)"]
+        S["30 tools"] --> G["Spoiler guard<br/>held to the listener's picture"]
+        G --> M[("Listener memory<br/>last_told_at · DynamoDB")]
+        S --> P["Sport profiles<br/>football · basketball · NFL · NHL · MLB"]
+    end
+    P -- "cached for seconds" --> E[("ESPN public API")]
+    V -- answers --> L
+    R["Real Alexa+<br/>(partner-only)"] -. "same MCP endpoint" .-> S
 ```
 
 | AWS service | What it does here |
 |---|---|
-| **Bedrock** (a model of your choice, `SIDELINE_BEDROCK_MODEL`) | in the simulator, chooses tools from the full MCP catalog and words the answer; writes the spoken catch-up. Measured comparison of four models: [docs/BEDROCK.md](docs/BEDROCK.md) |
-| **Bedrock, Mistral Voxtral** and **Nova 2 Sonic** | speech in: hears the listener, inside the AWS account |
-| **Polly** (generative voice, neural fallback) | speech out, with word timings so the screen highlights each word as it is spoken |
-| **DynamoDB** | listener state and the event log, so what a listener has heard survives a restart |
+| **Amazon Bedrock** (a model of your choice, `SIDELINE_BEDROCK_MODEL`) | in the simulator, chooses a tool from a shortlist of the MCP catalog and words the answer; writes the spoken catch-up. Measured comparison of four models: [docs/BEDROCK.md](docs/BEDROCK.md) |
+| **Bedrock, Mistral Voxtral** and **Amazon Nova 2 Sonic** | speech in: hears the listener, inside the AWS account |
+| **Amazon Polly** (generative voice, neural fallback) | speech out, with word timings so the screen highlights each word as it is spoken |
+| **Amazon DynamoDB** | listener state and the event log, so what a listener has heard survives a restart |
 
-More on the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/BEDROCK.md](docs/BEDROCK.md), [docs/MCP.md](docs/MCP.md).
+**What is the MCP, and what is around it.** The MCP is the [`sideline/`](sideline/) folder, and only that folder:
+standard-library Python, no install step. Everything else supports it and can be left behind: [`simulator/`](simulator/)
+plays the part of Alexa+ so the server can be tried by voice, `scripts/` holds benchmarks and checks, `tests/` the offline
+suite, and `docs/` the write-ups. A test (`tests/test_standalone.py`) and a CI job copy `sideline/` alone to an empty
+directory and check that it starts and serves its 30 tools there. More: [ARCHITECTURE](docs/ARCHITECTURE.md) ·
+[BEDROCK](docs/BEDROCK.md) · [MCP](docs/MCP.md).
 
-## What is the MCP, and what is around it
+<a name="the-simulated-alexa"></a>
 
-The MCP is the [`sideline/`](sideline/) folder, and only that folder: standard-library Python, no install step. Everything
-else in the repository supports it and can be left behind: [`simulator/`](simulator/) is a web page that plays the part of
-Alexa+ so the server can be tried by voice, `scripts/` holds developer benchmarks and checks, `tests/` the offline suite,
-and `docs/` the write-ups. A test (`tests/test_standalone.py`) copies `sideline/` alone to an empty directory and checks
-that it starts and serves its 30 tools there.
+## 🖥️ The simulated Alexa+
 
-## Run it
+The page is a wiring harness for the MCP, made to be used by ear first and by eye second.
+
+| | |
+|---|---|
+| **A followed match** | A bare, full-width strip: teams, score, sport, clock in the sport's own words (34′, Q3, P2, an inning), the date and the ground; a timeline of goals and cards. It goes the moment you ask about something else, and comes back when you ask about the match. The eye turns warm while the match is live |
+| **Line-ups** | "Show me the line-ups" draws a pitch: home left, away right, goalkeepers at their own ends, the benches below. The player she names lights up |
+| **Live commentary** | While you follow a match in play she reads the play out every 12 s, key moments only by default, and never talks over you. "Stop commentary", "start commentary" |
+| **Only your voice stops her** | A stop word ("stop", "wait") or "Alexa"; keystrokes and clicks do not. The wake word is off by default; turn it on in a shared room |
+| **Voice controls on the page** | "Speak faster", "slow down", "normal speed"; "say that again"; "spell that"; "carry on" after you interrupt; "what can you do?". Tones say "I heard you" |
+| **Typing mode** (Alt+T) | The microphone goes off; she still reads every answer aloud |
+| **For low vision** | Large type, high contrast, captions of every word as it is spoken |
+| **For developers** | The Dev log (Alt+D): what was heard, which tools ran with which arguments, timings, tokens, feed requests, "copy as MCP call". Demo mode (Alt+R) hides the controls for recording |
+
+Details, and what has not been tried on a real device: [simulator/README.md](simulator/README.md),
+[docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md), [docs/SPEECH.md](docs/SPEECH.md).
+
+<a name="run-it"></a>
+
+## 🛠️ Run it
 
 | To get | You need |
 |---|---|
@@ -139,43 +279,39 @@ Python 3.8 or newer. The first launch creates an isolated `.venv` and installs `
 system-wide.
 
 ```bash
-git clone https://github.com/NelsonFodjo/sideline && cd sideline
 cp .env.example .env        # then fill in your AWS credentials (the data needs none)
 make env                    # what is set; never prints a secret
 make run                    # starts the server on http://127.0.0.1:8765/  (or: make sim)
 make test                   # the offline suite: no network, no credentials
 ```
 
-Open the page, allow the microphone once, and talk. The page plays Alexa+: a conversation you can scroll back through (the
-**Conversation** button, or H), a match card, and a light bar along the bottom that shows whether it is listening, thinking
-or speaking.
-
-**A followed match stays on screen.** Follow a match and its card (score, minute, a "following, live" label) stays until you
-follow another match, which replaces it, or say "stop following" (or press the × on the card). While the match is in play the
-card refreshes every 30 seconds, the same beat the server polls it on, and after every answer; it stops refreshing at full
-time and says so. The refresh is held to your stream delay, so it never shows a goal ahead of your picture. The server
-remembers what you follow, so a page refresh brings the card back.
-
-**Watching what happens behind it.** The **Dev log** (Alt+D) shows, for every question: what was heard and what was acted on;
-how the turn was handled (how many of the 30 tools the model was offered, how many earlier turns it remembered, whether a first
-answer with no tool was sent back); each model call with its time and tokens; and, for every MCP tool call, the arguments it was
-given, the words it returned, the feed requests it made and how many were answered from what was kept, the time inside the
-server, what it changed about the listener (the match followed, the marker, the delay), the full structured result, and a
-"copy as MCP call" button; then a timeline of speech in, agent and speech out. It is kept in local storage and cleared when you
-refresh. The server's console prints the same, one readable block per tool call and per agent turn (`SIDELINE_LOG=DEBUG` adds
-the full result), and `logs/` keeps them as JSON lines.
-
 Without AWS the server still starts and every tool answers in templated wording through any MCP client; the simulator's
-agent needs Bedrock. How to connect another client, and how to host it, is in the next section.
+agent needs Bedrock. The server's console prints one readable block per tool call and per agent turn
+(`SIDELINE_LOG=DEBUG` adds the full result), and `logs/` keeps them as JSON lines (`make log-report` summarises them).
+Settings are environment variables, documented in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md); a test keeps that page,
+`.env.example` and the code in step.
 
-## Connect it to anything, and host it later
+Try it without a model, against the live feed:
+
+```bash
+python3 scripts/ask.py                                  # ask any tool a question, with the ESPN requests and time shown
+python3 scripts/convo.py tests/conversations/batch-03-broad.json    # 50 questions, live, as one conversation
+make bench                                              # what each tool costs, and the size of the tool list
+make route-check                                        # does a real Bedrock model pick the right tool? (costs Bedrock calls)
+```
+
+<a name="connect-it-to-anything-and-host-it-later"></a>
+
+## 🔌 Connect it to anything, and host it later
 
 Sideline is a standard MCP server (spec 2025-11-25, Streamable HTTP, one endpoint: `/mcp`). Nothing in it is specific to
-the simulator, so any MCP client can use it. This is the whole path from this repository to a client on another machine.
-What has been run is marked **tested**; the rest is the standard procedure, written out, and **not yet run by us** on a real
-server.
+the simulator, so any MCP client can use it. What has been run is marked **tested**; the rest is the standard procedure,
+written out, and **not yet run by us** on a real server.
 
-### Step 1. Check it on your machine (tested)
+<details>
+<summary><b>The whole path, from this repository to a client on another machine</b> (check it locally, put it on a server, point a client at it, look after it)</summary>
+
+#### Step 1. Check it on your machine (tested)
 
 ```bash
 make run                                                        # leave it running; endpoint http://127.0.0.1:8765/mcp
@@ -192,7 +328,7 @@ A client must `initialize`, then send back the `Mcp-Session-Id` it was given on 
 SDK has also been run against it (tested): `pip install mcp` in a throwaway virtualenv, then
 `python3 scripts/check_with_sdk.py`.
 
-### Step 2. Put it on a server
+#### Step 2. Put it on a server
 
 Any machine with Python 3.8+ and a public address works. The example is a small Linux VM (for instance an EC2 instance
 with Ubuntu) and a domain name you control, `sideline.example.com` below.
@@ -258,7 +394,7 @@ a restart. Run `make create-table` once with AWS credentials that may create a t
 `dynamodb:GetItem`, `dynamodb:PutItem` and `dynamodb:Query` on that table; give an EC2 instance an IAM role with those,
 not access keys in a file. For model-written wording it also needs `bedrock:InvokeModel`.
 
-### Step 3. Point a client at it
+#### Step 3. Point a client at it
 
 Every client needs the same two things: the URL `https://sideline.example.com/mcp` and the header
 `Authorization: Bearer <token>`.
@@ -275,7 +411,7 @@ Alexa+ itself is a separate step. It needs a public HTTPS endpoint with account 
 and the add-on tooling is partner-only (see [docs/MCP.md](docs/MCP.md)). The bearer token is a stopgap that keeps a
 deployment from being open; it is not a replacement.
 
-### Step 4. Look after it
+#### Step 4. Look after it
 
 | | |
 |---|---|
@@ -286,7 +422,7 @@ deployment from being open; it is not a replacement.
 | One listener | State is kept per listener, taken from the `X-Sideline-Listener` header, else one shared id. Today that is **one listener per deployment**; do not give one server to several real people |
 | The simulator | Not for a hosted server: the page does not send the token. Use it against a local server with no token |
 
-### If it does not work
+#### If it does not work
 
 | You see | Because |
 |---|---|
@@ -297,19 +433,11 @@ deployment from being open; it is not a replacement.
 | `/agent/chat` or `/voice/*` answer `404` | Normal: those belong to the simulator, which a hosted server does not need |
 | The server will not start, naming `SIDELINE_AUTH_TOKEN` | It is shorter than 16 characters |
 
-Try it without a model, against the live feed:
+</details>
 
-```bash
-python3 scripts/ask.py                                  # ask any tool a question, with the ESPN requests and time shown
-python3 scripts/convo.py tests/conversations/batch-03-broad.json    # 50 questions, live, as one conversation
-make bench                                              # what each tool costs, and the size of the tool list
-python3 scripts/route_check.py                          # does a real Bedrock model pick the right tool? (costs Bedrock calls)
-```
+<a name="the-tools"></a>
 
-Settings are environment variables, documented in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md); a test keeps that page,
-`.env.example` and the code in step.
-
-## The tools
+## 🧰 The tools
 
 Thirty, each one intent, each naming its neighbour in its description so a model does not have to guess. A tool is offered
 only if the feed behind the server can answer it.
@@ -323,93 +451,95 @@ only if the feed behind the server can answer it.
 | **News** | `get_news` |
 | **You** | `set_favourites`, `get_my_matches`, `set_preferences`, `get_capabilities` |
 
-Contracts, and the reasoning behind each description: [docs/TOOLS.md](docs/TOOLS.md). The tool list is about 8,000 tokens,
-paid on every model turn (`make bench`).
+Contracts, and the reasoning behind each description: [docs/TOOLS.md](docs/TOOLS.md). The full tool list is about 8,000
+tokens (`make bench`); the simulator's agent is offered a shortlist of it each turn (four core tools and up to four more
+by keyword), and plain questions such as "what's the score?" go to one tool with no model at all.
 
-## Where this goes
+<a name="what-has-been-verified"></a>
 
-Sideline is a working answer to a narrow problem, and the parts that make it work are not narrow.
+## ✅ What has been verified
 
-**For the listener, well beyond the screen.** Blind and low-vision fans are who it was designed for first, and the same
-help is wanted by anyone whose eyes are busy (driving, cooking, a second screen), anyone in a noisy bar or a quiet house at
-night, and anyone watching a delayed or recorded stream who cannot bear a group chat that has already shown the goal. The spoiler
-guard, which holds back events by the clock until the listener's picture reaches them, is as useful to them as to anyone.
-
-**For broadcasters and rights holders.** An audio layer built from match data, not from video, costs almost nothing
-per match and covers every match the data covers: about 220 football competitions and four more sports today, from a public
-feed. The data source sits behind one interface ([docs/DATA_PROVIDERS.md](docs/DATA_PROVIDERS.md)), so a licensed official feed
-is a new provider, not a new product, and a new sport is a new profile ([docs/SPORTS.md](docs/SPORTS.md)), not a rewrite.
-
-**For Alexa+ add-on authors.** Most first add-ons answer one question at a time. Sideline shows the shape of one that does
-not: the server holds a marker per listener, so the request can be as short as "what did I miss"; tools say what they do not
-know instead of guessing; a failure is a sentence a person can act on; and tool descriptions are treated as the product's
-interface, with a measured check on whether a model picks the right one. The 9 [feature requests](docs/FEATURE_REQUESTS.md)
-and 28 [friction entries](docs/FRICTION_LOG.md) are what we would want Amazon's teams to know from building it.
-
-**For the pattern.** "What has changed since I last asked" is the question behind a delivery, a flight, a market, a
-match. A per-listener marker plus a held-back view of events is a reusable answer to it, and sport, where the listener
-cannot see the screen, is where it matters most.
-
-**What stands between this and a product, said plainly:** certified Alexa+ account linking with OAuth (partner-only today),
-a licensed data source in place of the public feed, one server per table until sessions move out of the process, and a
-way for a server to speak first ("goal", the moment it happens), which the platform does not offer yet
-([FR-01](docs/FEATURE_REQUESTS.md)). The hosting steps above get the server itself to any client today.
-
-## What has been verified
-
-Dated 2026-10-15. "Verified" means it was run and the result observed; each row says how to repeat it.
+"Verified" means it was run and the result observed; each row says how to repeat it.
 
 | | Status |
 |---|---|
-| The server, tools, spoiler guard, state | **Verified**: `make test`, 61 offline suites, no network or credentials |
-| Live ESPN data across five sports | **Verified**: three live conversation batches, 70 questions on real matches (finished, upcoming and one in play), in `tests/conversations/`. 50 questions took about 35 s; they found 12 problems, all fixed and tested |
+| The server, tools, spoiler guard, state | **Verified**: `make test`, 68 offline suites, no network or credentials; CI runs them on Python 3.8 to 3.13 and macOS |
+| Live ESPN data across five sports | **Verified**: three live conversation batches, 70 questions on real matches, in `tests/conversations/`; and 174 everyday questions asked of the whole system with every answer and verdict published, wrong ones included ([CURIOSITY_QA](docs/CURIOSITY_QA.md)) |
 | One question's cost | **Measured**: the first question about a match is 3 ESPN requests and about 3 s (it was 116 and 18 s); a repeat is free |
-| A model choosing among the tools | **Measured**: `scripts/route_check.py`, 79 phrasings, four Bedrock models: Amazon Nova Pro called the intended tool on **77 of 79** (97%); Claude Sonnet 4.5 and Haiku 4.5 were last measured, earlier and with fewer fixes, at 56 and 53 (Nova Pro was 59 at that stage). Table and caveats in [docs/BEDROCK.md](docs/BEDROCK.md) |
+| A model choosing among the tools | **Measured**: `scripts/route_check.py`, 79 phrasings, four Bedrock models: Amazon Nova Pro called the intended tool on **77 of 79** (97%), through the same shortlist the simulator uses. Table and caveats in [docs/BEDROCK.md](docs/BEDROCK.md) |
+| Speech in | **Measured**: 48 clips, clean and noisy; Voxtral Small 0.0% and 1.4% word error, every name right ([docs/SPEECH.md](docs/SPEECH.md)) |
 | Bedrock, Polly, DynamoDB | **Verified** by `make aws-check`; see [docs/BEDROCK.md](docs/BEDROCK.md) and [docs/AWS_SETUP.md](docs/AWS_SETUP.md) |
-| Memory on a real DynamoDB table | **Verified** 2026-10-15 with a test listener, cleaned up afterwards: follow-ups ("who scored", "tell me more about him") understood; after a restart the listener still followed the match and kept their team; "forget that" kept the match; "forget everything about me" removed the profile and marker from the table |
+| Memory on a real DynamoDB table | **Verified** 2026-10-15 with a test listener, cleaned up afterwards: follow-ups understood; after a restart the listener still followed the match; "forget everything about me" removed the profile and marker from the table |
 | Speed with DynamoDB as the state | **Measured**: a cold first follow made 26 table calls in a row (11 s); now 4.5 s for the tool and 6.3 s with the model; later questions 0 to 3 s ([FL-26](docs/FRICTION_LOG.md)) |
-| A real microphone session; use by a blind person | **Reported by the team**: spoken questions, hands-free, with a real microphone, and a first session with a blind listener |
+| A real microphone | **Reported by the team**: spoken questions, hands-free, with a real microphone. The newest voice changes (tones, speed, page-only commands) have not been tried on a real device yet |
 | An independent MCP client | **Verified once** (2026-10-15): the official MCP Python SDK 2.3.0 connected, listed the 30 tools, called two tools against the live feed, and received a bad argument as a tool error (`scripts/check_with_sdk.py`). The MCP Inspector and other clients were not run |
 | Alexa+ itself | **Not possible**: the add-on tooling is partner-only |
 
-## Known limitations
+<a name="known-limitations"></a>
+
+## ⚠️ Known limitations
 
 We would rather you read these here than find them.
 
 - **Not deployed, and no OAuth.** It runs on one machine. An optional bearer token (`SIDELINE_AUTH_TOKEN`) protects a
   deployment, but Alexa+ needs a public HTTPS endpoint with account linking and OAuth 2.1; that is not built (see
-  [docs/MCP.md](docs/MCP.md), "Not implemented, and why").
+  [docs/MCP.md](docs/MCP.md)).
 - **The data source is unofficial.** ESPN publishes no documentation or stability promise for these endpoints. We cache,
   and we say when the feed cannot be reached, but a change on their side would break things.
-- **Football is the best tested.** Basketball, hockey and the NFL work for scores, tables and reports, but their match
-  events are thinner (ESPN gives hockey and NFL plays differently; see `docs/ESPN_NOTES.md`).
-- **What the feed does not have, we do not say:** expected goals, player ratings, a player's honours or titles, and often the
+- **Football is the best tested.** Basketball, American football, hockey and baseball work for scores, tables, leaders and
+  reports, but their match events are thinner (see [docs/ESPN_NOTES.md](docs/ESPN_NOTES.md) and the wrong answers in
+  [CURIOSITY_QA](docs/CURIOSITY_QA.md)).
+- **What the feed does not have, we do not say:** expected goals, player ratings, honours, half-time scores, and often the
   referee's name.
-- **Routing depends on the model.** The same 30 tools were chosen correctly far more often by some Bedrock models than by
-  others, and the tool list costs about 8,000 tokens a turn. See the measured comparison in [docs/BEDROCK.md](docs/BEDROCK.md).
+- **Routing depends on the model.** The same tools were chosen correctly far more often by some Bedrock models than by
+  others ([docs/BEDROCK.md](docs/BEDROCK.md)).
 - **One listener per server** by default; the state layer is keyed by listener, so the step is account linking.
+- **The phone layout of the simulator is not done.** It is built for a desktop browser.
 
-## For the hackathon
+<a name="for-the-hackathon"></a>
+
+## 🏆 For the hackathon
 
 **Track:** Alexa+, a self-hosted MCP server (Streamable HTTP, spec 2025-11-25), demonstrated through its own simulated
 Alexa+. **Mini challenge:** AWS Builder (Bedrock, Polly, DynamoDB, Voxtral, Nova Sonic).
 
 | | |
 |---|---|
-| The submission text | [docs/HACKATHON.md](docs/HACKATHON.md) |
-| The demo video script and shot list | [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md) |
+| The submission text | [docs/HACKATHON.md](docs/HACKATHON.md) · [docs/DEVPOST_STORY.md](docs/DEVPOST_STORY.md) |
+| The demo video script and shot list | [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md) · [docs/VIDEO_GUIDE.pdf](docs/VIDEO_GUIDE.pdf) |
 | **Friction log** (28 entries: task, steps, expected vs actual, severity, workaround, suggestion) | [docs/FRICTION_LOG.md](docs/FRICTION_LOG.md) |
 | Product feedback, per tool, API and SDK | [docs/PRODUCT_FEEDBACK.md](docs/PRODUCT_FEEDBACK.md) |
 | Feature requests, with priority | [docs/FEATURE_REQUESTS.md](docs/FEATURE_REQUESTS.md) |
+| Every question asked of it, and what it said | [docs/CURIOSITY_QA.md](docs/CURIOSITY_QA.md) |
 
-## Documentation
+<a name="documentation"></a>
 
-[ARCHITECTURE](docs/ARCHITECTURE.md) · [MCP](docs/MCP.md) · [TOOLS](docs/TOOLS.md) · [BEDROCK](docs/BEDROCK.md) ·
-[SPEECH](docs/SPEECH.md) · [ACCESSIBILITY](docs/ACCESSIBILITY.md) · [FINDER](docs/FINDER.md) · [SPORTS](docs/SPORTS.md) ·
-[DATA_PROVIDERS](docs/DATA_PROVIDERS.md) · [ESPN_NOTES](docs/ESPN_NOTES.md) · [ENVIRONMENT](docs/ENVIRONMENT.md) ·
-[AWS_SETUP](docs/AWS_SETUP.md) · [VIDEO_SCRIPT](docs/VIDEO_SCRIPT.md) · [CREDITS](docs/CREDITS.md) · [CONTRIBUTING](CONTRIBUTING.md)
+## 📚 Documentation
 
-## Credits and licence
+| | | |
+|---|---|---|
+| 🏛️ [Architecture](docs/ARCHITECTURE.md) | 🔌 [MCP](docs/MCP.md) | 🧰 [Tools](docs/TOOLS.md) |
+| 🤖 [Bedrock](docs/BEDROCK.md) | 🎙️ [Speech](docs/SPEECH.md) | ♿ [Accessibility](docs/ACCESSIBILITY.md) |
+| 🔎 [Finder](docs/FINDER.md) | 🏟️ [Sports](docs/SPORTS.md) | 🗄️ [Data providers](docs/DATA_PROVIDERS.md) |
+| 📡 [ESPN notes](docs/ESPN_NOTES.md) | ⚙️ [Environment](docs/ENVIRONMENT.md) | ☁️ [AWS setup](docs/AWS_SETUP.md) |
+| 🖥️ [Simulator](simulator/README.md) | 🎬 [Video script](docs/VIDEO_SCRIPT.md) | 🙏 [Credits](docs/CREDITS.md) |
+
+<a name="contributing"></a>
+
+## 🤝 Contributing
+
+Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md): five minutes to set up, the rules that
+are not negotiable (nothing essential only on screen; every failure a sentence a person would say), and how a change gets
+in. CI runs the offline suite on every pull request, starts the MCP on its own, checks the docs' links and runs CodeQL.
+
+[Code of conduct](CODE_OF_CONDUCT.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md) ·
+[Open an issue](https://github.com/NelsonFodjo/sideline/issues/new/choose)
+
+<a name="credits-and-licence"></a>
+
+## 📄 Credits and licence
 
 Ideas from BetTrack (cache design, whole-word name matching) and community ESPN documentation are credited, with their
-licences, in [docs/CREDITS.md](docs/CREDITS.md). MIT licence: [LICENSE](LICENSE).
+licences, in [docs/CREDITS.md](docs/CREDITS.md). Released under the [MIT licence](LICENSE).
+
+<div align="center"><sub>Built for the <i>Build, Ship, Shape</i> Amazon Developer Hackathon, October 2026.</sub></div>

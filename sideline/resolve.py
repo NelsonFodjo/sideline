@@ -451,12 +451,14 @@ def snap(listener_id, text, names=(), now=None):
     offers = BOOK.get(listener_id, now)
     if offers:
         phrase = " ".join(tokens)
-        if (phrase in _AFFIRMATIONS or any(t in _AFFIRMATIONS for t in tokens)) and len(offers) >= 1:
+        m = re.match(r"^\W*(?:(?:yes|yeah|yep|sure|correct|right|ok|okay|yea|yup|that one)\b[\s,]*(?:please|thanks|thank you)?[\s,]*)+",
+                     heard, re.I)
+        tail = heard[m.end():].strip() if m else ""
+        tail = re.sub(r"^[\s,;:?.-]+", "", tail).strip()
+        # A "yes" takes the offer only when it starts a short reply. Anywhere in a sentence it took "Yeah, he's not here and he
+        # has a meeting at 2" (the room, not the listener) as yes to Sydney FC: 15 seconds, five model calls, 88 feed requests.
+        if (phrase in _AFFIRMATIONS or (m and len(words(tail)) <= 6)) and len(offers) >= 1:
             it = offers[0]
-            m = re.match(r"^\W*(?:(?:yes|yeah|yep|sure|correct|right|ok|okay|yea|yup|that one)\b[\s,]*(?:please|thanks|thank you)?[\s,]*)+",
-                         heard, re.I)
-            tail = heard[m.end():].strip() if m else ""
-            tail = re.sub(r"^[\s,;:?.-]+", "", tail).strip()
             if tail:
                 combined_text = "%s, %s" % (it.say, tail)
                 if tail.lower().rstrip("?.!") in it.agent_say.lower():

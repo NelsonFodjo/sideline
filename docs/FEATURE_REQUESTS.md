@@ -75,7 +75,7 @@ observation about the current platform.
 **What** An official test suite an implementer can run against a server.
 
 **Why it matters** This server's transport was written from the spec with no
-SDK and checked by our own nine tests (`tests/test_mcp_protocol.py`). That
+SDK and checked by our own ten checks (`tests/test_mcp_protocol.py`). That
 is grading our own work. No official suite was found in the reading done for
 this project.
 

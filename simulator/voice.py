@@ -126,7 +126,10 @@ STT_PROVIDER = os.environ.get("SIDELINE_STT", "auto")          # auto (Bedrock o
 GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_MODEL = "whisper-large-v3-turbo"
 SONIC_MODEL = "amazon.nova-2-sonic-v1:0"
-VOXTRAL_MODEL = "mistral.voxtral-mini-3b-2507"     # 3B fast speech in, text out, through Bedrock Converse
+# Voxtral Small (24B), the model measured in docs/SPEECH.md (0.0% word error clean, 1.4% noisy, every name right). Mini (3B)
+# was eliminated there and later shipped by mistake: it ANSWERS what it hears ("Who scored in the Lyon game?" came back as
+# "I don't have real-time or up-to-date information"), which is where "I'm sorry, I can't understand that" questions came from.
+VOXTRAL_MODEL = "mistral.voxtral-small-24b-2507"
 SAMPLE_RATE = 16000
 
 
@@ -342,7 +345,32 @@ def speakable(token):
     m = re.fullmatch(r"([Uu])(\d{2})([,.;:!?]*)", token)
     if m:                                                   # "U21" is "under twenty-one", not "you twenty-one"
         return "under-%s%s" % (m.group(2), m.group(3))
+    m = re.fullmatch(r"(\d{1,3})\+(\d{1,2})['\u2019]([,.;:!?]*)", token)
+    if m:                                                   # "90+3'" is "ninety plus three", the minute
+        return "%s-plus-%s%s" % (m.group(1), m.group(2), m.group(3))
+    m = re.fullmatch(r"(\d{1,3})['\u2019]([,.;:!?]*)", token)
+    if m:                                                   # "73'" is "the seventy-third minute", not "seventy-three feet"
+        return "%s-minute%s" % (_ordinal(int(m.group(1))), m.group(2))
+    m = re.fullmatch(r"(\d{1,3})[-\u2013](\d{1,3})([,.;:!?]*)", token)
+    if m:                                                   # a score, "3-2": never "three minus two"
+        return "%s-to-%s%s" % (m.group(1), m.group(2), m.group(3))
+    m = re.fullmatch(r"Q([1-4])([,.;:!?]*)", token)
+    if m:                                                   # a basketball or NFL quarter
+        return "%s-quarter%s" % (_ORDINAL_WORDS[int(m.group(1))], m.group(2))
+    m = re.fullmatch(r"P([1-3])([,.;:!?]*)", token)
+    if m:                                                   # a hockey period
+        return "%s-period%s" % (_ORDINAL_WORDS[int(m.group(1))], m.group(2))
     return token
+
+
+_ORDINAL_WORDS = {1: "first", 2: "second", 3: "third", 4: "fourth"}
+
+
+def _ordinal(n):
+    """73 -> "73rd": a digit string a voice reads as an ordinal."""
+    if 10 <= n % 100 <= 20:
+        return "%dth" % n
+    return "%d%s" % (n, {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
 
 
 def _sentence_ranges(text, tokens):
@@ -679,6 +707,34 @@ WHISPER_HALLUCINATION_MAX_VOICED_MS = 400
 _HINTED = ("groq", "sonic")
 
 
+# Voxtral is a chat model given audio. On a clip it cannot make out it sometimes ANSWERS instead of transcribing: "I'm sorry,
+# I can't understand that. Could you please repeat or clarify what you said?" reached the agent as a question four times in
+# one day's log. An apology followed by "can't ..." is the assistant's sentence, not the listener's. (A listener who says
+# "could you repeat that" is kept: only the apology-and-inability shape, or talk about "the audio", is dropped.)
+_ASSISTANT_REPLY = re.compile(
+    r"^\W*(?:i'?m sorry|i am sorry|sorry|i apologi[sz]e|unfortunately)\b.{0,60}?\b(?:can'?t|cannot|can not|unable to|not able to|"
+    r"couldn'?t|could not|don'?t understand)\b.{0,40}?\b(?:understand|process|assist|help|hear|transcribe|make out|catch)\b"
+    r"|\b(?:the|this|your) audio (?:content|clip|file|provided)\b|\bas an ai\b|\bi can'?t assist with that\b", re.I)
+
+
+def assistant_reply(text):
+    """Is this transcript the recogniser talking (an apology, a refusal), not words the listener said?"""
+    return bool(text and _ASSISTANT_REPLY.search(text))
+
+
+def repeated_phrase(text):
+    """ "Bonjour. Bonjour. Bonjour.", "Yeah. Yeah. Yeah.", "Oh. Oh.": a recogniser on room noise repeats one short phrase.
+    True when every sentence is the same and it is said three times or more, or twice when it is only a sound ("oh", "um").
+    "No, no, no" is kept: it is how people say no. "Arsenal. Arsenal." is kept: a name said twice is a name."""
+    parts = [p.strip() for p in re.split(r"[.!?,]+\s*", (text or "").lower().strip()) if p.strip()]
+    if len(parts) < 2 or len(set(parts)) != 1 or parts[0] == "no":
+        return False
+    return len(parts) >= 3 or parts[0] in _SOUNDS
+
+
+_SOUNDS = {"oh", "uh", "um", "ah", "hmm", "mm", "huh", "er", "erm"}
+
+
 def transcribe(audio_bytes, mime="audio/pcm", hint=""):
     """Audio in, text out. Returns {"text": ..., "provider": ...} or None.
 
@@ -707,6 +763,12 @@ def transcribe(audio_bytes, mime="audio/pcm", hint=""):
                     and clean_txt.lower().strip().rstrip(".!?") in _WHISPER_HALLUCINATIONS):
                 LOG.info("transcript %r is a Whisper silence/noise hallucination (%d ms voiced); dropped",
                          clean_txt, voiced)
+                clean_txt = ""
+            if clean_txt and assistant_reply(clean_txt):
+                LOG.info("transcript %r is the recogniser replying, not speech; dropped", clean_txt)
+                clean_txt = ""
+            elif clean_txt and repeated_phrase(clean_txt):
+                LOG.info("transcript %r is one phrase repeated (a recogniser on noise); dropped", clean_txt)
                 clean_txt = ""
             out = dict(out, text=clean_txt)
             if out.get("text") and which in _HINTED and echoes_hint(out["text"], hint):

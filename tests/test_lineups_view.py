@@ -53,9 +53,16 @@ console.log(JSON.stringify(out));
     assert out["abbr"] == ["GK", "CB", "LB", "DM", "FW"], out["abbr"]
     print("ok  positions get their short names")
 
-    assert 'id="lineup"' in PAGE and "showLineups(lu)" in PAGE and "else hideLineups()" in PAGE
+    assert 'id="lineup"' in PAGE and "showLineups(lu)" in PAGE and "else if(!luMentions(result&&result.text)) hideLineups()" in PAGE
     assert PAGE.count("hideLineups()") >= 4, "it goes when you speak, when the words clear, on the x, and on the next answer"
     assert "luTeam(pitch,away,sc.lineups[away],true)" in PAGE, "the away side is drawn from the right"
+    a = PAGE.index("function luNorm("); b = PAGE.index("function luOpen(")
+    keys = subprocess.run([node, "-e", PAGE[a:b] + """
+console.log(JSON.stringify([luKey("Jørgen Strand Larsen"), luKey("Óscar Mingueza"), luNorm("Pino's,"), luNorm("Mingueza."), luKey("Abner")]));
+"""], capture_output=True, text=True, timeout=30)
+    assert json.loads(keys.stdout) == ["larsen", "mingueza", "pino", "mingueza", "abner"], keys.stdout + keys.stderr
+    assert "m.dataset.sur=luKey(pl.name)" in PAGE and "luGlow(spans[cur].textContent)" in PAGE
+    print("ok  a player she names lights up as the word is spoken; a question about a player on the line-ups keeps them open")
     src = open(os.path.join(ROOT, "sideline", "tools", "get_lineups.py")).read()
     assert '"teams": {"home"' in src, "the tool says which side is home"
     print("ok  wired: shown for get_lineups, hidden on the next question or when the words clear, away side mirrored")

@@ -349,6 +349,11 @@ def main():
     assert voice.speakable("U21") == "under-21" and voice.speakable("U19,") == "under-19," and voice.speakable("Uruguay") == "Uruguay"
     assert voice.speakable("Arsenal") == "Arsenal" and voice.speakable("U2") == "U2"
     assert voice.speakable("Alexa+,") == "Alexa-plus," and voice.speakable("MCP") == "MCP", "Polly already says MCP letter by letter, a second faster than M-C-P"
+    assert voice.speakable("73'") == "73rd-minute" and voice.speakable("81\u2019,") == "81st-minute,", "a minute, not feet"
+    assert voice.speakable("12'") == "12th-minute" and voice.speakable("22'") == "22nd-minute" and voice.speakable("90+3'") == "90-plus-3"
+    assert voice.speakable("3-2") == "3-to-2" and voice.speakable("122-120.") == "122-to-120.", "a score, never 'minus'"
+    assert voice.speakable("Q3") == "third-quarter" and voice.speakable("P2,") == "second-period," and voice.speakable("Q5") == "Q5"
+    assert voice.speakable("Pino's") == "Pino's" and voice.speakable("Premier-League") == "Premier-League"
     print("ok  sentences split at . ! ? before a capital, not after St. or an initial; U21 is said 'under 21'")
 
     even = voice._marks_fitted([], 4, 2000)

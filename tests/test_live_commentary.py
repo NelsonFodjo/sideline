@@ -26,6 +26,7 @@ function stopSpeaking(){ log.push("stopSpeaking"); } function stopListening(){ l
 function stopBargeSR(){} function setMode(m){ MODE=m; } function setQuiet(t){ log.push("QUIET "+t); }
 function ensureMic(){ log.push("ensureMic"); return { then(f){ f(); } }; } function listen(){ log.push("LISTEN"); }
 function measureStrip(){} function placeText(){} function fit(){} function wake(){} function retireAnswer(){} function ask(t){ log.push("ASK "+t); }
+var SPEEDS=[0.85,1,1.25,1.5,1.75,2], SPEED=1; function setSpeed(v){ SPEED=v; } var SOUNDS=true; function earcon(){} %LUNORM%
 var calls = [];
 var reply = null;
 async function rpc(method, params){ calls.push(params.arguments); return { result: reply(params) }; }
@@ -71,6 +72,19 @@ var out = {};
   out.cmd = { off: localCommand("Stop the commentary"), on: localCommand("alexa, start commentary"),
     ordinary: localCommand("what's the score"), stopAlone: localCommand("stop") };
   out.saved = store.sideline_commentary;
+  log.length = 0;
+  out.extra = [localCommand("what can you do?"), localCommand("say that again")];
+  lastAnswer = "Pino was set up by Óscar Mingueza in the 56th minute. Lyon still lead.";
+  out.extra.push(localCommand("spell that"));
+  out.extra.push(
+    localCommand("how do you spell mingeza")); out.extra.push(localCommand("help me find the Lyon game"));
+  lastCut = { text:"Lyon lead 3-2. Pino scored in the 56th minute. Morton was booked.", said:"Lyon lead 3-2. Pino scored", at:Date.now() };
+  out.extra.push(localCommand("carry on"));
+  lastCut = null; FOLLOW = null; out.extra.push(localCommand("continue"));
+  out.extraSaid = log.filter(l=>l.indexOf("SAY")===0);
+  FOLLOW = { fixture_id: 9, home: "A", away: "B" };
+  out.speed = [localCommand("speak faster"), SPEED, localCommand("alexa slow down"), localCommand("slow down please"), SPEED,
+    localCommand("normal speed"), SPEED, localCommand("what is the fastest team"), localCommand("go faster")&&SPEED];
 
   // 8. typing: the microphone goes off, answers are not spoken
   log.length = 0; setTyping(true);
@@ -93,7 +107,8 @@ def main():
     if not node:
         print("skip  node is not installed: the commentary harness did not run")
         return
-    code = HARNESS.replace("%BLOCK%", _extract())
+    code = HARNESS.replace("%BLOCK%", _extract()).replace(
+        "%LUNORM%", PAGE[PAGE.index("function luNorm("):PAGE.index("function luKey(")])
     proc = subprocess.run([node, "-e", code], capture_output=True, text=True, timeout=30)
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout.strip().splitlines()[-1])
@@ -119,6 +134,17 @@ def main():
     assert out["cmd"] == {"off": True, "on": True, "ordinary": False, "stopAlone": False}, out["cmd"]
     assert out["saved"] == "on"
     print("ok  'stop commentary' and 'start commentary' are switches, handled without the model; other speech is not")
+
+    assert out["extra"] == [True, True, True, True, False, True, False], out["extra"]
+    said = out["extraSaid"]
+    assert said[0].startswith("SAY Ask me about any match") and said[1] == "SAY Ask me about any match" + said[0][len("SAY Ask me about any match"):], said
+    assert said[2] == "SAY Mingueza: M, I, N, G, U, E, Z, A." and said[3] == said[2], said
+    assert said[4] == "SAY Pino scored in the 56th minute. Morton was booked.", said
+    print("ok  'what can you do', 'say that again', 'spell that' and 'carry on' are answered on the page; 'carry on' resumes from the sentence it was cut in")
+    assert out["speed"] == [True, 1.25, True, True, 0.85, True, 1, False, 1.25], out["speed"]
+    print("ok  'speak faster', 'slow down' and 'normal speed' change her speed by voice; a question about the fastest team does not")
+    assert "el.playbackRate=SPEED" in PAGE and "m.time/SPEED" in PAGE and "u.rate=1.03*SPEED" in PAGE, "the speed reaches the audio, the highlights and the browser voice"
+    assert 'earcon("heard")' in PAGE and "function warnAloud" in PAGE, "a question taken is a tone; a microphone problem is spoken"
 
     on = out["typingOn"]
     assert on["typing"] is True and "stopListening" in on["log"] and "releaseMic" in on["log"], on

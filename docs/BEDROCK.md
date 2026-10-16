@@ -21,8 +21,8 @@ return, it is too late.
 | `catchup()` | Composition and prioritisation. The one that genuinely earns it. |
 | `milestones()` | A long absence, compressed to headlines plus an offer of detail. Called by `what_did_i_miss`. |
 | `translate()` | The same facts in another language or register (a listener can ask for one). |
-| The Claude MCP host, `/agent/chat` | Fetches `initialize` instructions and `tools/list` over MCP, gives Claude the live tool catalog, then executes Claude's `tools/call` selections over MCP. |
-| Nova 2 Sonic | speech in: a separate use of Bedrock, described in [SPEECH.md](SPEECH.md). |
+| The MCP host, `/agent/chat` (Amazon Nova Pro by default) | Fetches `initialize` instructions and `tools/list` over MCP, gives the model a shortlist from the live tool catalog, then executes its `tools/call` selections over MCP. |
+| Mistral Voxtral, then Nova 2 Sonic as the fallback | speech in: a separate use of Bedrock, described in [SPEECH.md](SPEECH.md). |
 
 **Deterministic, never a model**
 
@@ -80,24 +80,33 @@ Three rules keep the rest inside a listener's patience:
 
 1. Fast tools never touch Bedrock.
 2. Catch-up prompts are capped at 12 events.
-3. The provider caches for 12 seconds, so no tool waits on the football feed more than once.
+3. The provider caches what changes for seconds only (the scoreboard and a live match summary 5 s, most other reads
+   10 s by default), so the tools one question calls share one read of the feed.
 
-`max_attempts=1` on the boto3 client is intentional: a retry costs another request timeout. The one exception is the Bedrock MCP host, which retries **once**, after 0.6 s, when AWS answers at once with "capacity limit reached" or "slow down" (`ServiceUnavailableException`, `ThrottlingException`): that refusal is quick and the same request a moment later usually works. Any other error is not retried. The request ceiling is
-8 seconds. A first-ever precompute-and-cache design was built and then removed: it moved the model off the
+`total_max_attempts=1` on the boto3 client is intentional: a retry costs another request timeout (botocore's
+`max_attempts=1` would mean two tries). The exception is the Bedrock MCP host. It retries **once**, after 0.6 s, when AWS
+answers at once with "capacity limit reached" or "slow down" (`ServiceUnavailableException`, `ThrottlingException`). And
+`_ask` in `simulator/agent.py` tries once more after a read timeout, a throttle or `ServiceUnavailable`, because the first
+question of a session failed that way in the logs. Any other error is not retried. The request ceiling is
+8 seconds, so the worst case is two timeouts. A first-ever precompute-and-cache design was built and then removed: it moved the model off the
 listener's clock but was only ever tested against a simulated model, and the honest statement is that a catch-up
 takes about two seconds.
 
-## The Claude MCP host
+## The MCP host
 
 The simulator posts the listener's transcript to `/agent/chat`. The server resolves what they meant
 ([SPEECH.md](SPEECH.md)), then discovers the MCP `initialize` instructions and `tools/list` catalog over
-[`simulator/mcp_client.py`](../simulator/mcp_client.py). It passes the complete discovered descriptions and input schemas
-to Bedrock Converse up front. Claude decides whether and what to call; selected tools are executed through the
-same server's `/mcp` endpoint, with protocol sessions and server-side schema validation. Tool results return to
-Claude for its answer. The prompt contains general grounding and spoken-response guidance, not phrase-to-tool rules.
+[`simulator/mcp_client.py`](../simulator/mcp_client.py). It passes a shortlist of the discovered tools, with their full
+descriptions and input schemas, to Bedrock Converse: four core tools plus up to four that match the question's words
+(`_select_candidate_tools`). The model (Amazon Nova Pro by default) decides whether and what to call; selected tools are
+executed through the same server's `/mcp` endpoint, with protocol sessions and server-side schema validation. Tool
+results return to the model for its answer. The prompt contains general grounding and spoken-response guidance, not
+phrase-to-tool rules. If the model answers a fact question with no tool, the next call must use one (`toolChoice: any`).
+Some plain questions ("what's the score") skip the model: a fast path (`_try_fast_path`) matches the whole question to a
+fixed pattern and runs one read-only tool; if it fails, the model answers instead.
 
 Bedrock is a model API, not an MCP client: a host must do this discovery and dispatch. Any other
-MCP-capable host can connect directly to `/mcp` and provide Claude (or another model) with the same tool catalog.
+MCP-capable host can connect directly to `/mcp` and give its model the same tool catalog.
 
 Conversation context is four layers, each small and bounded, and none is persisted across restarts:
 
@@ -114,12 +123,13 @@ Conversation context is four layers, each small and bounded, and none is persist
    what they say next is read as a follow-up to them.
 
 The durable context, which team is followed, what has been told (`last_told_at`), the broadcast delay, favourites and
-time zone, lives in the state store and survives restarts. The model never receives AWS credentials. The agent is told to answer in at most two
-short sentences, never to narrate, and never to promise to keep the listener updated (the server cannot speak
-first).
+time zone, lives in the state store and survives restarts. The model never receives AWS credentials. The agent is told to answer in 1 to 3 short,
+complete sentences unless asked for more, never to narrate, and never to promise to keep the listener updated (the
+server cannot speak first). The answer is then capped by the listener's detail level: one sentence for brief, three by
+default, five for full.
 
-For Claude, `what_did_i_miss` returns its structured event facts, not a prewritten paragraph (a header asks for
-this): Claude is itself an LLM and would only paraphrase a paragraph, at the cost of a second model call.
+For the host, `what_did_i_miss` returns its structured event facts, not a prewritten paragraph (a header asks for
+this): the host model is itself an LLM and would only paraphrase a paragraph, at the cost of a second model call.
 
 ## Model choice
 
@@ -171,8 +181,12 @@ What the Bedrock code calls (the full policy, with Polly and DynamoDB, is in [AW
 {"Effect": "Allow",
  "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
             "bedrock:InvokeModelWithBidirectionalStream"],
- "Resource": "arn:aws:bedrock:*::foundation-model/amazon.nova-*"}
+ "Resource": ["arn:aws:bedrock:*::foundation-model/amazon.nova-*",
+              "arn:aws:bedrock:*::foundation-model/mistral.*"]}
 ```
+
+`mistral.*` is for Voxtral (speech in). A Claude model set through `SIDELINE_BEDROCK_MODEL` needs its own resource;
+[AWS_SETUP.md](AWS_SETUP.md) uses `foundation-model/*` plus inference profiles, which covers all of them.
 
 The agent uses `InvokeModel` or the streaming call; the catch-up uses `InvokeModelWithResponseStream`; Nova Sonic uses
 the bidirectional stream. No `bedrock:*`.

@@ -16,6 +16,7 @@ def _names(players):
     return ", ".join(p["name"] if not p.get("number") else "%s, number %s" % (p["name"], p["number"]) for p in players)
 
 
+_FOOTBALL_WORDS = ("attacker", "defender", "midfielder", "striker", "forward")
 _SYNONYMS = {"goalkeeper": ("goalie", "goaltender"), "keeper": ("goalie", "goaltender"), "goalie": ("goalie", "goaltender"),
              "qb": ("quarterback",), "defender": ("defens", "back", "linebacker", "safety"), "defenseman": ("defense",),
              "forward": ("forward", "wing", "center"), "striker": ("forward",), "receiver": ("receiver",), "rb": ("running back",)}
@@ -27,6 +28,8 @@ def _other_sport(s, players, position):
     if position:
         words = (position,) + _SYNONYMS.get(position, ())
         mine = [p for p in players if any(w in (p.get("position") or "") for w in words)]
+        if not mine and position in _FOOTBALL_WORDS:                 # a football word for another sport: say what the team has instead
+            return _other_sport(s, players, "")
         if not mine:
             raise ToolError("I don't have any %s listed for %s." % (position, team),
                             {"reason": "no_match", "team": team, "position": position})
@@ -45,6 +48,10 @@ def _other_sport(s, players, position):
 def run(ctx, args, listener_id):
     team = (args.get("team") or "").strip()
     position = (args.get("position") or "").strip().lower()
+    for word in ("quarterback", "goalkeeper", "goalie", "pitcher", "defenders", "midfielders", "forwards", "strikers", "receivers"):
+        if not position and team.lower().endswith(" " + word):       # "Broncos quarterback" said as one name
+            team, position = team[:-len(word) - 1].strip(), word
+            break
     if not team:
         fid = ctx.store.listener(listener_id).get("following")
         fx = (ctx.store.fixture(fid) or {}) if fid else {}

@@ -33,7 +33,7 @@ def main():
     assert "document.hidden" in refresh and "clearInterval(cardT)" in refresh, "it pauses when hidden and stops at full time"
     assert "folstop" not in src, "no stop button: the card goes by itself when the talk moves on, and 'stop following' is said"
     assert 'item.name==="follow_match" && sc.stopped' in src and "stopFollowing()" in src
-    render = src[src.index("function renderAgentAnswer"):src.index("function renderAgentAnswer") + 3500]
+    render = src[src.index("function renderAgentAnswer"):src.index("async function ask(")]
     assert "cardHidden=!(result.tool_results||[]).some(" in render and "else hideMatch();" in render, \
         "a followed match shows for a question about it, and not for one about something else"
     assert "sc.fixture_id!=null && String(sc.fixture_id)!==String(FOLLOW.fixture_id)" in src, "another match asked about does not take the card over"

@@ -1,8 +1,10 @@
 # Environment variables
 
-Every variable the code reads, and nothing else. This page, `.env.example`,
-`config.VARIABLES` (what `make env` prints) and the code itself name exactly the
-same set; `tests/test_environment.py` fails if they ever differ.
+Every variable the code reads, and nothing else. This page, `config.VARIABLES`
+(what `make env` prints) and the code itself name exactly the same set.
+`.env.example` is a subset on purpose: only what someone sets, every secret blank.
+`tests/test_environment.py` fails if the three differ or if `.env.example` names
+anything that is not a real setting.
 
 **Precedence, highest first:** a real environment variable (a shell `export`), then
 the `.env` file in the repo root (`cp .env.example .env`; git-ignored, blank values
@@ -43,14 +45,14 @@ has nothing to answer with and listener state is kept in memory.
 | `SIDELINE_BEDROCK_MODEL` | `amazon.nova-pro-v1:0` | Bedrock model or inference-profile id. |
 | `SIDELINE_STATE` | `auto` | auto (DynamoDB if it answers, else memory), memory, or dynamo. |
 | `SIDELINE_TABLE` | `sideline` | DynamoDB table name. |
-| `GROQ_API_KEY` | *(none)* | Groq API key for Whisper Large v3 Turbo speech-to-text (~200ms). **Secret.** |
-| `SIDELINE_TTS` | `auto` | Speech out: auto, browser (<15ms), cartesia (~60ms), elevenlabs (~75ms), or polly. |
-| `CARTESIA_API_KEY` | *(none)* | Cartesia API key for Sonic TTS (~60ms with word timestamps). **Secret.** |
-| `ELEVENLABS_API_KEY` | *(none)* | ElevenLabs API key for Flash v2.5 TTS (~75ms with timestamps). **Secret.** |
+| `GROQ_API_KEY` | *(none)* | Groq API key for Whisper Large v3 Turbo speech-to-text, used only with `SIDELINE_STT=groq`. Latency not measured by us. **Secret.** |
+| `SIDELINE_TTS` | `auto` | Speech out: auto (Polly with AWS credentials, else the browser's voice), browser, cartesia, elevenlabs, or polly. Cartesia and ElevenLabs are used only when named; their latency was not measured by us. |
+| `CARTESIA_API_KEY` | *(none)* | Cartesia API key for Sonic TTS (with word timestamps), used only with `SIDELINE_TTS=cartesia`. **Secret.** |
+| `ELEVENLABS_API_KEY` | *(none)* | ElevenLabs API key for Flash v2.5 TTS (with timestamps), used only with `SIDELINE_TTS=elevenlabs`. **Secret.** |
 | `ELEVENLABS_VOICE_ID` | `21m00Tcm4TlvDq8ikWAM` | ElevenLabs voice ID (default: Rachel / conversational). |
 | `SIDELINE_POLLY_VOICE` | `Amy` | Polly voice (speech out). |
 | `SIDELINE_POLLY_ENGINE` | `generative` | Polly engine: generative (most natural, falls back to neural) or neural. |
-| `SIDELINE_STT` | `auto` | Speech in: auto (Groq, then Voxtral/Sonic on Bedrock), groq, voxtral, sonic, or off. |
+| `SIDELINE_STT` | `auto` | Speech in: auto (Voxtral, then Nova Sonic, both on Bedrock), voxtral, sonic, groq (only when named), or off. |
 | `SIDELINE_WEATHER` | `on` | on adds the weather at the ground to a match preview (city and country go to Open-Meteo); off does not. |
 | `SIDELINE_LIVE_CAPTION` | `off` | browser types interim words while you speak (audio also reaches the browser vendor); off does not. |
 
@@ -67,17 +69,15 @@ has nothing to answer with and listener state is kept in memory.
   what it heard). A new file starts each day and files older than `SIDELINE_LOG_KEEP_DAYS` are deleted. No audio is
   ever recorded, and any secret from the environment is replaced with `***` wherever it would appear. The folder is
   local and git-ignored; `off` turns it all off. `make log-report` summarises it.
-- **`SIDELINE_POLL_SECONDS`.** One followed match costs about one request per poll
-  (the fixture response carries its events and line-ups). The free plan allows 180 calls an
-  hour per kind of data, and every question that looks up a match shares that same bucket. The
-  interval applies only while a match is in play: 30 s (the default) uses two thirds of the hour and leaves 60 for
-  questions, 60 s a third. A match that has not started is checked every 5 minutes until ten minutes before kick-off,
-  and a finished one is read once, so setting up, past matches and static data cost almost nothing. The server warns at
-  startup when the interval takes more than half. Following two live matches doubles the cost.
-- **AWS credentials.** Any one of: the key pair, a profile, or (Bedrock only) a Bedrock API
-  key. Temporary credentials also need `AWS_SESSION_TOKEN`, which boto3 reads itself. An
-  instance role is not detected automatically: set `SIDELINE_BEDROCK=on` and
-  `SIDELINE_STATE=dynamo` yourself.
+- **`SIDELINE_POLL_SECONDS`.** One followed match costs about one request per poll. The feed is ESPN's public
+  endpoints, which publish no rate limit. The interval applies only while a match is in play. A match that has not started is checked every 5 minutes until ten
+  minutes before kick-off, and a finished one is read once, so setting up, past matches and static data cost almost
+  nothing. Following two live matches doubles the cost.
+- **AWS credentials.** `auto` turns Bedrock on only when the key pair is set
+  (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; `config.aws_credentials`). Temporary
+  credentials also need `AWS_SESSION_TOKEN`, which boto3 reads itself. A profile or an
+  instance role is not detected: set `SIDELINE_BEDROCK=on` and `SIDELINE_STATE=dynamo`
+  yourself, and boto3 resolves the credentials. Sideline reads no Bedrock API key setting.
 - **`SIDELINE_BEDROCK`.** When Bedrock is on, a failure is reported to the listener and never
   replaced with canned wording. When it is off, the deterministic templates are used and the
   response says `generated_by: template`.
@@ -86,7 +86,7 @@ has nothing to answer with and listener state is kept in memory.
   city cannot be placed with confidence, or the service is down, the preview leaves the weather out. It never guesses.
 - **`SIDELINE_LIVE_CAPTION`.** The page can type your words while you speak, using the browser's
   own recognition on the side, because server recognition only returns text once the clip ends.
-  That audio also reaches the browser vendor. `off` avoids it.
+  That audio also reaches the browser vendor, so the default is `off`; set `browser` to turn it on.
 - **TLS on macOS.** python.org's Python ships without a CA bundle until you run "Install
   Certificates.command"; `sideline/tls.py` finds a real bundle and always verifies. It never
   disables verification.

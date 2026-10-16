@@ -52,10 +52,12 @@ would be glad to test it. Until then we can only build to the documented require
 **Used for** The server itself ([sideline/mcp/server.py](../sideline/mcp/server.py)),
 written with the standard library, no SDK.
 
-**Evidence** `tests/test_mcp_protocol.py` passes nine checks: initialize
-and session id, notification gets 202 with no body, `tools/list`, a tool
-call, invalid-params rejection, method-not-found, unknown session gets 404,
-batch requests, and DELETE ends the session. `tests/test_mcp_client.py` adds
+**Evidence** `tests/test_mcp_protocol.py` passes ten checks: initialize
+and session id, notification gets 202 with no body, `tools/list` with every
+tool described, every tool declaring its read-only / idempotent / open-world
+hints, a tool call, a bad argument coming back as an `isError` result (not a
+protocol error), method-not-found, unknown session gets 404, batch requests
+rejected, and DELETE ends the session. `tests/test_mcp_client.py` adds
 that the voice agent's tool calls really cross the endpoint. These are *our own* conformance
 tests, written from our reading of the spec; no official suite was run
 (none was found).
@@ -103,6 +105,23 @@ unnecessary. The access flow could say more plainly which models are ready to us
 **Onboarding** Short. Most of the time went on working out the credential difference above; after that it was one call.
 **Would we build with it again?** Yes. It is the part Alexa+ cannot do for us: turning a stretch of match events
 into one spoken paragraph.
+
+### 3a. Bedrock Converse: "Service capacity limit has been reached"
+
+On Nova Micro, `converse` sometimes failed at once with `ServiceUnavailableException: Service capacity limit has been reached. Please
+try again later.` (seen on several of our runs of a few hundred calls, a few seconds apart from calls that succeeded). With the client
+set to no retries (a retry after a timeout doubles a voice user's wait) that is one failed answer. We retry once after 0.6 s for that
+error and the throttling errors only. **Suggestion** Document whether the capacity error is expected on on-demand Nova models, and
+which retry policy to use for a latency-bound voice caller: retry fast refusals, never timeouts. (Since then the agent also retries once on a read timeout, because a single timeout was failing the first question of a session: FL-18.)
+
+### 3b. Bedrock prompt caching on Nova Micro (tried, not usable for tools)
+
+**Tried for** cutting the latency of a request that repeats about 7,800 input tokens of tool definitions every turn. A
+`cachePoint` in `toolConfig.tools` is refused on `amazon.nova-micro-v1:0`: `Malformed input request: #/toolConfig/tools/26:
+extraneous key [cachePoint] is not permitted`. A cache point in `system` is accepted by the API, but the system text is the small
+part of the prompt, so nothing worth caching. A warm call was 0.75 s without it. **Suggestion** Allow a cache point after the
+tools on Nova Micro, or say in the Converse documentation that it is not supported there: for a tool-using voice agent the
+tool list is the whole prompt.
 
 ## 4. Amazon DynamoDB
 
@@ -185,33 +204,6 @@ invented score. Working out why took a controlled comparison, and the documentat
 **Would we build with it again?** Yes, with the guard, and with a dedicated transcription mode we would not need it. Being
 level with a specialised recogniser inside the account is the reason we dropped the third party entirely.
 
-### 3a. Bedrock Converse: "Service capacity limit has been reached"
-
-On Nova Micro, `converse` sometimes failed at once with `ServiceUnavailableException: Service capacity limit has been reached. Please
-try again later.` (seen on several of our runs of a few hundred calls, a few seconds apart from calls that succeeded). With the client
-set to no retries (a retry after a timeout doubles a voice user's wait) that is one failed answer. We retry once after 0.6 s for that
-error and the throttling errors only. **Suggestion** Document whether the capacity error is expected on on-demand Nova models, and
-which retry policy to use for a latency-bound voice caller: retry fast refusals, never timeouts.
-
-### 3b. Bedrock prompt caching on Nova Micro (tried, not usable for tools)
-
-**Tried for** cutting the latency of a request that repeats about 7,800 input tokens of tool definitions every turn. A
-`cachePoint` in `toolConfig.tools` is refused on `amazon.nova-micro-v1:0`: `Malformed input request: #/toolConfig/tools/26:
-extraneous key [cachePoint] is not permitted`. A cache point in `system` is accepted by the API, but the system text is the small
-part of the prompt, so nothing worth caching. A warm call was 0.75 s without it. **Suggestion** Allow a cache point after the
-tools on Nova Micro, or say in the Converse documentation that it is not supported there: for a tool-using voice agent the
-tool list is the whole prompt.
-
-### 5c. Amazon Bedrock, Titan Text Embeddings v2 (tried, not used)
-
-**Tried for** choosing which of the tools to show the model: embed the question and each tool's documented phrasings, offer the
-nearest few. It runs on the account with no extra setup (`amazon.titan-embed-text-v2:0`, 256 dimensions, normalised). On 47
-questions written to avoid the words in the tool descriptions it put the right tool in the top 8 for 42 of 47, about 0.5 s a
-question warm; combined with word matching, 44 of 47. Too many misses to use as a filter and too slow to add to every turn, so
-it is **not in the product** ([FINDER.md](FINDER.md), "Tried and rejected"). The result is worth stating because it is
-tempting: embeddings found "who has the armband" for the squad tool but missed "anyone hurt for Celtic" for injuries. **Would
-we use it again?** For a much larger tool list, or as a suggestion to the model, not as a hard filter.
-
 ### 5b. Amazon Bedrock, Nova 2 Sonic (speech in, fallback)
 
 **Used for** Hearing the listener when Voxtral cannot ([simulator/voice.py](../simulator/voice.py)): audio streamed in,
@@ -219,8 +211,8 @@ transcript read back. Full numbers and method: [SPEECH.md](SPEECH.md).
 
 **Status: verified with real calls, 2026-10-13.** From the Polly-spoken test
 set, 17 of 24 clips exact on a first run; in the later head-to-head 8.5% word
-error in noise and 4.2 s per clip, behind Voxtral's 2.6% and 1.2 s on the same
-clips. The newer Nova 2.5 Sonic gave 3.4 s and 8% on a six-clip sample: a little quicker, no more accurate. Names it got right included Ødegaard and Bellerín; it misheard
+error in noise and 4.2 s per clip, behind Voxtral's 1.4% and 0.8 s on the same
+clips (the shipped configuration, [SPEECH.md](SPEECH.md)). The newer Nova 2.5 Sonic gave 3.4 s and 8% on a six-clip sample: a little quicker, no more accurate. Names it got right included Ødegaard and Bellerín; it misheard
 Alderweireld and, in noise, Saka.
 
 **What worked well** It transcribes: the user's words come back as text events
@@ -246,9 +238,19 @@ rest of Bedrock.
 **Onboarding** A first transcript took a few attempts, mostly the points above, and then it was dependable.
 
 **Would we build with it again?** Yes, as the in-account fallback: it is accurate on names and needs no extra vendor. It
-is about three times slower than Voxtral (we stream 2 s of silence so it knows the clip has ended), so it is second. A plain
+is about five times slower than Voxtral (4.2 s against 0.8 s a clip) (we stream 2 s of silence so it knows the clip has ended), so it is second. A plain
 transcription mode, with no silence to wait for, would make it the obvious default. The SDK also said "awscrt is not
 installed" when it was, on a new Python (FL-16).
+
+### 5c. Amazon Bedrock, Titan Text Embeddings v2 (tried, not used)
+
+**Tried for** choosing which of the tools to show the model: embed the question and each tool's documented phrasings, offer the
+nearest few. It runs on the account with no extra setup (`amazon.titan-embed-text-v2:0`, 256 dimensions, normalised). On 47
+questions written to avoid the words in the tool descriptions it put the right tool in the top 8 for 42 of 47, about 0.5 s a
+question warm; combined with word matching, 44 of 47. Too many misses to use as a filter and too slow to add to every turn, so
+it is **not in the product** ([FINDER.md](FINDER.md), "Tried and rejected"). The result is worth stating because it is
+tempting: embeddings found "who has the armband" for the squad tool but missed "anyone hurt for Celtic" for injuries. **Would
+we use it again?** For a much larger tool list, or as a suggestion to the model, not as a hard filter.
 
 ## 6. Sportmonks (our first live football feed, replaced by ESPN on 2026-10-14): hands-on findings
 
@@ -301,7 +303,8 @@ about a live match, which is how we learned to read the live minute from the mat
 - Hockey, NFL and basketball events come as plays in a different shape from football's key events, so those sports'
   match reports are thinner.
 - It can change without notice. We cache, share simultaneous requests, report an unreachable feed as an error, and keep
-  saved real responses as test fixtures, so a change shows up as a failing test.
+  trimmed copies of real responses as test fixtures (with ESPN's own editorial text replaced by labelled invented text),
+  so a change in shape shows up as a failing test.
 
 **Onboarding** About an hour to the first answer; two days to know the traps above, most of it in the first day.
 

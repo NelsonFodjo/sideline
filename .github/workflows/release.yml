@@ -1,0 +1,38 @@
+name: Release
+
+# Push a tag such as v1.0.0: the suite runs, then a GitHub Release is published with the MCP server on its own
+# (sideline-mcp-<tag>.zip, the sideline/ folder: standard-library Python, nothing to install) and the whole repository.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Offline test suite
+        env:
+          SIDELINE_LOG_DIR: "off"
+        run: make test
+      - name: Package
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          zip -qr "sideline-mcp-${TAG}.zip" sideline LICENSE README.md -x "*/__pycache__/*"
+          git archive --format=zip --prefix="sideline-${TAG}/" -o "sideline-full-${TAG}.zip" HEAD
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" sideline-mcp-*.zip sideline-full-*.zip \
+            --title "Sideline ${GITHUB_REF_NAME}" --generate-notes

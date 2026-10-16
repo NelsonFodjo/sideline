@@ -60,15 +60,15 @@ blindness or about phone use that is not in the repository, a claim that it runs
 <h2>2. The story, second by second</h2>
 <table>
 <tr><th style="width:15%">Time</th><th style="width:34%">On screen</th><th>Narration</th></tr>
-<tr><td>0:00 to 0:20</td><td>Three quick cuts of faces (or silhouettes): hands in a kitchen, a car dashboard, a person with a white cane. Then the simulator's idle eye.</td><td>The problem, as above.</td></tr>
-<tr><td>0:20 to 0:32</td><td>Terminal showing <code>MCP endpoint: http://127.0.0.1:8765/mcp</code>, then the page (<code>01-go-live</code>).</td><td><span class="say">"Sideline is an MCP server: thirty tools, live data, and a memory of what each listener has heard. This page only simulates Alexa+ so you can talk to it. Everything you see is the MCP."</span></td></tr>
+<tr><td>0:00 to 0:20</td><td>Three quick cuts of faces (or silhouettes): hands in a kitchen, a car dashboard, a person with a white cane. Shoot them yourself: no stock footage, no car badge or brand in frame. Then the simulator's idle eye.</td><td>The problem, as above.</td></tr>
+<tr><td>0:20 to 0:32</td><td>Terminal showing <code>MCP endpoint: http://127.0.0.1:8765/mcp</code>, then the page (<code>01-go-live</code>).</td><td><span class="say">"Sideline is an MCP server: thirty tools, live data, and a memory of what each listener has heard. This page only simulates Alexa+. Everything you see is the MCP."</span></td></tr>
 <tr><td>0:32 to 1:20</td><td>Football, live voice. See section 3, questions 1 to 6.</td><td>One short sentence in each gap. Silent while she thinks.</td></tr>
 <tr><td>1:20 to 1:48</td><td><b>"Any game"</b> montage. See section 4.</td><td><span class="say">"Same server. Different game."</span></td></tr>
 <tr><td>1:48 to 2:16</td><td>The explainer animation (<code>ANIMATION_PROMPT.md</code>), 28 s of it.</td><td>The animation narration.</td></tr>
 <tr><td>2:16 to 2:30</td><td>Press Alt+D: the Dev log. Scroll the last answer: tool, arguments, feed requests, timings.</td><td><span class="say">"Every answer is traceable: which tool, which arguments, how long, how many feed requests."</span></td></tr>
-<tr><td>2:30 to 2:48</td><td>Plain card, white on dark, no logos: the repository address; "61 offline test suites, 28-entry friction log, routing 77/79 on Nova Pro". Then the three service names as text.</td><td><span class="say">"Built on Amazon Bedrock, Polly and DynamoDB. The tests, the friction log and the limits are in the repository. It isn't on real Alexa+ yet, because that tooling is partner-only. It is built to be hosted and connected when it is."</span></td></tr>
+<tr><td>2:30 to 2:48</td><td>Plain card, white on dark, no logos: the repository address; "68 offline test suites, 28-entry friction log, routing 77/79 on Nova Pro". Then the three service names as text.</td><td><span class="say">"Built on Amazon Bedrock, Polly and DynamoDB. The tests, the friction log and the limits are in the repository. It isn't on real Alexa+ yet, because that tooling is partner-only. It is built to be hosted and connected when it is."</span></td></tr>
 </table>
-<p>Leave 5 seconds of slack. If you run long, cut the Dev log shot or part of the montage, never a football question.</p>
+<p>Leave 5 seconds of slack. If you run long, cut the Dev log shot or part of the montage before a football question.</p>
 
 <h2 class="pb">3. The live football section (0:32 to 1:20)</h2>
 <p>Everything here is spoken aloud with hands off the keyboard. Use the real match you chose on the day (<code>make next-matches</code>; a finished match from
@@ -81,7 +81,7 @@ The names below are from the verified run (Lyon 3-2 Crystal Palace, Europa Leagu
 <tr><td>3</td><td>"Who assisted Pino's goal?"</td><td>A single sentence naming the assist (this used to answer about the wrong goal; it is fixed and tested).</td><td>"It answers the question I asked."</td></tr>
 <tr><td>4</td><td>"Show me the line-ups."</td><td>The pitch (<code>10-lineups</code>): home left, away right, shapes, goalkeepers, benches, the ground and the date above.</td><td>"A whole screen from one sentence."</td></tr>
 <tr><td>5</td><td>"My TV is about forty seconds behind." then "What's the score?"</td><td>It confirms the delay; the score holds back anything your picture hasn't shown. The timeline shows the live edge.</td><td>"It won't spoil a goal your TV hasn't shown."</td></tr>
-<tr><td>6</td><td>(live match only) say nothing for 12 seconds</td><td>Commentary starts by itself, a line or two at a time. Interrupt it with "stop".</td><td>"It keeps me posted, and I can interrupt."</td></tr>
+<tr><td>6</td><td>(live match only) say nothing for about half a minute</td><td>Commentary starts by itself, a line or two at a time, if the feed has new lines (it waits 10 s after you last spoke, then checks every 12 s). Interrupt it with "stop".</td><td>"It keeps me posted, and I can interrupt."</td></tr>
 </table>
 <div class="shots">
 <figure><img src="screenshots/02-following-a-match.png"><figcaption>02: following a match. A bare strip, the eye clear.</figcaption></figure>
@@ -148,7 +148,7 @@ Because the view only ever speaks MCP, the same server works with any client.</d
 <li>Clean browser window, no bookmarks bar, one tab, zoom 125%. Allow the microphone once. Turn off notifications, close anything with a logo.</li>
 <li>Hide <code>.env</code> and any terminal that prints keys. Settings: leave defaults (the wake word is off, so she answers whatever she hears; commentary on).</li>
 <li>Record the screen at 1080p, your own voice as narrator, microphone close, <b>no music</b>. Keep the browser's audio: her voice is part of the demo.</li>
-<li>Ask each question aloud, hands off the keyboard, and pause 2 seconds after each answer. Stay silent while she thinks: the wait is the evidence (2 to 4 seconds for a model answer, under 1 for a plain score).</li>
+<li>Ask each question aloud, hands off the keyboard, and pause 2 seconds after each answer. Stay silent while she thinks: the wait is the evidence (about 3.5 to 5 seconds for a model answer, measured in <code>docs/SPEECH.md</code>; a plain score can skip the model and come sooner).</li>
 <li>If an answer is wrong or throttled, say nothing, stop, and retake the question. A faked take is worse than a second one. Never speed up or splice an answer.</li>
 </ol>
 <h3>After recording</h3>

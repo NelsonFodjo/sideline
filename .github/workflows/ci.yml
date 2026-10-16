@@ -1,17 +1,73 @@
-name: ci
-on: [push, pull_request]
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Tests · Python ${{ matrix.python }} · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
-        python: ["3.8", "3.12"]
+        os: [ubuntu-latest]
+        python: ["3.8", "3.10", "3.12", "3.13"]
+        include:
+          - os: macos-latest
+            python: "3.12"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      # The suite needs no network, no credentials and no install: the server is
-      # standard-library Python. (Node is preinstalled; it runs the browser-side
-      # speech detector's tests.)
-      - run: make test
+      # Node runs the page's own JavaScript (the speech detector, the strip, the line-ups) in the browser-side tests.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # No install step: the server is standard-library Python and the suite needs no network and no credentials.
+      # SIDELINE_LOG_DIR=off keeps the run from writing log files.
+      - name: Offline test suite
+        env:
+          SIDELINE_LOG_DIR: "off"
+        run: make test
+
+  standalone:
+    name: The MCP alone (sideline/ copied to an empty folder)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile every module
+        run: python -m compileall -q sideline simulator scripts
+      - name: Start sideline/ on its own and list its tools
+        run: |
+          mkdir -p /tmp/alone && cp -r sideline /tmp/alone/
+          cd /tmp/alone
+          SIDELINE_LOG_DIR=off SIDELINE_PORT=8799 python -m sideline > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:8799/health && break; sleep 1; done
+          curl -sf localhost:8799/health | python -c "import json,sys; d=json.load(sys.stdin); print(d); assert d['ok'] and d['tools']==30"
+
+  docs:
+    name: Docs · links resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python scripts/check_links.py

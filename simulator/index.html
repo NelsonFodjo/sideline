@@ -572,6 +572,37 @@ body.contrast .answer{color:#fff}
 @media (max-width:760px){.hud .team{letter-spacing:.06em}}
 .answer.leaving{opacity:0 !important;transition:opacity .25s var(--ease)}
 #wakeToggle{margin-left:8px}
+
+/* what she is doing, in two words: the tones say it to the ear, this says it to the eye */
+.status{height:18px;margin:2px 0 4px;font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);opacity:0;transition:opacity .35s var(--ease)}
+.status.on{opacity:.9}
+body.large .status{font-size:15px;height:22px}
+/* the first run: three things to try, gone after the first question */
+#chips{position:fixed;left:50%;bottom:60px;transform:translateX(-50%);z-index:7;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;
+  width:max-content;max-width:calc(100vw - 32px);opacity:0;pointer-events:none;transition:opacity .6s var(--ease)}
+#chips.on{opacity:1;pointer-events:auto}
+#chips button{font:500 14px/1 inherit;font-family:inherit;padding:9px 14px;border-radius:999px;border:1px solid var(--card-line);
+  background:rgba(10,20,40,.55);color:var(--white);cursor:pointer}
+#chips button:hover,#chips button:focus-visible{border-color:var(--cyan);outline:none}
+body.typing #chips{bottom:116px}
+@media (max-width:640px){#chips{display:none}}          /* the phone layout is not done yet: no chips rather than chips on top of the footer */
+body.contrast #chips button{background:#000;border-color:#fff}
+/* a score change: the side that scored glows for a moment */
+.hud .team.scored{animation:scored 2.6s var(--ease)}
+@keyframes scored{0%{color:var(--warm);text-shadow:0 0 0 transparent}18%{color:var(--warm);text-shadow:0 0 22px var(--warm)}100%{text-shadow:0 0 0 transparent}}
+/* the spoiler guard, visible: the live edge says how far ahead of your picture it is */
+.hud .bar .edge .edgetag{position:absolute;bottom:18px;left:-1px;transform:translateX(-50%);font-size:11px;letter-spacing:.06em;color:var(--hot);white-space:nowrap}
+.hud .bar .edge .edgetag.r{transform:translateX(-100%)}
+/* "what did I miss": the events are labelled as the ones since you last asked */
+.hud .pills .since{flex-basis:100%;text-align:center;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+/* a player she names lights up on the line-ups */
+#lineup .lu-p.lit b{box-shadow:0 0 0 3px var(--warm),0 0 24px var(--warm);transform:scale(1.14);transition:transform .3s var(--spring)}
+#lineup .lu-p.lit .n{color:var(--warm)}
+#lineup li.lit{color:var(--warm)}
+/* demo mode (Alt+R): nothing on screen but the product */
+body.demo .wire,body.demo #histbtn,body.demo #devbtn,body.demo .brand span{visibility:hidden}
+body.demo,body.demo *{cursor:none !important}
+body.demo #chips{display:none}
 </style>
 </head>
 <body data-mode="idle">
@@ -606,7 +637,7 @@ body.contrast .answer{color:#fff}
     <div class="bar" id="bar">
       <div class="rail"></div><div class="played" id="played"></div>
       <div class="gap" id="gap"></div><div class="told" id="toldmark"></div>
-      <div class="now" id="nowdot"></div><div class="edge" id="edge"></div>
+      <div class="now" id="nowdot"></div><div class="edge" id="edge"><span class="edgetag" id="edgetag"></span></div>
     </div>
     <div class="pills" id="pills"></div>
     <div class="info" id="matchinfo"></div>
@@ -618,6 +649,7 @@ body.contrast .answer{color:#fff}
   <main class="stage">
     <div class="inner">
       <div class="said" id="said" aria-hidden="true"></div>
+      <div class="status" id="status" aria-hidden="true"></div>
       <div class="answer quiet" id="answer" aria-hidden="true"></div>
     </div>
   </main>
@@ -642,6 +674,8 @@ body.contrast .answer{color:#fff}
       <button id="commToggle" type="button" class="sub-toggle-btn" aria-pressed="true" title="Live commentary: while you follow a match she reads the play out as it happens. Say &ldquo;stop commentary&rdquo; or &ldquo;start commentary&rdquo;.">
       <span id="commLabel">Commentary: ON</span>
     </button>
+      <button id="speedBtn" type="button" class="sub-toggle-btn" title="How fast she speaks. Also: say &ldquo;speak faster&rdquo;, &ldquo;slow down&rdquo; or &ldquo;normal speed&rdquo;."><span id="speedLabel">Speech speed: 1&times;</span></button>
+      <button id="soundBtn" type="button" class="sub-toggle-btn" aria-pressed="true" title="Short tones: one when she has heard you, one when the microphone needs attention."><span id="soundLabel">Sounds: ON</span></button>
       <button id="commDetail" type="button" class="sub-toggle-btn" aria-pressed="true" title="Which commentary she reads out: key moments (goals, cards, substitutions, VAR, big saves) or every line the feed has."><span id="commDetailLabel">Commentary lines: KEY MOMENTS</span></button>
     </div>
     <button id="settingsBtn" type="button" class="sub-toggle-btn" aria-expanded="false" aria-controls="settings" title="Settings">
@@ -652,6 +686,7 @@ body.contrast .answer{color:#fff}
     </button>
     <span class="stack" id="stack"></span>
   </footer>
+  <div id="chips" role="group" aria-label="Things to try"></div>
   <form id="typebar" autocomplete="off">
     <input id="typein" type="text" placeholder="Type to Alexa and press Enter" aria-label="Type your question" enterkeyhint="send">
     <button id="typesend" type="submit">Send</button>
@@ -807,6 +842,11 @@ var MIC_CONSTRAINTS={audio:{
 /* Everything a sighted listener reads on screen also goes to the screen reader's live region:
    answers, and status lines too (paused, can't reach the server, switching recognition). */
 var srT=null;
+/* A microphone problem is said aloud as well as shown: the person who needs to hear it cannot see the page. */
+function warnAloud(t){
+  announce(t); earcon("warn");
+  try{ if("speechSynthesis" in window){ speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(t)); } }catch(e){}
+}
 function announce(t){
   var sr=$("sr"); if(!sr||!t) return;
   clearTimeout(srT);
@@ -858,9 +898,46 @@ var MODE="idle";   // idle | listening | thinking | speaking
 var ripples=[];
 function setMode(m){
   if(m===MODE) return;
+  var was=MODE;
   MODE=m;
+  if(m==="thinking"&&was!=="thinking") earcon("heard");
+  setStatus(m==="thinking"?"Checking":m==="listening"&&!TYPING?"Listening":"");
   document.body.setAttribute("data-mode",m);
   if(!REDUCED) ripples.push({t:0});
+}
+
+/* Sounds for the listener who is not looking at the screen. One short tone says "I heard you" the moment a question is
+   taken, another that something needs attention. Quiet, never while she is speaking, and a switch in Settings turns
+   them off. They are not played when she re-opens the microphone after each answer: that would be a beep every turn. */
+function setStatus(t){
+  var el=document.getElementById("status"); if(!el) return;
+  if(t) el.textContent=t;
+  el.classList.toggle("on",!!t);
+}
+var SOUNDS=true;
+try{ SOUNDS=localStorage.getItem("sideline_sounds")!=="off"; }catch(e){}
+function earcon(kind){
+  if(!SOUNDS||!ctx||speaking) return;
+  try{
+    if(ctx.state==="suspended") ctx.resume();
+    var notes=kind==="heard"?[[660,0],[880,.09]]:kind==="ready"?[[523,0],[784,.1]]:kind==="stop"?[[440,0]]:[[330,0],[247,.12]];
+    notes.forEach(function(n){
+      var o=ctx.createOscillator(), g=ctx.createGain(), t=ctx.currentTime+n[1];
+      o.type="sine"; o.frequency.value=n[0];
+      g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.07,t+.015); g.gain.exponentialRampToValueAtTime(0.0001,t+.14);
+      o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+.16);
+    });
+  }catch(e){}
+}
+
+/* Speech speed: many people who rely on speech listen faster than any default. Applied to the audio element and the
+   browser voice; the word highlights are timed from the same factor. */
+var SPEEDS=[0.85,1,1.25,1.5,1.75,2], SPEED=1;
+try{ var sv=parseFloat(localStorage.getItem("sideline_speed")); if(SPEEDS.indexOf(sv)!==-1) SPEED=sv; }catch(e){}
+function setSpeed(v){
+  SPEED=v; try{ localStorage.setItem("sideline_speed",String(v)); }catch(e){}
+  if(audioEl){ try{ audioEl.playbackRate=v; audioEl.preservesPitch=true; }catch(e){} }
+  var l=$("speedLabel"); if(l) l.textContent="Speech speed: "+v+"\u00d7";
 }
 
 /* ============================================================== core */
@@ -1350,7 +1427,7 @@ function startLiveCaption(){
         }
         lastVoice=performance.now();
       }
-      if(t && sawVoice) liveSaid(t,true);
+      if(t && sawVoice && !isAssistantEcho(t)) liveSaid(t,true);       // her own voice is never typed as yours
     };
     r.onerror=function(e){                  // best effort: the clip path does the real work
       if(e.error==="not-allowed"||e.error==="service-not-allowed"||e.error==="audio-capture"){
@@ -1380,7 +1457,7 @@ function listen(){
                              // answer stays on screen until you speak again
   sawVoice=false; startedAt=performance.now(); lastVoice=0; capText="";
   vad=vadNew();              // re-calibrate room noise floor
-  var spec=null, voicedTicks=0;
+  var spec=null, voicedTicks=0, prevSpec="";
   startCapture();
   startLiveCaption();
 
@@ -1394,7 +1471,7 @@ function listen(){
       if(!sawVoice){
         clearTimeout(idleT); wake();
         retireAnswer();                              // you are speaking: the last answer makes way
-        if(capText) liveSaid(capText,true);          // words heard so far, now known to be speech
+        if(capText && !isAssistantEcho(capText)) liveSaid(capText,true);          // words heard so far, now known to be speech
       }
       sawVoice=true; lastVoice=now; voicedTicks++; userActive();
     }
@@ -1403,7 +1480,15 @@ function listen(){
     var words=candidate?candidate.split(/\s+/).length:0;
     var silenceLimit=(words>=4)?750:(words>=2)?850:950;
     if(sawVoice && elapsed>MIN_MS && caps.stt){
-      if(spec && quietFor<SPEC_QUIET_MS){ try{spec.ctl.abort()}catch(e){} spec=null; }          // they carried on
+      if(spec && quietFor<SPEC_QUIET_MS){                                                   // they carried on (or the room did)
+        // In a noisy room the quiet never holds, and each try sent the clip again: "When was it?" was transcribed six times
+        // over seven seconds before it was asked. The same finished sentence twice is the question, whatever the room does.
+        if(spec.text!==null && !spec.failed && spec.text && /[?.!]$/.test(spec.text)){
+          if(spec.text===prevSpec){ clearInterval(watch); watch=null; var same=spec; spec=null; commitSpec(same); return; }
+          prevSpec=spec.text;
+        }
+        try{spec.ctl.abort()}catch(e){} spec=null;
+      }
       else if(!spec && quietFor>=SPEC_QUIET_MS && elapsed<MAX_MS && voicedTicks>=MIN_VOICED_TICKS) spec=startSpec(peekCapture());
       if(spec && spec.text!==null && !spec.failed && quietFor>=SPEC_QUIET_MS && /[?.!]$/.test(spec.text)){
         clearInterval(watch); watch=null; var done=spec; spec=null; commitSpec(done); return;   // a finished sentence, still quiet
@@ -1455,7 +1540,7 @@ function setPaused(on){
     $("hint").innerHTML="paused &middot; <kbd>space</kbd> to resume";
   }else{
     $("hint").innerHTML="say &ldquo;stop&rdquo; to interrupt";
-    setQuiet("");
+    setQuiet(""); earcon("ready");
     // What arrived while paused is delivered first: the answer, or the question heard just before the pause.
     if(pendingAnswer){ var t=pendingAnswer; pendingAnswer=null; pendingQuestion=null; say(t); }
     else if(pendingQuestion){ var q=pendingQuestion; pendingQuestion=null; showSaid(q); ask(q); }
@@ -1467,7 +1552,7 @@ function setPaused(on){
       paused=true;                         // so the space bar tries again
       $("hint").innerHTML="microphone off &middot; <kbd>space</kbd> twice to retry";
       var m="I can’t use the microphone. Allow it, then press the space bar twice.";
-      if(speaking) announce(m); else setQuiet(m);
+      if(speaking) announce(m); else { setQuiet(m); warnAloud(m); }
     });
   }
 }
@@ -1528,6 +1613,7 @@ var STOP_WORDS=new Set(["stop","wait","pause","quiet","cancel","hold on","shut u
      The window is the conversational part: right after an answer you just keep talking. */
 var WAKE_RE=/^\W*(?:(?:hey|ok|okay)\s+)?(?:alexa|alexia|alexsa|aleksa|sideline)\b[\s,.:;!?-]*/i;
 var HALLU_RE=/^\W*(?:thanks for watching|thank you for watching|thank you|thanks|you|bye|bye bye|subtitles by.*|the end)\W*$/i;
+var FRAGMENT_RE=/^\W*(?:i'?m|i|i'?ve|i'?ll|i'?d|it'?s|it|the|a|an|and|but|so|or|to|of|we|you|he|she|they|my|is|was)\W*$/i;
 var FILLER_RE=/^\W*(?:okay|ok|yeah|uh|um|hmm|mm|huh|oh|so|and|well)\W*$/i;
 var WAKE_KEY="sideline_wake", WAKE_ON=false, FOLLOWUP_MS=12000, MIN_VOICED_TICKS=5, followUntil=0;
 try{ WAKE_ON=localStorage.getItem(WAKE_KEY)==="on"; }catch(e){}
@@ -1550,6 +1636,7 @@ function admit(text){
   if(t.length<2) return null;
   if(isAssistantEcho(t)){ ignoredNote("her own voice",t); return null; }
   if(HALLU_RE.test(t)){ ignoredNote("a recogniser invention on near silence",t); return null; }
+  if(FRAGMENT_RE.test(t)){ ignoredNote("one word, not a question",t); return null; }
   var open=Date.now()<followUntil;
   if(WAKE_ON){
     var m=WAKE_RE.exec(t);
@@ -1622,11 +1709,13 @@ function triggerWordBargeIn(recognizedWords){
   stopBargeSR();
   clearInterval(bargeTimer);
   cut={said:spokenSoFar(), at:Date.now()};
+  lastCut={text:currentSpokenText, said:cut.said, at:cut.at};
   var carry=pcmChunks.slice();
   rolling=false; endCapture();
   preroll=carry;
   duck(false);
   stopSpeaking();
+  earcon("stop");
   listen();
   if(recognizedWords){
     capText=recognizedWords;
@@ -1756,6 +1845,7 @@ function startBrowserRecognition(){
     if(e.error==="not-allowed"||e.error==="service-not-allowed"){
       blocked=true; armed=false;
       setQuiet("I can\u2019t use the microphone for speech here. Allow it, then reload.");
+      warnAloud("I can\u2019t use the microphone. Allow it, then reload the page.");
     }
   };
   r.onend=function(){
@@ -1952,10 +2042,14 @@ var curIdx=-1, allSpans=[], flowTokens=[];
 function estDur(w){ return 150+Math.min(w.length,12)*40; }
 
 function precalcFit(text){
+  // Sized for where the eye is going, not where it is: a strip that just opened (the catch-up) is still easing down.
+  var keep=stripNow; stripNow=Math.max(stripNow,stripGoal);
   var narrow=W<700, g=geometry(0);
+  stripNow=keep;
   var wire=document.querySelector(".wire"), said=$("said");
   var top=eyeEdge(g)+EYE_GAP;                       // the words start here
-  var availH=Math.max(84, H-top-(wire?wire.offsetHeight:44)-(said?said.offsetHeight+8:30)-18);
+  var stat=$("status");
+  var availH=Math.max(84, H-top-(wire?wire.offsetHeight:44)-(said?said.offsetHeight+8:30)-(stat?stat.offsetHeight+6:0)-18);
   var maxW=Math.min(W*.9,1060);
   var lo=16, hi=narrow?30:38, best=lo;
   answer.style.maxWidth=maxW+"px";
@@ -2057,7 +2151,7 @@ function reveal(spans,charIndex){
     if(s.classList.contains("read")!==isRead) s.classList.toggle("read",isRead);
     if(s.classList.contains("now")!==isNow) s.classList.toggle("now",isNow);
   }
-  if(cur>curIdx) kick(.9);
+  if(cur>curIdx){ kick(.9); if(cur>=0) luGlow(spans[cur].textContent); }
   curIdx=cur;
   if(cur>=0) moveBeam(spans[cur]);
 }
@@ -2072,13 +2166,26 @@ function stopSpeaking(){
   markTimers.forEach(clearTimeout); markTimers=[];
   activeUtterances=[];
   if(audioEl){
-    try{ audioEl.pause(); audioEl.currentTime=0; audioEl.src=""; }catch(e){}
-    audioEl=null;
+    var el=audioEl; audioEl=null;
+    el.onended=null; el.onerror=null;
+    fadeOut(el);
   }
   if(window.speechSynthesis){
     try{ speechSynthesis.cancel(); }catch(e){}
   }
   moveBeam(null);
+}
+
+/* Her voice goes in 150 ms rather than in a click: an interruption should sound deliberate, not broken. The element is
+   already let go (speaking is false at once), so only its sound lingers for the fade. */
+function fadeOut(el){
+  function end(){ try{ el.pause(); el.currentTime=0; el.src=""; }catch(e){} }
+  if(REDUCED||el.paused){ end(); return; }
+  var v=el.volume, steps=6, n=0;
+  var t=setInterval(function(){
+    n++; try{ el.volume=Math.max(0,v*(1-n/steps)); }catch(e){}
+    if(n>=steps){ clearInterval(t); end(); }
+  },25);
 }
 
 /* Estimated timing, used when there is no voice to follow: a steady
@@ -2216,11 +2323,12 @@ function playChain(parts,asked,first,spans,gen,text){
         srcNode=ctx.createMediaElementSource(el);
         srcNode.connect(outAn); outAn.connect(ctx.destination);
       }catch(e){ /* already connected, or unsupported: still audible */ }
-      applyMarkDurations(spans,doc.marks,base);
+      try{ el.playbackRate=SPEED; el.preservesPitch=true; }catch(e){}
+      applyMarkDurations(spans,SPEED===1?doc.marks:(doc.marks||[]).map(function(m){ return {start:m.start,end:m.end,time:m.time/SPEED}; }),base);
       markTimers.forEach(clearTimeout);
       // One timer per word, from Polly's own millisecond offsets, placed in the whole text by this part's offset.
       markTimers=(doc.marks||[]).map(function(m){
-        return setTimeout(function(){ reveal(spans,m.start+base); }, m.time);
+        return setTimeout(function(){ reveal(spans,m.start+base); }, m.time/SPEED);
       });
       var last=i===parts.length-1;
       el.onended=function(){
@@ -2299,7 +2407,7 @@ function browserSay(text,spans,base){
   sentences.forEach(function(sent,idx){
     var u=new SpeechSynthesisUtterance(sent.text);
     if(pref) u.voice=pref;
-    u.rate=1.03;
+    u.rate=1.03*SPEED;
     var isLast=(idx===sentences.length-1);
     var sentBase=base+sent.base;
 
@@ -2407,7 +2515,11 @@ function setScore(home,away){
   put(h,home); put(a,away);
   if(shownScore && (home+away)>(shownScore.home+shownScore.away)){
     if(!REDUCED) burst=1;
-    if(M.sport!=="basketball") goalFlash(home>shownScore.home?M.home:M.away);       // a basket every minute would be a siren
+    if(M.sport!=="basketball"){                       // a basket every minute would be a siren
+      goalFlash(home>shownScore.home?M.home:M.away);
+      var side=$(home>shownScore.home?"teamh":"teama");
+      side.classList.remove("scored"); void side.offsetWidth; side.classList.add("scored");
+    }
   }
   shownScore={home:home,away:away};
 }
@@ -2492,7 +2604,9 @@ function paint(){
   });
   var lw=$("legword"); if(lw) lw.textContent=String(M.sw||"goal").replace(/_/g," ");
   var ed=$("edge"), le=$("legedge");
-  if(M.delay>0){ ed.style.left=pc(M.minute+M.delay/60); ed.classList.add("on"); le.style.display=""; }
+  if(M.delay>0){ ed.style.left=pc(M.minute+M.delay/60); ed.classList.add("on"); le.style.display="";
+    $("edgetag").textContent="live \u00b7 "+Math.round(M.delay)+"s ahead of your picture";
+    $("edgetag").classList.toggle("r",(M.minute+M.delay/60)/M.reg>.72); }
   else { ed.classList.remove("on"); le.style.display="none"; }
   var tm=$("toldmark");
   if(M.told!=null){tm.classList.add("on");tm.style.left=pc(M.told);}
@@ -2597,6 +2711,7 @@ function luTeam(pitch,team,t,away){
       m.className="lu-p "+(away?"away":"home")+(pl.d===0?" gk":"");
       m.style.left=left+"%"; m.style.top=y+"%";
       m.title=pl.name+(pl.pos?" ("+pl.pos+")":"");
+      m.dataset.sur=luKey(pl.name);
       var num=(t.numbers||{})[pl.name];
       m.innerHTML='<b></b><span class="n"></span><span class="a"></span>';
       m.children[0].textContent=num||"";
@@ -2613,7 +2728,7 @@ function luBench(name,t,away){
   (t.bench||[]).forEach(function(n){
     var li=document.createElement("li");
     var no=(t.numbers||{})[n], ab=luAbbr((t.positions||{})[n]);
-    li.textContent=(no?no+"  ":"")+n+(ab?"  "+ab:""); ul.appendChild(li);
+    li.textContent=(no?no+"  ":"")+n+(ab?"  "+ab:""); li.dataset.sur=luKey(n); ul.appendChild(li);
   });
   if(!(t.bench||[]).length){ var li=document.createElement("li"); li.textContent="No substitutes listed"; ul.appendChild(li); }
   var s=document.createElement("div"); s.className="lu-subs"; s.textContent="Substitutes"; d.appendChild(s); d.appendChild(ul);
@@ -2630,7 +2745,7 @@ function luLists(sc,home,away){
     var ul=document.createElement("ul"); ul.className="lu-starters";
     (t.xi||[]).forEach(function(n){
       var li=document.createElement("li"), no=(t.numbers||{})[n], ab=luAbbr((t.positions||{})[n])||((t.positions||{})[n]||"").toUpperCase().slice(0,3);
-      li.innerHTML='<b></b><span></span><i></i>'; li.children[0].textContent=no||""; li.children[1].textContent=n; li.children[2].textContent=ab; ul.appendChild(li);
+      li.innerHTML='<b></b><span></span><i></i>'; li.children[0].textContent=no||""; li.children[1].textContent=n; li.children[2].textContent=ab; li.dataset.sur=luKey(n); ul.appendChild(li);
     });
     if(!(t.xi||[]).length){ var none=document.createElement("li"); none.textContent="Not published yet"; ul.appendChild(none); }
     col.appendChild(ul); wrap.appendChild(col);
@@ -2666,6 +2781,21 @@ function placeLineups(){
   var g=geometry(0), top=Math.max(stripGoal,0)+10, bottom=eyeEdge(g)+4;
   box.style.top=top+"px"; box.style.height=Math.max(260,bottom-top)+"px";
 }
+/* The key a player is found by when she says their name: the last word of the name, lower case, no accents. */
+function luNorm(w){ return String(w||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z'\u2019\-]/g,"").replace(/['\u2019]s$/,"").replace(/['\u2019]/g,""); }
+function luKey(name){ var w=String(name||"").trim().split(/\s+/); return luNorm(w[w.length-1]); }
+function luOpen(){ var b=$("lineup"); return !!(b&&b.classList.contains("on")); }
+function luClear(){ document.querySelectorAll("#lineup .lit").forEach(function(n){ n.classList.remove("lit"); }); }
+function luGlow(word){
+  if(!luOpen()) return;
+  var k=luNorm(word); if(k.length<3) return;
+  document.querySelectorAll('#lineup [data-sur="'+k+'"]').forEach(function(n){ n.classList.add("lit"); });
+}
+function luMentions(text){
+  if(!luOpen()||!text) return false;
+  var have={}; document.querySelectorAll("#lineup [data-sur]").forEach(function(n){ if(n.dataset.sur.length>=3) have[n.dataset.sur]=1; });
+  return String(text).split(/\s+/).some(function(w){ return have[luNorm(w)]; });
+}
 function hideLineups(){
   var box=$("lineup"); if(!box) return;
   box.classList.remove("on"); document.body.classList.remove("lineup-open");
@@ -2677,10 +2807,16 @@ var TOOL_WORDS={get_match_state:"score",get_match_report:"match report",what_did
 function friendlyTool(n){ return TOOL_WORDS[n]||String(n||"").replace(/^get_/,"").replace(/_/g," "); }
 
 function renderAgentAnswer(result, t0){
+  lastAnswer=result&&result.text||lastAnswer;
   try{
     var lu=null; (result.tool_results||[]).forEach(function(i){ if(i.name==="get_lineups"&&i.structured&&i.structured.lineups) lu=i.structured; });
-    if(lu) showLineups(lu); else hideLineups();
+    luClear();
+    // A question about a player on the open line-ups keeps them open, with that player lit; anything else and they go.
+    if(lu) showLineups(lu); else if(!luMentions(result&&result.text)) hideLineups();
   }catch(e){}
+  if(autoExpanded && !(result.tool_results||[]).some(function(i){ return i.name==="what_did_i_miss"; })){
+    $("match").classList.remove("expanded"); autoExpanded=false;
+  }
   try{ threadAdd("assistant", result&&result.text, result); }catch(e){}
   devRecord(devFromAnswer(result, t0));
   // Said "gamma osaka", meant "Gamba Osaka": show what we acted on.
@@ -2740,8 +2876,28 @@ function renderAgentAnswer(result, t0){
 
 /* ================================================================ ask */
 var chatAbort=null;
+/* Is a new question about the match on the strip? Decided the moment it is asked, from its words: the teams, a player
+   the feed named, the words of a match ("score", "who scored", "line-ups"), or "it"/"they" pointing back. Anything else
+   and the strip goes at once instead of after the answer; an answer about the match brings it straight back. */
+var MATCH_WORDS=/\b(?:score|scores|scored|scorer|goal|goals|won|win|winning|lose|losing|lost|draw|lead|leading|minute|minutes|half|time|clock|card|cards|booked|red|yellow|sub|subs|substitution|line-?ups?|starting|bench|formation|stats?|possession|shots?|corners?|fouls?|penalt(?:y|ies)|var|referee|miss|missed|happened|update|commentary|follow|following|stop following|delay|behind|tv|stream|it|they|them|their|that game|the game|the match|this game|this match|who|again|repeat|spell|carry on|continue|go on|quarter|period|inning|innings|basket|touchdown|run|runs)\b/i;
+function aboutShownMatch(text){
+  if(!M.home) return false;
+  var t=String(text||"").toLowerCase();
+  if(MATCH_WORDS.test(t)) return true;
+  var names=[M.home,M.away].concat((M.events||[]).map(function(e){ return e.player||""; }));
+  return names.some(function(n){
+    return String(n||"").toLowerCase().split(/[\s-]+/).some(function(w){ return w.length>=4 && t.indexOf(w)!==-1; });
+  });
+}
+function stripMakesWay(text){
+  if(!$("match").classList.contains("on") || aboutShownMatch(text)) return;
+  if(FOLLOW){ cardHidden=true; $("match").classList.remove("on"); stripGoal=0; placeText(); }
+  else hideMatch();
+  hideLineups();
+}
 async function ask(text){
-  userActive();
+  userActive(); hideChips();
+  stripMakesWay(text);
   if(localCommand(text)) return;
   var t0=performance.now(); clearTimeout(idleT); wake();
   devInput=text;
@@ -2903,6 +3059,11 @@ $("commLabel").textContent="Commentary: "+(COMM_ON?"ON":"OFF"); $("commToggle").
   document.addEventListener("click",function(e){ if(!box.hidden && !box.contains(e.target) && e.target!==b) open(false); });
   document.addEventListener("keydown",function(e){ if(e.key==="Escape" && !box.hidden){ open(false); } });
 })();
+$("speedBtn").onclick=function(){ setSpeed(SPEEDS[(SPEEDS.indexOf(SPEED)+1)%SPEEDS.length]); say("This is my speed now."); };
+setSpeed(SPEED);
+function showSounds(){ $("soundLabel").textContent="Sounds: "+(SOUNDS?"ON":"OFF"); $("soundBtn").setAttribute("aria-pressed",SOUNDS?"true":"false"); }
+$("soundBtn").onclick=function(){ SOUNDS=!SOUNDS; try{ localStorage.setItem("sideline_sounds",SOUNDS?"on":"off"); }catch(e){} showSounds(); earcon("heard"); };
+showSounds();
 var COMM_ALL_KEY="sideline_comm_all", COMM_KEYONLY=true;
 try{ COMM_KEYONLY=localStorage.getItem(COMM_ALL_KEY)!=="all"; }catch(e){}
 function showCommDetail(){ $("commDetailLabel").textContent="Commentary lines: "+(COMM_KEYONLY?"KEY MOMENTS":"EVERYTHING"); $("commDetail").setAttribute("aria-pressed",COMM_KEYONLY?"true":"false"); }
@@ -2912,8 +3073,64 @@ showCommDetail();
 /* "stop commentary" / "start commentary", spoken or typed. Handled here, no model: a switch is not a question. */
 var COMM_OFF_RE=/^(?:alexa[,\s]+)?(?:please\s+)?(?:stop|pause|turn off|switch off|mute|no more)\s+(?:the\s+)?(?:live\s+)?commentary\b/i;
 var COMM_ON_RE=/^(?:alexa[,\s]+)?(?:please\s+)?(?:start|resume|turn on|switch on|continue|begin)\s+(?:the\s+)?(?:live\s+)?commentary\b/i;
+var FASTER_RE=/^(?:alexa[,\s]+)?(?:please\s+)?(?:speak|talk|go|read)\s+(?:a\s+(?:bit|little)\s+)?faster\b|^(?:alexa[,\s]+)?(?:please\s+)?(?:speed up|faster please)\b/i;
+var SLOWER_RE=/^(?:alexa[,\s]+)?(?:please\s+)?(?:(?:speak|talk|go|read)\s+(?:a\s+(?:bit|little)\s+)?slower|slow down|slower please)\b/i;
+var NORMAL_RE=/^(?:alexa[,\s]+)?(?:please\s+)?(?:normal|regular|default)\s+(?:speed|pace)\b/i;
+var HELP_RE=/^(?:alexa[,\s]+)?(?:what can you do|what can i (?:ask|say)(?: you)?|what do you do|help|how does this work)[\s?.!]*$/i;
+var CARRY_RE=/^(?:alexa[,\s]+)?(?:(?:ok|okay|sorry|yes|right)[,\s]+)?(?:carry on|go on|continue|keep going|as you were(?: saying)?|you were saying)(?:\s+please)?[\s?.!]*$/i;
+var REPEAT_RE=/^(?:alexa[,\s]+)?(?:sorry[,?\s]+)?(?:say (?:that|it) again|repeat(?: that| it)?|come again|pardon(?: me)?|what did you (?:just )?say|(?:can|could) you (?:repeat|say) (?:that|it)(?: again)?)(?:\s+please)?[\s?.!]*$/i;
+var SPELL_RE=/^(?:alexa[,\s]+)?(?:how do you spell|(?:can|could) you spell|spell)\s+(.+?)(?:\s+(?:for me|please))*[\s?.!]*$/i;
+var HELP_TEXT="Ask me about any match: the score, who scored, the line-ups, the table, who plays next. "
+  +"Say follow and a team, and I will keep you posted as it happens. Tell me if your TV is behind and I won\u2019t spoil it. "
+  +"Say stop to interrupt me, carry on to pick up again, say that again, or speak faster.";
+var lastAnswer="", lastCut=null;
+/* What was left of an answer when it was cut off, from the start of the sentence it was cut in. */
+function restOfCut(c){
+  if(!c||!c.text) return "";
+  var n=c.said?c.said.split(/\s+/).length:0, re=/\S+/g, m, at=c.text.length, k=0;
+  while((m=re.exec(c.text))){ if(k===Math.max(0,n-1)){ at=m.index; break; } k++; }
+  var head=c.text.slice(0,at), stop=Math.max(head.lastIndexOf(". "),head.lastIndexOf("? "),head.lastIndexOf("! "));
+  return c.text.slice(stop>=0?stop+2:0).trim();
+}
+var NOT_NAMES={i:1,the:1,a:1,an:1,in:1,on:1,at:1,he:1,she:1,they:1,it:1,and:1,but:1,so:1,yes:1,no:1,today:1,tonight:1,tomorrow:1,
+  yesterday:1,monday:1,tuesday:1,wednesday:1,thursday:1,friday:1,saturday:1,sunday:1,january:1,february:1,march:1,april:1,may:1,
+  june:1,july:1,august:1,september:1,october:1,november:1,december:1,sorry:1,okay:1,alexa:1,sideline:1};
+function spellOut(want){
+  var said=String(lastAnswer||"").replace(/\s+/g," "), words=said.split(" ");
+  // A capitalised word that does not start a sentence: a name, not just the first word.
+  var names=words.filter(function(w,i){ return i>0 && !/[.!?:]$/.test(words[i-1]); })
+    .map(function(w){ return w.replace(/['\u2019]s\b/,"").replace(/[^A-Za-z\u00C0-\u024F\-]/g,""); })
+    .filter(function(w){ return /^[A-Z\u00C0-\u00DE]/.test(w) && w.length>1 && !NOT_NAMES[w.toLowerCase()]; });
+  var pick=null;
+  if(/^(?:that|it|the name|that name|his name|her name|their name|the player)$/i.test(want)) pick=names[names.length-1];
+  else{
+    var w=luNorm(want.split(/\s+/).pop());
+    pick=names.filter(function(n){ return luNorm(n).slice(0,3)===w.slice(0,3); }).pop()||want.split(/\s+/).pop();
+  }
+  if(!pick) return "I haven\u2019t said a name to spell yet.";
+  return pick+": "+pick.replace(/-/g,"").split("").map(function(c){ return c.toUpperCase(); }).join(", ")+".";
+}
 function localCommand(text){
   var t=(text||"").trim();
+  if(HELP_RE.test(t)){ showSaid(t); lastAnswer=HELP_TEXT; say(HELP_TEXT); return true; }
+  if(REPEAT_RE.test(t)){ showSaid(t); say(lastAnswer||"I haven\u2019t said anything yet."); return true; }
+  var sm=t.match(SPELL_RE);
+  if(sm){ showSaid(t); say(spellOut(sm[1].trim())); return true; }
+  if(CARRY_RE.test(t)){
+    var rest=(lastCut&&Date.now()-lastCut.at<180000)?restOfCut(lastCut):"";
+    if(rest){ lastCut=null; showSaid(t); say(rest); return true; }
+    if(FOLLOW&&!FOLLOW.over&&COMM_ON){ showSaid(t); comm.hold=false; unrelatedRun=0; say("Okay. I will keep you posted."); return true; }
+    return false;
+  }
+  var sp=FASTER_RE.test(t)?1:SLOWER_RE.test(t)?-1:NORMAL_RE.test(t)?0:null;
+  if(sp!==null){
+    var at=SPEEDS.indexOf(SPEED), to=sp===0?1:SPEEDS[Math.max(0,Math.min(SPEEDS.length-1,at+sp))];
+    showSaid(t);
+    if(sp!==0&&to===SPEED){ say(sp>0?"That is my fastest.":"That is my slowest."); return true; }
+    setSpeed(to);
+    say(sp===0?"Normal speed.":"Okay, "+(sp>0?"faster":"slower")+".");
+    return true;
+  }
   if(COMM_OFF_RE.test(t)){ showSaid(t); setComm(false); say("Commentary off. Ask me anything, or say start commentary."); return true; }
   if(COMM_ON_RE.test(t)){
     showSaid(t); setComm(true);
@@ -2953,6 +3170,30 @@ $("typebar").addEventListener("submit",function(e){
   wake(); stopSpeaking(); retireAnswer(); showSaid(t); ask(t);
 });
 
+/* The first run: three things to try, said the way you would say them. They go after the first question. */
+var CHIPS=["What\u2019s on today?","What can you do?","Speak faster"], chipsUsed=false;
+function showChips(){
+  var box=$("chips"); if(!box||chipsUsed) return;
+  box.textContent="";
+  CHIPS.forEach(function(c){
+    var b=document.createElement("button"); b.type="button"; b.textContent=c;
+    b.onclick=function(){ wake(); stopSpeaking(); retireAnswer(); showSaid(c); ask(c); };
+    box.appendChild(b);
+  });
+  box.classList.add("on");
+}
+function hideChips(){ chipsUsed=true; var box=$("chips"); if(box) box.classList.remove("on"); }
+
+/* Demo mode, for recording (Alt+R): the footer, the buttons and the cursor go, so every take looks the same. */
+document.addEventListener("keydown",function(e){
+  if(e.altKey&&(e.key==="r"||e.key==="R"||e.code==="KeyR")){
+    e.preventDefault();
+    var on=!document.body.classList.contains("demo");
+    document.body.classList.toggle("demo",on);
+    if(on){ try{ devToggle(false); }catch(x){} try{ setHistory(false); }catch(x){} }
+  }
+});
+
 $("match").addEventListener("click",function(e){                    // the small score opens into the timeline
   this.classList.toggle("expanded"); measureStrip();
 });
@@ -2972,8 +3213,19 @@ function applyToolResult(item){
   if(sc.match){ M.info=sc.match; var mi=$("matchinfo"); if(mi) mi.textContent=whenWhere(sc.match); }
   if(sc.window){M.told=sc.window.from_minute;M.minute=sc.window.to_minute;}
   if(sc.events&&sc.events.length){M.events=sc.events;showPills(sc.events);}
-  if(item.name==="what_did_i_miss")M.told=M.minute;
+  if(item.name==="what_did_i_miss"){
+    M.told=M.minute;
+    // The catch-up is shown as what it is: the events since you last asked, with the timeline open on them.
+    var pb=$("pills"), lab=document.createElement("span");
+    lab.className="since";
+    lab.textContent=(sc.events&&sc.events.length?"Since you last asked":"Nothing new since you last asked")+
+      (sc.window&&sc.window.from_minute!=null&&M.sport==="football"?" \u00b7 from "+sc.window.from_minute+"\u2032":"");
+    pb.insertBefore(lab,pb.firstChild);
+    if(!$("match").classList.contains("expanded")){ $("match").classList.add("expanded"); autoExpanded=true; }
+    setTimeout(measureStrip,0);
+  }
 }
+var autoExpanded=false;
 
 /* ============================================================== start */
 async function connect(){
@@ -3021,13 +3273,14 @@ $("begin").onclick=async function(){
     // Refused or failed: say so, and leave the button usable so the listener can try again after allowing it.
     if(ctx){ try{ ctx.close(); }catch(e2){} ctx=null; }
     var m="Microphone blocked. Allow it, then press Go live again.";
-    $("gatenote").textContent=m; announce(m);
+    $("gatenote").textContent=m; warnAloud(m);
     introStarted=false; $("begin").disabled=false;
     return;
   }
   $("gate").classList.add("gone");
   sizeCore(); armed=true; openFollowUp(25000);        // the first question after Go live needs no name
   startPassiveTicker();
+  showChips();
   if(!caps.stt && !SR){
     setQuiet("This browser can’t turn speech into text. Try Chrome.");
     return;

@@ -23,8 +23,8 @@ Where an automated test pins a rule it is named.
 Speech in is the most sensitive data this product touches, and who hears it
 depends on the setting. The speech models, **Mistral Voxtral** and **Amazon Nova Sonic**, run on Amazon Bedrock and keep it
 inside the AWS account; the **browser's recognition** sends it to the browser vendor (Chrome and Edge, to theirs).
-Nothing is stored by Sideline. Nothing leaves AWS **unless live captions are on** (`SIDELINE_LIVE_CAPTION`, default
-`browser`): the page then also runs the browser's recognition to type words while you speak, which sends that audio to
+Nothing is stored by Sideline. Nothing leaves AWS **unless live captions are on** (`SIDELINE_LIVE_CAPTION=browser`; the default
+is `off`): the page then also runs the browser's recognition to type words while you speak, which sends that audio to
 the browser vendor. Set it to `off` for a strictly in-account path. A person choosing a speech provider should be told
 where their voice goes, so say so in any demo that uses captions. We started with a third-party recogniser because it
 measured best, then found an AWS model that matched it and removed the third party, so that the default no longer asks a
@@ -98,7 +98,8 @@ not exist for them.
 
 A sighted viewer takes in the score at a glance.
 The listener's equivalent has to be quick. The template tools make no model call, so the score, line-ups and
-officials come back as fast as the feed's 12-second cache allows. Alexa+'s QuickStart sets a 500 ms round-trip
+officials come back as fast as the feed and its cache allow (the scoreboard and a live match summary are kept for 5 s,
+so the tools one question calls share one read). Alexa+'s QuickStart sets a 500 ms round-trip
 target. A Bedrock-composed catch-up takes about two seconds (a few samples on one account), so it misses that
 target; that is stated, not hidden.
 
@@ -134,13 +135,28 @@ is being a few seconds slow; the cost of zero is a spoiled goal.
 
 ## 10. The listener is in control
 
-Sideline does not narrate. It answers.
+The server does not narrate. It answers.
 
 Alexa+'s docs do not say whether a server may speak first (FL-04), so the
-design assumes it cannot. We also think a listener who can ask when they
-want is better served than one narrated at over the broadcast; that is a
-hypothesis nobody has tested with a listener. We would still like the
-option (FR-01 in FEATURE_REQUESTS.md).
+server is designed on the assumption that it cannot: it never pushes. The
+simulator page is a client, and it does read live commentary unprompted:
+while a match is followed it asks for new lines every 12 s and reads them,
+never over the listener, and "stop commentary" ends it. Whether a listener
+prefers that to asking when they want is a hypothesis nobody has tested
+with a listener. We would still like the option for a server to speak
+first (FR-01 in FEATURE_REQUESTS.md).
+
+## 11. Aids for the listener who is not looking
+
+In the simulator, **not yet tried on a real device**:
+
+- **Tones.** A short one when a question has been heard, another for a problem, one when a stop word cut her off. Settings
+  turns them off.
+- **Speech speed.** 0.85× to 2× in Settings, or say "speak faster", "slow down", "normal speed".
+- **Asked by voice, answered on the page:** "say that again", "spell that", "carry on" after an interruption, and
+  "what can you do?".
+- **Scores and minutes spoken as people say them** (`voice.speakable`): "3-2" is "3 to 2", "73'" is "73rd minute".
+- **Microphone problems are said aloud** (`warnAloud`), not only written.
 
 ## What we have not done
 

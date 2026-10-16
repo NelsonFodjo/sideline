@@ -2,7 +2,7 @@
 PY ?= python3
 export PYTHONPATH := .:tests
 
-.PHONY: run sim test bench env verify-data next-matches route-check logs log-report aws-check create-table stt-check compare-stt clean
+.PHONY: run sim test bench env verify-data next-matches route-check logs log-report aws-check create-table stt-check compare-stt clean links
 
 run:              ## start the server (bootstraps dependencies; live ESPN multi-sport)
 	PY="$(PY)" ./run.sh
@@ -58,7 +58,10 @@ stt-check:        ## speech-in accuracy on football phrases (needs a provider, a
 	$(PY) scripts/verify_stt.py
 
 compare-stt:      ## the AWS speech-in models head to head, clean and noisy (Voxtral, Nova Sonic)
-	$(PY) scripts/compare_stt.py
+	$(PY) scripts/compare_stt.py $(ARGS)
 
 clean:
 	find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+
+links:            ## check every relative link and anchor in the docs (offline)
+	@python3 scripts/check_links.py

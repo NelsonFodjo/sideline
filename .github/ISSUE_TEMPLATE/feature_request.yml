@@ -1,0 +1,21 @@
+name: Feature request
+description: A question a fan asks that Sideline cannot answer yet, or a better way to answer one
+labels: [enhancement]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: What would a listener ask?
+      description: Real words, as a fan would say them.
+    validations:
+      required: true
+  - type: textarea
+    id: answer
+    attributes:
+      label: What should she say?
+      description: One or two sentences, leading with the fact.
+  - type: textarea
+    id: data
+    attributes:
+      label: Where would the data come from?
+      description: Sideline never answers a fact from a model's memory. If you know the feed or endpoint, say so.
