@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       # Node runs the page's own JavaScript (the speech detector, the strip, the line-ups) in the browser-side tests.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
       # No install step: the server is standard-library Python and the suite needs no network and no credentials.
