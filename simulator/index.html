@@ -1532,6 +1532,7 @@ function setPaused(on){
   wake();
   var gen=++resumeGen;
   if(on){
+    if(speaking && currentSpokenText){ pendingAnswer=currentSpokenText; }
     stopSpeaking(); stopListening();
     releaseMic();                          // paused means the microphone is really off
     clearTimeout(idleT);
@@ -1539,7 +1540,7 @@ function setPaused(on){
     setQuiet("Paused. Press the space bar to carry on.");
     $("hint").innerHTML="paused &middot; <kbd>space</kbd> to resume";
   }else{
-    $("hint").innerHTML="say &ldquo;stop&rdquo; to interrupt";
+    $("hint").innerHTML="say &ldquo;stop&rdquo; to interrupt &middot; <kbd>space</kbd> to pause";
     setQuiet(""); earcon("ready");
     // What arrived while paused is delivered first: the answer, or the question heard just before the pause.
     if(pendingAnswer){ var t=pendingAnswer; pendingAnswer=null; pendingQuestion=null; say(t); }
@@ -1556,13 +1557,12 @@ function setPaused(on){
     });
   }
 }
-/* Only the listener's voice stops her ("stop", "wait", "Alexa, ..."). A key, a click or a tap never does: a bump of the keyboard
-   or a stray touch must not cut an answer off. The one key that does anything is Space while the microphone is off for want of
-   permission, to try again. */
+/* Pause with the space bar: stops speech and mic; pressing it again resumes.
+   An in-flight or interrupted answer is preserved and spoken on resume. */
 document.addEventListener("keydown",function(e){
   if(e.repeat||!armed) return;
-  if(e.code==="Space" && paused && !(e.target && e.target.closest && e.target.closest("button,input,textarea,select,[contenteditable]"))){
-    e.preventDefault(); setPaused(false);
+  if((e.code==="Space" || e.key===" ") && !(e.target && e.target.closest && e.target.closest("button,input,textarea,select,[contenteditable]"))){
+    e.preventDefault(); setPaused(!paused);
   }
 });
 
@@ -1594,7 +1594,7 @@ function takeCut(){
   var c=cut; cut=null;
   return (c && Date.now()-c.at<45000) ? c.said : undefined;
 }
-function duck(on){ if(audioEl){ try{ audioEl.volume=on?0.5:1; }catch(e){} } }
+function duck(on){ if(audioEl){ try{ audioEl.volume=on?0.2:1; }catch(e){} } }
 function stopRolling(){ if(rolling){ rolling=false; if(capturing) endCapture(); } }
 
 var currentSpokenText="";
@@ -1731,8 +1731,8 @@ function watchForBargeIn(){
   clearInterval(bargeTimer);
   stopBargeSR();
   if(!micAn) return;
-  var over=0, ticks=0, leak=0, ducked=false;
-  bargeHotAt=0;
+  var over=0, ticks=0, ducked=false;
+  bargeHotAt=Date.now();
 
   // Listen while it talks, keeping the last ~0.8 s, so that if you do cut in the clip starts
   // at the beginning of your word.
@@ -1742,30 +1742,26 @@ function watchForBargeIn(){
     while(pcmChunks.length>9) pcmChunks.shift();
     var lv=level(micAn,micBuf);
     var spk=outAn?level(outAn,outBuf):0;
-    if(++ticks<=8){ leak=Math.max(leak,lv); return; }
-    var bar=Math.max(FLOOR*2, vad.noise*4, leak*2, spk*1.5);
+    var bar=Math.max(FLOOR*1.5, (vad.noise||0.005)*2.5);
     var hit=lv>bar && harshNow(micAn)<VAD_HARSH;
     over=hit?over+1:Math.max(0,over-1);
     if(hit) bargeHotAt=Date.now();
-    // Background noise guard: pure ambient sound does not duck voice
-    var candD=capText?justWords(capText).trim().toLowerCase():"";
-    var hasVoiceD=candD.length>=2 && !isAssistantEcho(candD) && isBargeCommand(candD);
-    if(over>=2 && !ducked && hasVoiceD){ ducked=true; duck(true); }
+
+    // Duck speaker volume when microphone picks up sustained speech energy
+    if(over>=2 && !ducked){ ducked=true; duck(true); }
     if(over===0 && ducked){ ducked=false; duck(false); }
+
     if(over>=6){
-      // Background noise guard: pure volume level NEVER interrupts! Only verified stop words or 3+ words can.
-      var cand=capText?justWords(capText).trim().toLowerCase():"";
-      var hasWord = cand.length>=2 && !isAssistantEcho(cand) && isBargeCommand(cand);
-      if(hasWord){
-        clearInterval(bargeTimer);
-        cut={said:spokenSoFar(),at:Date.now()};
-        var carry=pcmChunks.slice();
-        rolling=false; endCapture();
-        preroll=carry;
-        duck(false);
-        stopSpeaking();
-        listen();
-      }
+      clearInterval(bargeTimer);
+      cut={said:spokenSoFar(),at:Date.now()};
+      lastCut={text:currentSpokenText, said:cut.said, at:cut.at};
+      var carry=pcmChunks.slice();
+      rolling=false; endCapture();
+      preroll=carry;
+      duck(false);
+      stopSpeaking();
+      earcon("stop");
+      listen();
     }
   },60);
 
@@ -1780,14 +1776,17 @@ function watchForBargeIn(){
       r.maxAlternatives=1;
       r.onresult=function(e){
         if(!speaking) return;
-        var t="";
-        for(var i=0;i<e.results.length;i++) t+=e.results[i][0].transcript;
-        var words=justWords(t);
-        if(!words || words.trim().length<2) return; // noise / single click ignored
-        // Ignore acoustic speaker leak of what the assistant itself is currently speaking
-        if(isAssistantEcho(words)) return;
-        if(Date.now()-bargeHotAt>800) return;          // words with no loud voice behind them (a TV, a far room, her own echo) never cut in
-        triggerWordBargeIn(words);
+        var pieces=[];
+        for(var i=0;i<e.results.length;i++){
+          var piece=justWords(e.results[i][0].transcript);
+          if(piece) pieces.push(piece);
+        }
+        var fullText=pieces.join(" ").trim();
+        var latestPiece=pieces.length?pieces[pieces.length-1].trim():"";
+        var cand=shouldBargeIn(latestPiece)?latestPiece:(shouldBargeIn(fullText)?fullText:null);
+        if(cand){
+          triggerWordBargeIn(cand);
+        }
       };
       r.onerror=function(e){};
       r.onend=function(){
@@ -3070,9 +3069,10 @@ function showCommDetail(){ $("commDetailLabel").textContent="Commentary lines: "
 $("commDetail").onclick=function(){ COMM_KEYONLY=!COMM_KEYONLY; try{ localStorage.setItem(COMM_ALL_KEY,COMM_KEYONLY?"key":"all"); }catch(e){} showCommDetail(); };
 showCommDetail();
 
-/* "stop commentary" / "start commentary", spoken or typed. Handled here, no model: a switch is not a question. */
+var STOP_RE=/^(?:alexa[,\s]+)?(?:pelumi[,\s]+)?(?:nelson[,\s]+)?(?:please\s+)?(?:stop|wait|pause|quiet|be quiet|shut up|hush|silence|cancel|enough|stop it|stop speaking|stop talking)[\s?.!]*$/i;
 var COMM_OFF_RE=/^(?:alexa[,\s]+)?(?:please\s+)?(?:stop|pause|turn off|switch off|mute|no more)\s+(?:the\s+)?(?:live\s+)?commentary\b/i;
 var COMM_ON_RE=/^(?:alexa[,\s]+)?(?:please\s+)?(?:start|resume|turn on|switch on|continue|begin)\s+(?:the\s+)?(?:live\s+)?commentary\b/i;
+var MUTE_RE=/^(?:alexa[,\s]+)?(?:pelumi[,\s]+)?(?:nelson[,\s]+)?(?:please\s+)?(?:can you\s+)?(?:switch|turn|mute|shut)\s+(?:this\s+)?(?:speech|voice|sound|audio|it|this)\s+(?:off|down)?[\s?.!]*$|^(?:alexa[,\s]+)?(?:pelumi[,\s]+)?(?:nelson[,\s]+)?(?:be quiet|shut up|silence|mute)[\s?.!]*$/i;
 var FASTER_RE=/^(?:alexa[,\s]+)?(?:please\s+)?(?:speak|talk|go|read)\s+(?:a\s+(?:bit|little)\s+)?faster\b|^(?:alexa[,\s]+)?(?:please\s+)?(?:speed up|faster please)\b/i;
 var SLOWER_RE=/^(?:alexa[,\s]+)?(?:please\s+)?(?:(?:speak|talk|go|read)\s+(?:a\s+(?:bit|little)\s+)?slower|slow down|slower please)\b/i;
 var NORMAL_RE=/^(?:alexa[,\s]+)?(?:please\s+)?(?:normal|regular|default)\s+(?:speed|pace)\b/i;
@@ -3112,6 +3112,15 @@ function spellOut(want){
 }
 function localCommand(text){
   var t=(text||"").trim();
+  if(STOP_RE.test(t)){
+    showSaid(t);
+    pendingAnswer=null; pendingQuestion=null;
+    stopSpeaking();
+    earcon("stop");
+    setQuiet("");
+    setMode("idle");
+    return true;
+  }
   if(HELP_RE.test(t)){ showSaid(t); lastAnswer=HELP_TEXT; say(HELP_TEXT); return true; }
   if(REPEAT_RE.test(t)){ showSaid(t); say(lastAnswer||"I haven\u2019t said anything yet."); return true; }
   var sm=t.match(SPELL_RE);
@@ -3131,6 +3140,7 @@ function localCommand(text){
     say(sp===0?"Normal speed.":"Okay, "+(sp>0?"faster":"slower")+".");
     return true;
   }
+  if(MUTE_RE.test(t)){ showSaid(t); setPaused(true); return true; }
   if(COMM_OFF_RE.test(t)){ showSaid(t); setComm(false); say("Commentary off. Ask me anything, or say start commentary."); return true; }
   if(COMM_ON_RE.test(t)){
     showSaid(t); setComm(true);
@@ -3257,11 +3267,9 @@ async function connect(){
   }
 }
 
-/* What the simulated Alexa+ says first. Every claim is something the server does and a test or a run backs:
-   real matches only (no recorded data), the per-listener "last told" marker, the spoiler guard, barge-in. */
-var INTRO="Hi, I\u2019m a simulated Alexa+, connected to Sideline: an MCP server for live sports. "
-  +"I read real matches as they happen. I remember what you last heard, so just ask what did I miss. "
-  +"I stay behind your TV, so I won\u2019t spoil a goal. Say stop and I will stop. Which game are we following?";
+/* What the simulated Alexa+ says first: short, welcoming, and directly asks which game to follow.
+   MCP server for live sports. */
+var INTRO="Hi, I\u2019m a simulated Alexa+, connected to Sideline. Which game are we following?";
 
 var introStarted=false;
 $("begin").onclick=async function(){
@@ -3319,7 +3327,7 @@ var passivePollTimer=null;
 function startPassiveTicker(){
   if(passivePollTimer) return;
   passivePollTimer=setInterval(async function(){
-    if(!armed || speaking || MODE==="thinking" || !M.home) return;
+    if(!armed || paused || speaking || MODE==="thinking" || !M.home) return;
     try{
       var r=await fetch(BASE+"/agent/chat",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({text:"score for "+M.home,tz_offset_minutes:-new Date().getTimezoneOffset()})});

@@ -437,6 +437,14 @@ def snap(listener_id, text, names=(), now=None):
         (re.compile(r"\b(what|which)\s+marches\b", re.I), r"\1 matches"),
         (re.compile(r"\bprevious\s+mergers\b", re.I), "previous matches"),
         (re.compile(r"\bprevious\s+merger\b", re.I), "previous match"),
+        (re.compile(r"\bthe\s+pictures\s+of\b", re.I), "the fixtures of"),
+        (re.compile(r"\bpictures\s+of\b", re.I), "fixtures of"),
+        (re.compile(r"\bthe\s+picture\s+of\b", re.I), "the fixture of"),
+        (re.compile(r"\bpicture\s+of\b", re.I), "fixture of"),
+        (re.compile(r"\b(what|which|next|upcoming|recent)\s+pictures?\b", re.I), r"\1 fixtures"),
+        (re.compile(r"\bpictures?\s+(for|on|today|tomorrow|this week|next week)\b", re.I), r"fixtures \1"),
+        (re.compile(r"\babout\s+the\s+pictures\b", re.I), "about the fixtures"),
+        (re.compile(r"\babout\s+pictures\b", re.I), "about fixtures"),
         (re.compile(r"\bmatches\s+that\s+fin\b", re.I), "matches that finished"),
         (re.compile(r"\btireny\b", re.I), "Tierney"),
     ]:
@@ -495,10 +503,11 @@ def snap(listener_id, text, names=(), now=None):
     if offers:
         pool_items += offers
 
-    fixed = fix_names(heard, pool_items) if pool_items else heard
-    if fixed != heard:
+    fixed = fix_names(cleaned, pool_items) if pool_items else cleaned
+    if fixed != cleaned or changed_acoustic:
         real = _fold(fixed) != _fold(heard)
-        res.update(text=fixed, agent_text=fixed, changed=real, why="name" if real else None)
+        res.update(text=fixed, agent_text=fixed, changed=changed_acoustic or real,
+                   why="acoustic_repair" if changed_acoustic else ("name" if real else None))
         return res
 
     # If sentence was not repaired by fix_names, check for entity typos needing clarification

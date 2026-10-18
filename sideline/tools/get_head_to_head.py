@@ -10,7 +10,7 @@ the thing feel finished rather than clever.
 def run(ctx, args, listener_id):
     from . import resolve_fixture
     fx = resolve_fixture(ctx, args, listener_id, prefers="coming")
-    limit = args.get("limit") or 5
+    limit = args.get("limit") or (1 if args.get("when") == "last" else 5)
     past = ctx.provider.head_to_head(fx["fixture_id"], limit)
 
     if not past:

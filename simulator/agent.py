@@ -31,6 +31,9 @@ SYSTEM = (
     "You cover football (soccer), basketball, American football, baseball and ice hockey. "
     "Speak like a warm, knowledgeable commentator talking to a friend: lead with what matters (the score, who, "
     "when), then at most one vivid but factual detail. "
+    "Make responses on scores and fixtures sound conversational rather than reading from a script: "
+    "for scores, speak naturally like a live commentator (e.g. 'Arsenal are currently leading Chelsea 2-1 in the 65th minute' or 'It's full time, Arsenal took the win 2-1 against Chelsea'); "
+    "for fixtures and schedules, never read out a rigid list with colons or repetitive 'against' lines like a timetable—weave matches conversationally into fluent sentences grouped by kickoff time or key matchups. "
     "Truth comes first: use only facts from tool results and this conversation. Never invent or guess scores, "
     "names, times, stats or weather; if the tools did not say it, say plainly that you don't know. "
     "Never mention a moment the tools did not return: the listener may be behind live and results are already "
@@ -39,6 +42,11 @@ SYSTEM = (
     "answering from memory or saying you can't. All available tool descriptions and schemas are already "
     "provided; pick the tool whose description fits the whole question, call only what you need, and ask one "
     "short question when the match or team is unclear. "
+    "When a fan asks for 'the Champions League' without qualifying it, they mean the UEFA Champions League. "
+    "If fixtures or results are from another competition like CAF Champions League or AFC Champions League, make that clear. "
+    "Answer clarifying questions (such as 'is that the Champions League?') directly and honestly from the conversation history and tool data; never repeat a raw list of matches when asked to clarify. "
+    "If the listener clarifies or corrects a name (e.g. 'I said Paris Saint-Germain'), apply that correction to their previous request by calling the appropriate tool with the corrected name. "
+    "When a fan asks about a team's upcoming fixtures, matches or schedule (e.g. 'fixtures of Manchester City', 'when do Arsenal play next'), call get_schedule with team, not get_fixtures (get_fixtures is for all matches across a league or day and does not take a team argument). "
     "Statements are requests too: \"I support Arsenal\" saves a favourite, \"keep it short\" or \"speak French\" "
     "sets a preference, \"who was the best player\" asks for the standouts: call the matching tool, never just "
     "acknowledge. "
@@ -61,6 +69,15 @@ STATEFUL_TOOLS = frozenset(("what_did_i_miss", "get_lineups", "get_event_detail"
 
 _SOCIAL = re.compile(r"^\W*(hi|hello|hey|thanks|thank you|cheers|ok|okay|great|nice|cool|bye|goodbye|good night|"
                     r"yes|yeah|yep|no|nope|never mind|nevermind|stop|cancel)\W*$", re.I)
+_CLARIFY_OR_VERIFY = re.compile(
+    r"^(?:is|are|was|were|which|why|did|do|does|can|could|how come|really|sure)\b|"
+    r"\b(?:is that|are those|are they|was that|which one|really|are you sure|confirm|did you mean|do you mean)\b",
+    re.I,
+)
+_REFUSAL = re.compile(
+    r"\b(can't engage in this|cannot engage in this|not authorized|change the subject please|not something I can share|as an ai|as a language model)\b",
+    re.I,
+)
 _FACT_OPENER = re.compile(r"\b(who|whom|whose|when|where|which|how (many|much|old|long|far|tall|big)|"
                           r"what time|what('s| is| was| were) (the|their|his|her|its)|tell me (more )?about|"
                           r"more about|did (they|he|she|we)|has (he|she|they)|have (they|we)|(was|were|is|are) there (a|an|any|another)|what did i miss|catch me up|"
@@ -129,6 +146,9 @@ def _asks_for_a_fact(question):
     if _CONVERSATIONAL.search(q):
         if not re.search(r"\b(score|scores|match|matches|game|games|fixture|fixtures|table|standings|lineup|lineups|goal|goals|who scored|who won)\b", q, re.I):
             return False
+
+    if re.match(r"^\W*(?:i (?:said|meant|asked for|told you)|no(?:,?\s+i (?:said|meant))?)\b", q, re.I):
+        return False
 
     sentences = re.split(r"[.!?]+", q)
     for sent in sentences:
@@ -529,6 +549,23 @@ def _fill_arguments(name, args, question):
         for part, pattern in _PARTS:
             if pattern.search(question):
                 return dict(args, part=part)
+    if name == "get_fixtures":
+        filled = dict(args)
+        if not filled.get("live_only") and re.search(r"\b(live|life|under way|right now|currently playing)\b", question, re.I):
+            filled["live_only"] = True
+        if not filled.get("competition"):
+            for pat, slug, name_str in COMP_PATTERNS:
+                if pat.search(question):
+                    filled["competition"] = name_str
+                    break
+            if not filled.get("competition"):
+                m = re.search(r"\b(korean?|south korea|japanese?|japan|scottish?|scotland|turkish?|turkey|danish|denmark|swedish|sweden)\b", question, re.I)
+                if m:
+                    country_map = {"korean": "Korea", "korea": "Korea", "south korea": "Korea", "japanese": "Japan", "japan": "Japan",
+                                   "scottish": "Scotland", "scotland": "Scotland", "turkish": "Turkey", "turkey": "Turkey",
+                                   "danish": "Denmark", "denmark": "Denmark", "swedish": "Sweden", "sweden": "Sweden"}
+                    filled["competition"] = country_map.get(m.group(1).lower(), m.group(1).capitalize())
+        return filled
     return args
 
 
@@ -642,7 +679,7 @@ def _normalise(question):
     return " ".join(text.split())
 
 
-_FILLER = re.compile(r"^(?:(?:hey|ok|okay|so|and|um|uh|right|well|sideline|alexa)\b ?)+")
+_FILLER = re.compile(r"^(?:(?:hey|ok|okay|so|and|um|uh|right|well|sideline|alexa|alright|cool|great|nice|beautiful|good)\b ?)+")
 _POLITE = re.compile(r"(?: please| then| now please)$")
 
 
@@ -842,6 +879,9 @@ _FAST_PATTERNS = [
     (r"(?:when's|when is|whens) the next (?:game|match)", "get_schedule", {"which": "next"}),
     (r"(?:when's|when is|whens) (?P<team>.+?)'s next (?:game|match)", "get_schedule", {"which": "next"}),
     (r"when (?:is|are|do|does) (?P<team>.+?) play(?:ing)?(?: next)?", "get_schedule", {"which": "next"}),
+    (r"(?:(?:what are|tell me about|i want to know about|show me|any)\s+)?(?:the\s+)?(?:next\s+)?fixtures\s+(?:of|for)\s+(?P<team>.+)", "get_schedule", {"which": "next"}),
+    (r"(?:(?:what are|tell me about|i want to know about|show me)\s+)?(?P<team>.+?)'s\s+(?:next\s+)?fixtures", "get_schedule", {"which": "next"}),
+    (r"(?P<team>.+?)\s+(?:next\s+)?fixtures", "get_schedule", {"which": "next"}),
     (r"what can you do|what can i ask(?: you)?|help", "get_capabilities", {}),
 ]
 _FAST_PATTERNS = [(re.compile(p), tool, args) for p, tool, args in _FAST_PATTERNS]
@@ -860,13 +900,23 @@ def _schema_args(name, args, tool_specs):
 def _known_team(ctx, said):
     """The one team the feed knows by this name (whole words), or None: a guess is never passed on."""
     said = _normalise(said)
-    if not said or not ctx or not hasattr(getattr(ctx, "provider", None), "known_teams"):
+    if not said:
         return None
-    try:
-        teams = ctx.provider.known_teams() or []
-    except Exception:                                      # noqa: BLE001  the model can still answer
-        return None
-    exact = [t for t in teams if _normalise(t) == said]
+    from sideline.tools import NICKNAMES
+    norm_nick = NICKNAMES.get(said)
+    teams = []
+    if ctx and hasattr(getattr(ctx, "provider", None), "known_teams"):
+        try:
+            teams = list(ctx.provider.known_teams() or [])
+        except Exception:                                      # noqa: BLE001  the model can still answer
+            teams = []
+    from sideline.resolve import POPULAR_TEAMS
+    seen = set(teams)
+    for pt in POPULAR_TEAMS:
+        if pt not in seen:
+            teams.append(pt)
+            seen.add(pt)
+    exact = [t for t in teams if _normalise(t) == said or (norm_nick and _normalise(t) == norm_nick)]
     if exact:
         return exact[0]
     near = [t for t in teams if re.search(r"(?<!\w)%s(?!\w)" % re.escape(said), _normalise(t))]
@@ -937,6 +987,236 @@ def _fast_plan(question, tool_specs, topic, ctx):
     return tool, _schema_args(tool, args, tool_specs)
 
 
+def _conversationalize_score(text, structured):
+    if not isinstance(structured, dict):
+        return text
+    home = structured.get("home")
+    away = structured.get("away")
+    score = structured.get("score")
+    if not home or not away or not isinstance(score, dict):
+        return text
+    h_score = score.get("home")
+    a_score = score.get("away")
+    if h_score is None or a_score is None:
+        return text
+    status = str(structured.get("status") or "")
+    minute = structured.get("minute")
+    series = structured.get("series")
+    unconf = structured.get("score_unconfirmed")
+
+    # Finished match
+    if status in ("FT", "AET", "PEN", "finished"):
+        if h_score > a_score:
+            out = f"It's full time: {home} took the win {h_score}-{a_score} against {away}."
+        elif a_score > h_score:
+            out = f"It's full time: {away} took the win {a_score}-{h_score} against {home}."
+        elif h_score == 0:
+            out = f"It's full time: it finished goalless between {home} and {away}."
+        else:
+            out = f"It's full time: it finished all square, {h_score}-{a_score} between {home} and {away}."
+    elif status in ("HT", "half time"):
+        if h_score > a_score:
+            out = f"At half time, {home} are leading {away} {h_score}-{a_score}."
+        elif a_score > h_score:
+            out = f"At half time, {away} are leading {home} {a_score}-{h_score}."
+        elif h_score == 0:
+            out = f"At the break, {home} and {away} are still goalless at 0-0."
+        else:
+            out = f"At half time, it's level at {h_score}-{a_score} between {home} and {away}."
+    elif minute and minute > 0:
+        if h_score > a_score:
+            out = f"{home} are leading {away} {h_score}-{a_score}, {minute} minutes in."
+        elif a_score > h_score:
+            out = f"{away} are leading {home} {a_score}-{h_score}, {minute} minutes in."
+        elif h_score == 0:
+            out = f"{home} and {away} are still goalless, {minute} minutes in."
+        else:
+            out = f"It's all square between {home} and {away} at {h_score}-{a_score}, {minute} minutes in."
+    elif minute == 0 and "just under way" in text:
+        out = f"{home} against {away} is just under way, still goalless."
+    elif "kick-off is" in text or "kicking off" in text:
+        m = re.search(r"kick-off is (.+?)(?:\.|$)", text)
+        if m:
+            ko_part = m.group(1).rstrip(".")
+            out = f"{home} play {away}, kicking off {ko_part}."
+        else:
+            out = f"{home} play {away}."
+    else:
+        out = text
+
+    if series:
+        out = out.rstrip(".") + f". {series.rstrip('.')}."
+    if unconf:
+        out = out.rstrip(".") + ". I can't be sure that is where your screen is."
+    return out
+
+
+def _conversationalize_fixtures(text, structured):
+    if not text or not isinstance(text, str):
+        return text
+    if ":" not in text:
+        return text
+
+    m_intro = re.match(r"^(.*?):\s*(.+)$", text)
+    if not m_intro:
+        return text
+    intro_part, body_part = m_intro.group(1), m_intro.group(2)
+
+    more_suffix = ""
+    m_more = re.search(r"\s*And (\d+) more\..*$", body_part)
+    if m_more:
+        more_count = m_more.group(1)
+        body_part = body_part[:m_more.start()]
+        more_suffix = f" Plus {more_count} more matches on the schedule."
+
+    match_items = [item.strip() for item in body_part.split(". ") if item.strip()]
+    if not match_items:
+        return text
+
+    conv_intro = intro_part
+    if conv_intro.startswith("Nothing "):
+        conv_intro = re.sub(r"^Nothing\s+(\w+)\s+(in\s+.+?)\.\s*The next matches are\s+", r"There are no matches \1 \2. Looking ahead to ", conv_intro)
+        conv_intro = re.sub(r"^Nothing\s+(\w+)\.\s*The next matches are\s+", r"There are no matches \1. Looking ahead to ", conv_intro)
+    elif conv_intro.startswith("Today in ") or conv_intro.startswith("Tomorrow in ") or conv_intro.startswith("Yesterday in "):
+        conv_intro = "Here's what's on " + conv_intro[:1].lower() + conv_intro[1:]
+    elif conv_intro.lower() in ("today", "tomorrow", "yesterday"):
+        conv_intro = f"Looking at {conv_intro.lower()}'s fixtures"
+
+    time_groups = OrderedDict()
+    live_items = []
+    finished_items = []
+    other_items = []
+
+    for item in match_items:
+        comp_prefix = ""
+        if ": " in item:
+            comp_prefix, item = item.split(": ", 1)
+
+        m_at = re.match(r"^(.+?)\s+against\s+(.+?)\s+at\s+(.+?)$", item.rstrip("."))
+        m_live = re.match(r"^(.+?)\s+against\s+(.+?),\s*live(?:,\s*(.+?))?$", item.rstrip("."))
+        m_fin_score = re.match(r"^(.+?)\s+(\d+),\s*(.+?)\s+(\d+),\s*finished$", item.rstrip("."))
+        m_fin = re.match(r"^(.+?)\s+against\s+(.+?),\s*finished$", item.rstrip("."))
+
+        if m_at:
+            h, a, t = m_at.group(1), m_at.group(2), m_at.group(3)
+            time_groups.setdefault(t, []).append((h, a, comp_prefix))
+        elif m_live:
+            h, a, min_info = m_live.group(1), m_live.group(2), m_live.group(3)
+            live_items.append((h, a, min_info))
+        elif m_fin_score:
+            h, hs, a, ascore = m_fin_score.group(1), m_fin_score.group(2), m_fin_score.group(3), m_fin_score.group(4)
+            finished_items.append((h, hs, a, ascore))
+        elif m_fin:
+            h, a = m_fin.group(1), m_fin.group(2)
+            finished_items.append((h, None, a, None))
+        else:
+            other_items.append(item.rstrip("."))
+
+    if not time_groups and not live_items and not finished_items:
+        return text
+
+    spoken_sentences = []
+
+    for h, a, min_info in live_items:
+        detail = f", {min_info}" if min_info else ", live"
+        spoken_sentences.append(f"{h} are playing {a}{detail}")
+
+    for item in finished_items:
+        h, hs, a, ascore = item
+        if hs is not None and ascore is not None:
+            if int(hs) > int(ascore):
+                spoken_sentences.append(f"{h} beat {a} {hs}-{ascore}")
+            elif int(ascore) > int(hs):
+                spoken_sentences.append(f"{a} beat {h} {ascore}-{hs}")
+            else:
+                spoken_sentences.append(f"{h} and {a} drew {hs}-{ascore}")
+        else:
+            spoken_sentences.append(f"{h} against {a} has finished")
+
+    num_groups = len(time_groups)
+    for g_idx, (kickoff_time, matchups) in enumerate(time_groups.items()):
+        if num_groups == 1:
+            time_intro = f"At {kickoff_time}, "
+        elif g_idx == 0:
+            time_intro = f"First at {kickoff_time}, "
+        elif g_idx == num_groups - 1:
+            time_intro = f"Later at {kickoff_time}, "
+        else:
+            time_intro = f"Then at {kickoff_time}, "
+
+        if len(matchups) == 1:
+            h, a, cp = matchups[0]
+            cp_str = f" in the {cp}" if cp else ""
+            spoken_sentences.append(f"{time_intro}{h} take on {a}{cp_str}")
+        elif len(matchups) == 2:
+            (h1, a1, cp1), (h2, a2, cp2) = matchups
+            spoken_sentences.append(f"{time_intro}{h1} host {a1}, while {h2} face {a2}")
+        else:
+            first = f"{matchups[0][0]} host {matchups[0][1]}"
+            mid = f"{matchups[1][0]} face {matchups[1][1]}"
+            last = f"and {matchups[2][0]} take on {matchups[2][1]}"
+            spoken_sentences.append(f"{time_intro}{first}, {mid}, {last}")
+
+    for oi in other_items:
+        spoken_sentences.append(oi)
+
+    if not spoken_sentences:
+        return text
+
+    games_text = ". ".join(spoken_sentences) + "."
+    return f"{conv_intro}: {games_text}{more_suffix}"
+
+
+def _conversationalize_schedule(text, structured):
+    if not text or not isinstance(text, str):
+        return text
+    m_header = re.match(r"^(.+?)'s next (\d+) fixtures:\s*(.+)$", text)
+    if not m_header:
+        return text
+    team = m_header.group(1)
+    body = m_header.group(3)
+    items = [i.strip() for i in body.split(". ") if i.strip()]
+    if not items:
+        return text
+
+    parsed = []
+    for it in items:
+        it_clean = it.rstrip(".")
+        m_game = re.match(r"^(?:(?:On|on)\s+)?(\w+)\s+against\s+(.+?)(?:\s+at\s+(.+))?$", it_clean)
+        if m_game:
+            day, opp, time_part = m_game.group(1), m_game.group(2), m_game.group(3)
+            time_str = f" at {time_part}" if time_part else ""
+            day_str = day if day.lower() in ("today", "tomorrow", "yesterday") else f"on {day}"
+            parsed.append(f"{opp} {day_str}{time_str}")
+        else:
+            parsed.append(it_clean)
+
+    if not parsed:
+        return text
+
+    if len(parsed) == 1:
+        return f"{team} are in action against {parsed[0]}."
+    elif len(parsed) == 2:
+        return f"{team} play {parsed[0]}, followed by {parsed[1]}."
+    else:
+        return f"{team} play {parsed[0]}, followed by {parsed[1]}, and {parsed[2]}."
+
+
+def _conversational_text(text, tool_name, structured=None):
+    if not text or not isinstance(text, str):
+        return text
+    try:
+        if tool_name == "get_match_state":
+            return _conversationalize_score(text, structured)
+        if tool_name == "get_fixtures":
+            return _conversationalize_fixtures(text, structured)
+        if tool_name == "get_schedule":
+            return _conversationalize_schedule(text, structured)
+    except Exception:
+        return text
+    return text
+
+
 def _try_fast_path(question, listener_id, tool_runner, tool_specs, ctx=None):
     """Answer a plain, unambiguous question with one read-only tool and no model call, or return None."""
     topic = FOCUSES.topic(listener_id)
@@ -954,7 +1234,7 @@ def _try_fast_path(question, listener_id, tool_runner, tool_specs, ctx=None):
     if is_err or not record.get("spoken"):
         # Read-only, so nothing was used up: the model takes it from here and can explain.
         return None
-    text = " ".join(record["spoken"].split())
+    text = _conversational_text(" ".join(record["spoken"].split()), name, record.get("structured"))
     CONVERSATIONS.remember(listener_id, question, text)
     FOCUSES.remember(listener_id, [record])
     return {"text": text, "generated_by": "fast", "tool_results": [record]}
@@ -970,8 +1250,9 @@ _SAID_AS_IS = frozenset(("get_player_profile", "get_news", "get_standouts",
                          "get_top_scorers", "get_squad"))
 
 COMBINE = ("Combine the tool results into one concise, natural spoken answer using only facts they contain: most "
-           "important first, in complete sentences. If a result failed, do not read it out; say briefly what you "
-           "couldn't get.")
+           "important first, in complete sentences. "
+           "Do not read out raw lists, colons, or schedules like a timetable; weave scores and fixtures into conversational spoken sentences. "
+           "If a result failed, do not read it out; say briefly what you couldn't get.")
 FINAL = "[No more tools now. Answer the listener from what you already have, or say briefly what you couldn't get.]"
 
 
@@ -981,7 +1262,8 @@ def _spoken_from_tools(tool_results):
     An error (bad arguments, a transport failure) is never spoken (AG-06).
     """
     for usable in (lambda r: not r.get("is_error"), lambda r: r.get("declined")):
-        parts = [" ".join(r["spoken"].split()) for r in tool_results if r.get("spoken") and usable(r)]
+        parts = [_conversational_text(" ".join(r["spoken"].split()), r.get("name"), r.get("structured"))
+                 for r in tool_results if r.get("spoken") and usable(r)]
         if parts:
             return " ".join(parts)
     return ""
@@ -1192,8 +1474,12 @@ def _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_in
     weather_retried = live_retried = tool_forced = False
 
     def finish(text, how):
-        CONVERSATIONS.remember(listener_id, question, text)
-        FOCUSES.remember(listener_id, tool_results)
+        if _REFUSAL.search(text):
+            text = "I'm here to talk live sports. Which game or team would you like to check?"
+            CONVERSATIONS.forget(listener_id)
+        else:
+            CONVERSATIONS.remember(listener_id, question, text)
+            FOCUSES.remember(listener_id, tool_results)
         return {"text": text, "generated_by": how, "model": getattr(bedrock, "MODEL_ID", ""),
                 "tool_results": tool_results}
 
@@ -1272,9 +1558,12 @@ def _run(ctx, question, listener_id, tool_runner, interrupted, mcp_tools, mcp_in
                 FOCUSES.set_pending(listener_id, question)
 
         # One factual tool that answered with ear-ready text: say it, and save a second model call.
+        # But if the listener is asking a clarification, verification, or confirmation ("is that..."),
+        # the model must answer rather than re-reading the tool's template spoken string.
         if (not scripted and len(requests) == 1 and len(tool_results) == 1
                 and not tool_results[0].get("is_error") and tool_results[0].get("spoken")
-                and tool_results[0]["name"] in _SAID_AS_IS):
+                and tool_results[0]["name"] in _SAID_AS_IS
+                and not _CLARIFY_OR_VERIFY.search(question)):
             return finish(" ".join(tool_results[0]["spoken"].split()), "bedrock-fast")
 
         results.append({"text": COMBINE})
@@ -1310,6 +1599,15 @@ def _execute_single_request(request, tool_specs, question, listener_id, tool_run
     else:
         args = _fill_arguments(name, _without_invented_competition(
             _without_invented_id(_plain_strings(args), question), question), question)
+        if name == "get_fixtures" and "get_schedule" in tool_specs:
+            team_match = re.search(r"\bfixtures\s+(?:of|for)\s+(?P<team>[A-Za-z\s]+?)(?:'s)?(?:\s+(?:tomorrow|today|this week|next week))?[\s.?!]*$", question, re.I)
+            cand_team = args.get("team") if isinstance(args, dict) else None
+            if not cand_team and team_match:
+                cand_team = team_match.group("team").strip()
+            if cand_team:
+                matched_team = _known_team(None, cand_team) or cand_team
+                name = "get_schedule"
+                args = {"team": matched_team, "which": "last" if (isinstance(args, dict) and (args.get("when") == "yesterday" or args.get("finished_only"))) else "next"}
         if name == "follow_match" and not _asked_to_follow(question):
             # A model that guesses must not move the listener to another match.
             message = "The listener did not ask to follow a match, so none was followed."

@@ -27,7 +27,8 @@ from ..status import FINISHED, has_started, is_live
 # is not here still finds its team by spelling and sound.
 NICKNAMES = {"spurs": "tottenham", "gunners": "arsenal", "man u": "manchester united",
              "man utd": "manchester united", "man city": "manchester city", "city": "manchester city",
-             "copenhagen": "kobenhavn", "fck": "kobenhavn", "gers": "rangers", "the hoops": "celtic"}
+             "copenhagen": "kobenhavn", "fck": "kobenhavn", "gers": "rangers", "the hoops": "celtic",
+             "psg": "paris saint germain", "paris sg": "paris saint germain"}
 
 
 def _words(text):

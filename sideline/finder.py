@@ -165,16 +165,32 @@ def candidates(ctx, ref, rec, tz):
 
 
 # ----------------------------------------------------------------------- score
-def _other_side_fit(fx, name):
-    """How well a named side fits either team of the fixture, 0 to 1."""
+def _side_score(side, target):
+    """How well side matches target (accounting for nicknames in either direction), 0 to 1."""
+    if not side or not target:
+        return 0.0
     from .tools import NICKNAMES, _words
-    want = _words(NICKNAMES.get(" ".join(_words(name)), name))
-    best = 0.0
-    for side in (fx.get("home"), fx.get("away")):
-        have = _words(side)
-        if want and have:
-            best = max(best, names.fit(want, have) or resolve.similarity(want, have))
-    return best
+    want = _words(NICKNAMES.get(" ".join(_words(target)), target))
+    have = _words(NICKNAMES.get(" ".join(_words(side)), side))
+    if not want or not have:
+        return 0.0
+    if names.whole_words(want, have) or names.whole_words(have, want):
+        return 1.0
+    return max(names.fit(want, have) or 0.0, names.fit(have, want) or 0.0, resolve.similarity(want, have) or 0.0)
+
+
+def _match_teams_fit(fx, team, opponent=None):
+    """Returns fit (0.0 to 1.0) of fx matching team (and opponent if specified)."""
+    h, a = fx.get("home"), fx.get("away")
+    if team and opponent:
+        fwd = min(_side_score(h, team), _side_score(a, opponent))
+        rev = min(_side_score(a, team), _side_score(h, opponent))
+        return max(fwd, rev)
+    if team:
+        return max(_side_score(h, team), _side_score(a, team))
+    if opponent:
+        return max(_side_score(h, opponent), _side_score(a, opponent))
+    return 1.0
 
 
 def _clearly_after(fx, first):
@@ -196,11 +212,9 @@ def score_all(cands, ref, followed, tz, now=None, discussed=None, preferred_spor
         k = kind(fx)
         if k == "off":
             continue
-        fit = 1.0
-        if ref.opponent:
-            fit = _other_side_fit(fx, ref.opponent)
-            if fit < 0.6:
-                continue
+        fit = _match_teams_fit(fx, ref.team, ref.opponent)
+        if fit < 0.6:
+            continue
         if ref.date or ref.when in ("yesterday", "today", "tomorrow"):
             want = ref.date or today + datetime.timedelta(days={"yesterday": -1, "today": 0, "tomorrow": 1}[ref.when])
             if _local_day(fx, tz) != want and not (ref.when == "yesterday" and not ref.date and k == "played"
@@ -220,7 +234,7 @@ def score_all(cands, ref, followed, tz, now=None, discussed=None, preferred_spor
 
     scored = []
     for fx, k, fit in pool:
-        s = 0.5 + 0.5 * fit if ref.opponent else 1.0
+        s = 0.5 + 0.5 * fit if (ref.team or ref.opponent) else 1.0
         if ref.date or ref.when in ("yesterday", "today", "tomorrow"):
             pass                                                   # a hit is a hit
         elif ref.when == "last":

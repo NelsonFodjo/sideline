@@ -18,7 +18,7 @@ from ..status import FINISHED, is_live
 from . import day_fixtures
 
 LISTED = 5
-LOOK_AHEAD_DAYS = 10     # an empty day looks this far for the next one with matches (cached requests, free plan)
+LOOK_AHEAD_DAYS = 14     # an empty day looks this far for the next one with matches (cached requests, free plan)
 OFFSETS = {"yesterday": -1, "today": 0, "tomorrow": 1}
 
 
@@ -42,6 +42,13 @@ def _matches(fx, competition):
         return True
     want = " ".join(competition.lower().split())
     hay = " ".join(("%s %s" % (fx.get("competition") or "", fx.get("country") or "")).lower().split())
+    # "Champions League" / "UCL" means UEFA Champions League by default: do not match CAF, AFC, CONCACAF unless requested
+    if "champions league" in want and not any(k in want for k in ("caf", "afc", "concacaf", "african", "asian")):
+        if any(k in hay for k in ("caf", "afc", "concacaf", "african", "asian")):
+            return False
+    if "europa league" in want and "conference" not in want:
+        if "conference" in hay:
+            return False
     if want in hay:
         return True
     # "the Scottish Premiership" for a competition the feed calls "Premiership": the whole of the feed's name is in

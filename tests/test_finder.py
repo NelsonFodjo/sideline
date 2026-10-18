@@ -333,6 +333,15 @@ def main():
     print("ok  the match just discussed outranks a close rival, so a plain follow-up is not a fork")
     print("ok  scoring: 'last' ranks the played matches 1, one half, ...; a clear winner is used, a close pair is a fork")
 
+    # Both team and opponent specified: match must involve BOTH sides
+    both_ref = finder.Reference({"team": "Harbour FC", "opponent": "Reef United", "when": "last"})
+    both_scored = finder.score_all(cands, both_ref, None, 240, now=NOW)
+    assert all(f["home"] in ("Harbour FC", "Reef United") and f["away"] in ("Harbour FC", "Reef United")
+               for _, f in both_scored), both_scored
+    assert both_scored[0][1]["fixture_id"] == 1
+    unmatched_ref = finder.Reference({"team": "Paris Saint-Germain", "opponent": "Manchester City"})
+    assert finder.score_all(cands, unmatched_ref, None, 240, now=NOW) == []
+
     print("\nfinder: all good")
 
 

@@ -107,6 +107,9 @@ def main():
         assert _matches({"competition": "Superliga", "country": "Denmark"}, "the Danish Superliga")
         assert not _matches({"competition": "Superliga Play-offs", "country": "Denmark"}, "Danish Superliga")
         assert not _matches({"competition": "Premier League", "country": "England"}, "Scottish Premiership")
+        assert not _matches({"competition": "CAF Champions League"}, "Champions League")
+        assert _matches({"competition": "CAF Champions League"}, "CAF Champions League")
+        assert _matches({"competition": "UEFA Champions League"}, "Champions League")
         print("ok  a quiet day names the next day with matches; names ending in s take the apostrophe alone")
 
         # A named zone is said once at the top of a list, and after a single match.
