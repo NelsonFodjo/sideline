@@ -15,10 +15,13 @@
 </p>
 
 <p>
+  <a href="https://sideline-1cri.onrender.com/"><img alt="Live Production Demo" src="https://img.shields.io/badge/Live%20Demo-sideline--1cri.onrender.com-success?style=flat-square"></a>
+  <a href="https://sideline-1cri.onrender.com/mcp"><img alt="MCP Endpoint" src="https://img.shields.io/badge/MCP%20Endpoint-Streamable%20HTTP-blueviolet?style=flat-square"></a>
   <img alt="Amazon Bedrock" src="https://img.shields.io/badge/Amazon%20Bedrock-Nova%20Pro%20·%20Voxtral%20·%20Nova%20Sonic-232F3E?style=flat-square">
   <img alt="Amazon Polly" src="https://img.shields.io/badge/Amazon%20Polly-generative%20voice-232F3E?style=flat-square">
   <img alt="Amazon DynamoDB" src="https://img.shields.io/badge/Amazon%20DynamoDB-listener%20state-232F3E?style=flat-square">
 </p>
+
 
 <p><b><a href="#quick-start">Quick start</a> · <a href="#see-it">See it</a> · <a href="#how-it-works">How it works</a> · <a href="#the-tools">The tools</a> · <a href="#connect-it-to-anything-and-host-it-later">Host it</a> · <a href="#what-has-been-verified">What is verified</a> · <a href="#the-potential">The potential</a> · <a href="#known-limitations">Limits</a> · <a href="#contributing">Contribute</a></b></p>
 
@@ -268,6 +271,17 @@ Details, and what has not been tried on a real device: [simulator/README.md](sim
 
 ## 🛠️ Run it
 
+### 🌐 Live Production Deployment
+
+Sideline is deployed and running live on Render over Streamable HTTP:
+* **Web Simulator Interface:** [https://sideline-1cri.onrender.com/](https://sideline-1cri.onrender.com/) (open in Chrome or Edge, click Start, and ask live questions)
+* **Public MCP Server Endpoint:** `https://sideline-1cri.onrender.com/mcp`
+* **Health Check:** [https://sideline-1cri.onrender.com/health](https://sideline-1cri.onrender.com/health) (`{"ok": true, "protocol": "2025-11-25", "tools": 30}`)
+
+---
+
+### 💻 Run it locally
+
 | To get | You need |
 |---|---|
 | **The server and the live data** | Nothing: no key, no account. ESPN's public endpoints need none |
@@ -481,9 +495,9 @@ by keyword), and plain questions such as "what's the score?" go to one tool with
 
 We would rather you read these here than find them.
 
-- **Not deployed, and no OAuth.** It runs on one machine. An optional bearer token (`SIDELINE_AUTH_TOKEN`) protects a
-  deployment, but Alexa+ needs a public HTTPS endpoint with account linking and OAuth 2.1; that is not built (see
-  [docs/MCP.md](docs/MCP.md)).
+- **Hosted on Render with no OAuth.** It is deployed live as a public HTTPS endpoint at https://sideline-1cri.onrender.com/mcp
+  (and can be protected with optional `SIDELINE_AUTH_TOKEN`), but full Alexa+ account linking with OAuth 2.1 is not built
+  (the add-on tooling is partner-only; see [docs/MCP.md](docs/MCP.md)).
 - **The data source is unofficial.** ESPN publishes no documentation or stability promise for these endpoints. We cache,
   and we say when the feed cannot be reached, but a change on their side would break things.
 - **Football is the best tested.** Basketball, American football, hockey and baseball work for scores, tables, leaders and

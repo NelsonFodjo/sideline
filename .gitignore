@@ -19,3 +19,6 @@ logs/
 
 # local agent worktrees and settings: never part of the repository
 .claude/
+
+# standalone open-source submission package
+mcp-streamable-http-py/
