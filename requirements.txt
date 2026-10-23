@@ -11,4 +11,4 @@
 
 boto3>=1.34                                                  # Bedrock, Polly, DynamoDB
 aws-sdk-bedrock-runtime>=0.12 ; python_version >= "3.12"     # Nova Sonic speech in
-awscrt>=0.37 ; python_version >= "3.12"                      #   its duplex streaming transport
+awscrt>=0.38.0 ; python_version >= "3.12"                      #   its duplex streaming transport
